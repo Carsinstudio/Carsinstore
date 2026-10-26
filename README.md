@@ -71,14 +71,16 @@ Buyers then get a "Your files are ready" email after every purchase or free down
 
 ## Backups and moving the store
 
-Store settings → **Backup & move** downloads the whole store (products, files, covers, settings, owner account) as one  file. Restore it on another computer or host from the same panel.
+Store settings → **Backup & move** downloads the whole store (products, files, covers, settings, owner account) as one `.tar.gz` file. Restore it on another computer or host from the same panel.
 
 - Leave **Include orders & buyers** off when moving a catalog to a new site: test orders stay behind.
 - Turn it on for a complete safety copy.
 - A restore replaces everything and signs everyone out. Sign in again with the owner account from the backup.
-- The data from before a restore is kept in .
+- The data from before a restore is kept in `storage/.before-restore`.
 
-From the command line: Saved [--with-orders]: 5 products, 11 files., and  (stop the server first).
+From the command line: `node backup.js export [--with-orders] [file.tar.gz]`, and `node backup.js import <file.tar.gz>` (stop the server first).
+
+Backup files contain your owner account and (with orders) buyer details, so never commit them to Git; `*.tar.gz` is ignored for that reason.
 
 ## Hosting
 
