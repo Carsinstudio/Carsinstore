@@ -122,7 +122,7 @@
           <label class="field"><span>Subtitle</span><input class="input" name="subtitle" value="${esc(p.subtitle)}" placeholder="One line that sells it"></label>
           <label class="field"><span>Description</span><textarea class="input" name="description" rows="10" placeholder="What's inside, who it's for, what they'll get…">${esc(p.description)}</textarea>
             <small>Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code></small></label>
-          <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(p.slug)}"><small>${esc(location.origin)}/#/p/${esc(p.slug)}</small></label>
+          <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(p.slug)}"><small>Share link: ${esc(location.origin)}/p/${esc(p.slug)} — shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
         </form>
       </div>
       <aside>
@@ -138,7 +138,7 @@
         <div class="panel"><h3>Category</h3>
           <label class="field" style="margin:0"><select class="input" form="pf" name="category_id"><option value="">No category</option>${cats.map(c => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><small><a href="#/admin/categories" style="color:var(--accent-2)">Manage categories</a></small></label>
         </div>
-        <div class="panel"><h3>Cover image</h3>
+        <div class="panel"><h3>Cover image</h3><p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Also the picture shown when this product is shared. 1200×750 px and under 600 KB works best for WhatsApp.</p>
           <div class="cover-edit" id="cover">${p.cover ? `<img src="${esc(p.cover)}">` : coverHtml({ ...p, kinds: [...new Set(p.files.map(f => f.kind))] }, { title: true })}<div class="over">Upload image (16:10 works best)</div></div>
           <input type="file" id="cover-in" accept="image/*" hidden>
         </div>
@@ -355,6 +355,11 @@
       </div>
     </div><aside>
       <div class="panel"><h3>Contact &amp; business</h3>${f('support_email', 'Support email', 'Shown in the footer and legal pages. Leave empty to use your owner email.', 'email')}${f('business_location', 'Business location', 'e.g. Lagos, Nigeria')}</div>
+      <div class="panel"><h3>Share image</h3>
+        <p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Shown when your homepage — or a product without a cover — is posted on WhatsApp, Instagram or X. 1200×630 px, under 600 KB.</p>
+        <div class="cover-edit" id="share-img" style="aspect-ratio:1200/630">${s.share_image ? `<img src="/media/covers/${esc(s.share_image)}">` : '<div style="display:grid;place-items:center;height:100%;font-size:13px" class="muted">No image yet</div>'}<div class="over">Upload image</div></div>
+        <input type="file" id="share-in" accept="image/png,image/jpeg,image/webp" hidden>
+      </div>
       <div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}</div></aside></div></form>
       <div class="panel" style="max-width:860px"><h3>Backup &amp; move</h3>
         <p class="muted" style="margin:-6px 0 18px;font-size:13.5px">Download your whole store — products, files, covers and settings — as one file, then restore it on another computer or host. Also a good safety copy to keep.</p>
@@ -382,6 +387,12 @@
     drawFaq();
     $('#add-faq').addEventListener('click', () => { faq.push({ q: '', a: '' }); drawFaq(); });
 
+    $('#share-img').addEventListener('click', () => $('#share-in').click());
+    $('#share-in').addEventListener('change', async e => {
+      const fd = new FormData(); fd.append('cover', e.target.files[0]);
+      try { const r = await upload('/api/admin/share-image', fd); $('#share-img').innerHTML = `<img src="${esc(r.image)}"><div class="over">Upload image</div>`; toast('Share image updated'); }
+      catch (err) { toast(err.message, true); }
+    });
     $$('[data-reset-legal]').forEach(b => b.addEventListener('click', () => {
       $(`[name="${b.dataset.resetLegal}"]`).value = s.legal_defaults[b.dataset.resetLegal];
       toast('Draft restored — click Save settings to keep it');

@@ -60,6 +60,8 @@ async function exportBackup(out, { includeOrders = false } = {}) {
     }
     const files = snap.prepare('SELECT stored_name FROM files').all().map(r => r.stored_name);
     const covers = snap.prepare('SELECT cover_path FROM products WHERE cover_path IS NOT NULL').all().map(r => r.cover_path);
+    const shareImage = snap.prepare("SELECT value FROM settings WHERE key = 'share_image'").get()?.value;
+    if (shareImage) covers.push(shareImage);
     const counts = {
       products: snap.prepare('SELECT COUNT(*) AS n FROM products').get().n,
       files: files.length,

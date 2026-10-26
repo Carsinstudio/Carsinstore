@@ -400,12 +400,22 @@
             <li>${I.checkC}No account needed — just your email</li>
             <li>${I.checkC}Free future updates to the files</li>
           </ul>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13px">
+            <span class="muted" style="margin-right:auto">Share</span>
+            <button class="btn btn-sm btn-ghost" id="share-copy">Copy link</button>
+            <a class="btn btn-sm btn-ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`${p.title} — ${location.origin}/p/${p.slug}`)}">WhatsApp</a>
+            <a class="btn btn-sm btn-ghost" target="_blank" rel="noopener" href="https://x.com/intent/post?text=${encodeURIComponent(p.title)}&url=${encodeURIComponent(`${location.origin}/p/${p.slug}`)}">X</a>
+          </div>
           ${S.store.payments === 'demo' && p.price ? '<div class="demo-note">Test mode: checkout is simulated — no real payment is taken.</div>' : ''}
         </div></aside>
         <div class="mobile-buy"><div><b>${esc(p.title)}</b><span>${p.price ? money(p.price) : 'Free'}</span></div><button class="btn btn-primary" id="mobile-buy">${p.price ? 'Buy now' : 'Get it free'}</button></div>
       </div></div>`, { active: 'shop' });
 
     $$('[data-preview]').forEach(b => b.addEventListener('click', () => previewFile(p.fileList.find(f => f.id === Number(b.dataset.preview)))));
+    $('#share-copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(`${location.origin}/p/${p.slug}`); toast('Link copied — it shows a preview when shared'); }
+      catch { prompt('Copy this link:', `${location.origin}/p/${p.slug}`); }
+    });
     let coupon = '';
     $('#coupon-toggle')?.addEventListener('click', () => { $('#coupon-form').classList.remove('hidden'); $('#coupon-toggle').remove(); $('#coupon-form input').focus(); });
     $('#coupon-form')?.addEventListener('submit', async e => {
@@ -595,7 +605,7 @@
     try { doc = await api('/api/legal/' + page); } catch { return notFound(); }
     document.title = `${doc.title} — ${S.store.settings.store_name}`;
     const others = [['terms', 'Terms of Sale'], ['privacy', 'Privacy Policy'], ['refunds', 'Refund Policy']].filter(([k]) => k !== page);
-    shell(`<div class="wrap page" style="max-width:760px;padding-top:56px">
+    shell(`<div class="wrap page legal-doc" style="max-width:760px;padding-top:56px">
       <span class="label">Legal</span>
       <div class="prose" style="margin-top:6px">${md(doc.text)}</div>
       <div class="box" style="margin-top:36px;padding:16px 20px;display:flex;gap:18px;flex-wrap:wrap;font-size:14px">
@@ -636,7 +646,9 @@
   window.addEventListener('hashchange', route);
   window.addEventListener('DOMContentLoaded', async () => {
     try { await loadStore(); } catch { app.innerHTML = '<div class="wrap page"><h1>Store is offline.</h1></div>'; return; }
-    if (location.search.includes('session_id')) history.replaceState(null, '', '/' + location.hash);
+    // Share links are plain paths (/p/<slug>, /terms …) so link previews work; turn them into app routes.
+    const m = location.pathname.match(/^\/(p\/[^/]+|shop|terms|privacy|refunds|find)\/?$/);
+    if (m && !location.hash) history.replaceState(null, '', '/' + location.search + '#/' + m[1]);
     route();
   });
 })();

@@ -577,6 +577,14 @@ function adminSettings() {
   return s;
 }
 admin.get('/settings', (_req, res) => res.json(adminSettings()));
+// The picture shown when the homepage (or a product without a cover) is shared.
+admin.post('/share-image', upload.single('cover'), (req, res) => {
+  if (!req.file) return bad(res, 'Upload failed.');
+  const old = getSettings().share_image;
+  if (old) fs.rm(path.join(COVERS_DIR, old), { force: true }, () => {});
+  run("INSERT INTO settings (key, value) VALUES ('share_image', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", req.file.filename);
+  res.json({ image: `/media/covers/${req.file.filename}` });
+});
 admin.put('/settings', (req, res) => {
   const before = adminSettings();
   let legalChanged = false;
@@ -619,9 +627,65 @@ admin.post('/restore', restoreUpload.single('backup'), wrap(async (req, res) => 
 app.use('/api/admin', admin);
 app.use('/api', (_req, res) => bad(res, 'Not found', 404));
 
+// ----- shareable pages with link previews -----
+// WhatsApp, Instagram, X and Facebook read <meta> tags from the HTML and don't run JavaScript, so
+// share links (/p/<slug>, /) get the page's title, description, price and image in the HTML itself.
+// The app then turns the path into its usual #/ route without reloading.
+const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+const attr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const plain = s => String(s || '').replace(/[#*_`>\[\]()]/g, '').replace(/\s+/g, ' ').trim();
+const shortText = (s, n = 180) => (s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : s);
+function formatPrice(cents, currency) {
+  try { return new Intl.NumberFormat('en-NG', { style: 'currency', currency: currency.toUpperCase(), currencyDisplay: 'narrowSymbol', minimumFractionDigits: cents % 100 ? 2 : 0 }).format(cents / 100); }
+  catch { return `${currency.toUpperCase()} ${(cents / 100).toLocaleString()}`; }
+}
+function sendPage(res, m) {
+  const tags = [
+    `<title>${attr(m.title)}</title>`,
+    `<meta name="description" content="${attr(m.description)}" />`,
+    `<link rel="canonical" href="${attr(m.url)}" />`,
+    `<meta property="og:site_name" content="${attr(m.site)}" />`,
+    `<meta property="og:type" content="${m.type || 'website'}" />`,
+    `<meta property="og:title" content="${attr(m.ogTitle || m.title)}" />`,
+    `<meta property="og:description" content="${attr(m.description)}" />`,
+    `<meta property="og:url" content="${attr(m.url)}" />`,
+    m.image && `<meta property="og:image" content="${attr(m.image)}" />`,
+    m.image && `<meta property="og:image:alt" content="${attr(m.ogTitle || m.title)}" />`,
+    m.price && `<meta property="product:price:amount" content="${(m.price.cents / 100).toFixed(2)}" />`,
+    m.price && `<meta property="product:price:currency" content="${m.price.currency.toUpperCase()}" />`,
+    `<meta name="twitter:card" content="${m.image ? 'summary_large_image' : 'summary'}" />`,
+    `<meta name="twitter:title" content="${attr(m.ogTitle || m.title)}" />`,
+    `<meta name="twitter:description" content="${attr(m.description)}" />`,
+    m.image && `<meta name="twitter:image" content="${attr(m.image)}" />`,
+  ].filter(Boolean).join('\n  ');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html').send(INDEX_HTML.replace(/<!--META-->[\s\S]*?<!--\/META-->/, tags));
+}
+const shareImage = s => (s.share_image ? `${BASE_URL}/media/covers/${s.share_image}` : null);
+function sendHome(res) {
+  const s = getSettings();
+  sendPage(res, { title: `${s.store_name} — ${plain(s.tagline)}`, ogTitle: s.store_name, description: shortText(plain(s.hero_sub || s.tagline)), url: `${BASE_URL}/`, site: s.store_name, image: shareImage(s) });
+}
+
+app.get('/p/:slug', (req, res) => {
+  const s = getSettings();
+  const p = one('SELECT * FROM products WHERE slug = ? AND published = 1', req.params.slug);
+  if (!p) return sendHome(res);
+  const price = p.price_cents ? formatPrice(p.price_cents, s.currency || 'ngn') : 'Free';
+  sendPage(res, {
+    title: `${p.title} — ${s.store_name}`, ogTitle: `${p.title} · ${price}`,
+    description: shortText(plain(p.subtitle) || plain(p.description) || s.tagline),
+    url: `${BASE_URL}/p/${p.slug}`, site: s.store_name, type: 'product',
+    image: p.cover_path ? `${BASE_URL}/media/covers/${p.cover_path}` : shareImage(s),
+    price: p.price_cents ? { cents: p.price_cents, currency: s.currency || 'ngn' } : null,
+  });
+});
+app.get('/', (_req, res) => sendHome(res));
+for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find']) app.get(`/${page}`, (_req, res) => sendHome(res));
+
 app.use('/media/covers', express.static(COVERS_DIR, { maxAge: '7d' }));
-app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
-app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], index: false }));
+app.get('*', (_req, res) => sendHome(res));
 
 app.use((err, _req, res, _next) => {
   console.error(err);
