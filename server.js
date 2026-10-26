@@ -108,6 +108,8 @@ const newToken = () => crypto.randomBytes(24).toString('base64url');
 // order numbers restart at 1 on every copy of the store, so keys come from the order's unique random token
 // (hashed, so the download link itself never appears in Resend's logs).
 const emailKey = o => 'order-' + crypto.createHash('sha256').update(o.access_token).digest('hex').slice(0, 24);
+// Short reference shown on receipts and in Orders, e.g. CS-7F3A91 (not guessable into a download link).
+const orderRef = o => 'CS-' + emailKey(o).slice(6, 12).toUpperCase();
 const downloadUrl = token => `${BASE_URL}/#/download/${token}`;
 
 // Buyers are just a name + email (+ optional phone) record, no password; repeat buyers reuse the same row.
@@ -178,8 +180,12 @@ async function sendLinks(orders, { resend = false } = {}) {
   for (const o of orders) {
     const u = one('SELECT * FROM users WHERE id = ?', o.user_id);
     const title = one('SELECT title FROM products WHERE id = ?', o.product_id)?.title || 'your product';
+    // First delivery: a receipt for purchases, a welcome for free products. Gifts and re-sends: plain "your files".
+    const kind = resend ? 'files' : o.status === 'paid' ? 'receipt' : o.status === 'free' ? 'welcome' : 'files';
     await mailer.sendDownload({
-      to: u.email, store: s.store_name, name: u.name, title, url: downloadUrl(o.access_token), replyTo,
+      kind, to: u.email, store: s.store_name, name: u.name, title, url: downloadUrl(o.access_token), replyTo,
+      amount: formatPrice(o.amount_cents, o.currency), date: new Date(o.created_at.replace(' ', 'T') + 'Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+      ref: orderRef(o), siteUrl: BASE_URL, support: replyTo,
       key: resend ? `${emailKey(o)}-resend-${Date.now()}` : `${emailKey(o)}-delivered`,
     });
   }
@@ -245,7 +251,7 @@ async function notifyOwner(o) {
   await mailer.sendSaleAlert({
     to, store: s.store_name, type: o.status === 'paid' ? 'New sale' : 'Free download',
     amount: o.amount_cents ? formatPrice(o.amount_cents, o.currency) : 'Free', title: p.title,
-    buyer: u.name, email: u.email, phone: u.phone, dashboardUrl: `${BASE_URL}/#/admin/orders`, key: `${emailKey(o)}-owner-alert`,
+    buyer: u.name, email: u.email, phone: u.phone, dashboardUrl: `${BASE_URL}/#/admin/orders`, siteUrl: BASE_URL, support: to, key: `${emailKey(o)}-owner-alert`,
   });
 }
 
@@ -289,7 +295,7 @@ async function remindAbandoned() {
     if (done || !u || !p) continue;
     await mailer.sendCheckoutReminder({
       to: u.email, store: s.store_name, name: u.name, title: p.title, amount: formatPrice(o.amount_cents, o.currency),
-      url: `${BASE_URL}/p/${p.slug}`, key: `${emailKey(o)}-reminder`, replyTo: supportEmail(s),
+      url: `${BASE_URL}/p/${p.slug}`, siteUrl: BASE_URL, support: supportEmail(s), key: `${emailKey(o)}-reminder`, replyTo: supportEmail(s),
     }).catch(e => console.error('Reminder failed:', e.message));
   }
 }
@@ -694,7 +700,7 @@ admin.delete('/categories/:id', (req, res) => { run('DELETE FROM categories WHER
 
 admin.get('/orders', (_req, res) => res.json(all(`SELECT o.*, u.email, u.name, u.phone, p.title, p.slug, a.code AS affiliate_code FROM orders o
   JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id LEFT JOIN affiliates a ON a.id = o.affiliate_id ORDER BY o.id DESC LIMIT 500`)
-  .map(o => ({ ...o, link: downloadUrl(o.access_token) }))));
+  .map(o => ({ ...o, ref: orderRef(o), link: downloadUrl(o.access_token) }))));
 admin.get('/customers', (_req, res) => res.json(all(`SELECT u.id, u.email, u.name, u.phone, u.created_at, u.is_admin,
   (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES}) AS products,
   (SELECT COALESCE(SUM(amount_cents),0) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid' AND o.currency = ?) AS spent

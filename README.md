@@ -67,7 +67,17 @@ Without email, buyers still get their download page right after checkout, but if
 
 Buyers then get a "Your files are ready" email after every purchase or free download, and **Find my downloads** works.
 
-**Current setup:** emails are sent from `downloads@mail.carsin.store` (domain verified in Resend, DNS at Namecheap). The `.env` key is a send-only key limited to that domain. The email's wording and design live in Resend → **Templates → "Download ready"** (alias `download-ready`), so you can edit them there without touching code. Keep its four variables: `STORE_NAME`, `BUYER_NAME`, `PRODUCT_TITLE` and `DOWNLOAD_URL`. Each order sends exactly one delivery email, and "Find my downloads" and the dashboard's **Email link** button send a fresh copy.
+**Current setup:** emails are sent from downloads@mail.carsin.store (domain verified in Resend, DNS at Namecheap). The .env key is a send-only key limited to that domain. All emails share one look (dark, orange-red glow, serif heading, the website's orange button), and their wording and design live in Resend → **Templates**:
+
+| Template (alias) | Sent when |
+|---|---|
+| Payment receipt (payment-receipt) | a paid order completes: amount, date, reference CS-…, download button |
+| Welcome + free download (free-welcome) | someone claims a free product |
+| Download ready (download-ready) | you gift a product, or a buyer uses Find my downloads / you click Email link |
+| Checkout reminder (checkout-reminder) | a Paystack checkout is left unpaid (once) |
+| Sale alert (sale-alert) | to you, for each sale |
+
+Keep each template's {{{VARIABLES}}} when editing. Each order sends its first email exactly once. Buyer emails never contain referral or affiliate links.
 
 **Sale alerts:** the owner gets a "New sale" email (Resend template "Sale alert (to owner)", alias sale-alert) for every paid order, and optionally for free downloads. Turn them on or off and choose the address in Store settings → Notifications. Replying to an alert emails the buyer, and buyers replying to their download email reach the support email.
 

@@ -44,30 +44,40 @@ async function sendTemplate({ template, to, subject, variables, key, replyTo }) 
   return data.id;
 }
 
-// "Your files are ready" — to the buyer, once per order.
-function sendDownload({ to, store, name, title, url, key, replyTo }) {
-  return sendTemplate({
-    template: TEMPLATE, to, key, replyTo,
-    subject: `Your download: ${title}`,
-    variables: { STORE_NAME: store, BUYER_NAME: String(name || '').trim().split(/\s+/)[0] || 'there', PRODUCT_TITLE: title, DOWNLOAD_URL: url },
-  });
+const firstName = name => String(name || '').trim().split(/\s+/)[0] || 'there';
+
+// Emails to buyers. All share one look (edit them in Resend → Templates) and get the store's
+// address and support email for the footer links.
+//   kind 'receipt' — paid order: payment confirmation with amount, date and reference
+//   kind 'welcome' — free product: welcome to the store
+//   kind 'files'   — gifts from the dashboard and "Find my downloads" re-sends
+function sendDownload({ kind = 'files', to, store, name, title, url, amount, date, ref, siteUrl, support, key, replyTo }) {
+  const common = { STORE_NAME: store, BUYER_NAME: firstName(name), PRODUCT_TITLE: title, DOWNLOAD_URL: url, SITE_URL: siteUrl, SUPPORT_EMAIL: support };
+  if (kind === 'receipt') {
+    return sendTemplate({ template: 'payment-receipt', to, key, replyTo, subject: `Receipt: ${title} · ${amount}`,
+      variables: { ...common, AMOUNT: amount, ORDER_DATE: date, ORDER_REF: ref } });
+  }
+  if (kind === 'welcome') {
+    return sendTemplate({ template: 'free-welcome', to, key, replyTo, subject: `Welcome to ${store} — your free ${title}`, variables: common });
+  }
+  return sendTemplate({ template: TEMPLATE, to, key, replyTo, subject: `Your download: ${title}`, variables: common });
 }
 
 // "New sale" — to the store owner. Uses the "sale-alert" template.
-function sendSaleAlert({ to, store, type, amount, title, buyer, email, phone, dashboardUrl, key }) {
+function sendSaleAlert({ to, store, type, amount, title, buyer, email, phone, dashboardUrl, siteUrl, support, key }) {
   return sendTemplate({
     template: process.env.RESEND_ALERT_TEMPLATE || 'sale-alert', to, key, replyTo: email,
     subject: `${type}: ${amount} · ${title}`,
-    variables: { ORDER_TYPE: type, AMOUNT: amount, PRODUCT_TITLE: title, BUYER_NAME: buyer || '—', BUYER_EMAIL: email || '—', BUYER_PHONE: phone || '—', DASHBOARD_URL: dashboardUrl, STORE_NAME: store },
+    variables: { ORDER_TYPE: type, AMOUNT: amount, PRODUCT_TITLE: title, BUYER_NAME: buyer || '—', BUYER_EMAIL: email || '—', BUYER_PHONE: phone || '—', DASHBOARD_URL: dashboardUrl, STORE_NAME: store, SITE_URL: siteUrl, SUPPORT_EMAIL: support },
   });
 }
 
 // "Still want …?" — to a buyer whose payment didn't complete. Uses the "checkout-reminder" template.
-function sendCheckoutReminder({ to, store, name, title, amount, url, key, replyTo }) {
+function sendCheckoutReminder({ to, store, name, title, amount, url, siteUrl, support, key, replyTo }) {
   return sendTemplate({
     template: process.env.RESEND_REMINDER_TEMPLATE || 'checkout-reminder', to, key, replyTo,
     subject: `Still want ${title}?`,
-    variables: { STORE_NAME: store, BUYER_NAME: String(name || '').trim().split(/\s+/)[0] || 'there', PRODUCT_TITLE: title, AMOUNT: amount, PRODUCT_URL: url },
+    variables: { STORE_NAME: store, BUYER_NAME: firstName(name), PRODUCT_TITLE: title, AMOUNT: amount, PRODUCT_URL: url, SITE_URL: siteUrl, SUPPORT_EMAIL: support },
   });
 }
 

@@ -276,13 +276,13 @@
     const list = await api('/api/admin/orders');
     const shown = list.filter(o => o.status !== 'pending');
     const csv = () => {
-      const rows = [['id', 'date', 'name', 'email', 'phone', 'product', 'amount', 'currency', 'status', 'coupon', 'referred_by', 'commission', 'download_link'], ...shown.map(o => [o.id, o.created_at, o.name || '', o.email, o.phone || '', o.title, (o.amount_cents / 100).toFixed(2), o.currency, o.status, o.coupon_code || '', o.affiliate_code || '', (o.commission_cents / 100).toFixed(2), o.link])];
+      const rows = [['ref', 'date', 'name', 'email', 'phone', 'product', 'amount', 'currency', 'status', 'coupon', 'referred_by', 'commission', 'download_link'], ...shown.map(o => [o.ref, o.created_at, o.name || '', o.email, o.phone || '', o.title, (o.amount_cents / 100).toFixed(2), o.currency, o.status, o.coupon_code || '', o.affiliate_code || '', (o.commission_cents / 100).toFixed(2), o.link])];
       const blob = new Blob([rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' });
       Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'orders.csv' }).click();
     };
     layout('orders', head('Orders', `<button class="btn" id="csv">Export CSV</button>`) + (shown.length ? `
-      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>#</th><th>Date</th><th>Buyer</th><th>Product</th><th>Amount</th><th>Status</th><th></th></tr>
-      ${shown.map(o => `<tr><td class="dim">${o.id}</td><td class="muted">${date(o.created_at)}</td><td><div>${esc(o.name || '—')}</div><small class="dim">${esc(o.email)}${o.phone ? ' · ' + esc(o.phone) : ''}</small>${o.affiliate_code ? `<div><span class="status free" title="Referred by an affiliate">via ${esc(o.affiliate_code)}</span></div>` : ''}</td><td>${esc(o.title)}</td>
+      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Ref</th><th>Date</th><th>Buyer</th><th>Product</th><th>Amount</th><th>Status</th><th></th></tr>
+      ${shown.map(o => `<tr><td class="dim" style="font-family:var(--mono);font-size:12px">${esc(o.ref)}</td><td class="muted">${date(o.created_at)}</td><td><div>${esc(o.name || '—')}</div><small class="dim">${esc(o.email)}${o.phone ? ' · ' + esc(o.phone) : ''}</small>${o.affiliate_code ? `<div><span class="status free" title="Referred by an affiliate">via ${esc(o.affiliate_code)}</span></div>` : ''}</td><td>${esc(o.title)}</td>
         <td>${o.amount_cents ? money(o.amount_cents, o.currency) : '—'}${o.coupon_code ? ` <small class="dim">${esc(o.coupon_code)}</small>` : ''}</td><td>${statusPill(o.status)}</td>
         <td style="text-align:right;white-space:nowrap">${o.status !== 'refunded' ? `<button class="btn btn-sm btn-ghost" data-copy="${esc(o.link)}" title="Copy this buyer's private download link">Copy link</button>${S.store.emails ? `<button class="btn btn-sm btn-ghost" data-resend="${o.id}">Email link</button>` : ''}<button class="btn btn-sm btn-ghost" data-revoke="${o.id}">Revoke</button>` : ''}</td></tr>`).join('')}</table></div>`
       : '<div class="empty"><h3>No orders yet</h3><p>Purchases and free claims will show up here.</p></div>'));
