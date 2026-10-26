@@ -67,6 +67,8 @@ Without email, buyers still get their download page right after checkout, but if
 
 Buyers then get a "Your files are ready" email after every purchase or free download, and **Find my downloads** works.
 
+**Current setup:** emails are sent from `downloads@mail.carsin.store` (domain verified in Resend, DNS at Namecheap). The `.env` key is a send-only key limited to that domain. The email's wording and design live in Resend → **Templates → "Download ready"** (alias `download-ready`), so you can edit them there without touching code. Keep its four variables: `STORE_NAME`, `BUYER_NAME`, `PRODUCT_TITLE` and `DOWNLOAD_URL`. Each order sends exactly one delivery email, and "Find my downloads" and the dashboard's **Email link** button send a fresh copy.
+
 ## Hosting
 
 This is a normal Node server that stores uploaded files on disk, so host it somewhere with a **persistent disk**, for example:
