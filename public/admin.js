@@ -434,6 +434,12 @@
         <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:6px">${['ngn', 'ghs', 'kes', 'zar', 'usd'].filter(c => c !== (s.currency || 'ngn')).map(c => `<label class="check" style="font-size:13px"><input type="checkbox" data-extra-cur="${c}" ${String(s.extra_currencies || '').split(',').includes(c) ? 'checked' : ''} style="accent-color:var(--accent)">${c.toUpperCase()}</label>`).join('')}</div>
         <small class="dim" style="display:block;font-size:12px">Then set a price in that currency on each product. Your Paystack account must be enabled for it — USD needs Paystack's approval.</small>
       </div>
+      <div class="panel"><h3>Analytics</h3>
+        <p class="muted" style="margin:-8px 0 14px;font-size:12.5px">Optional. Paste an ID to switch a tool on; leave empty to keep it off. Visits, product views, checkouts and purchases are tracked — never names or emails. Your own visits while signed in aren't counted.</p>
+        ${f('plausible_domain', 'Plausible — site domain', 'e.g. carsin.store (add the site in your Plausible account first)')}
+        ${f('ga_id', 'Google Analytics 4 — Measurement ID', 'Starts with G-, from Admin → Data streams')}
+        ${f('meta_pixel_id', 'Meta Pixel ID', 'Numbers only, from Events Manager. Needed for Instagram/Facebook ads.')}
+      </div>
       <div class="panel"><h3>Notifications</h3>
         ${S.store.emails ? '' : '<p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Email isn\'t set up on this copy of the store, so alerts won\'t be sent from here.</p>'}
         <label class="check" style="margin-bottom:12px"><span class="switch"><input type="checkbox" data-flag="notify_sales" ${s.notify_sales !== '0' ? 'checked' : ''}><i></i></span>Email me for every sale</label>

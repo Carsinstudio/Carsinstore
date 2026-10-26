@@ -524,6 +524,8 @@ app.get('/api/order/:token', wrap(async (req, res) => {
   res.json({
     ...productCard(p), description: p.description, downloads: productFiles(p.id),
     buyer: { name: o.name, email: o.email }, purchasedAt: o.created_at, emailed: mailer.enabled,
+    // For analytics "purchase" events: what was actually paid, and an id that isn't the secret link.
+    order: { ref: emailKey(o), status: o.status, amount: o.amount_cents, currency: o.currency },
   });
 }));
 

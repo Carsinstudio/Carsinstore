@@ -113,6 +113,7 @@ const DEFAULT_SETTINGS = {
   checkout_phone: 'off',          // 'off' | 'optional' | 'required'
   abandoned_reminders: '1',       // email buyers once if they start paying but don't finish
   extra_currencies: '',           // e.g. 'usd' — products can then have a price in that currency too
+  plausible_domain: '', ga_id: '', meta_pixel_id: '',   // analytics, all optional
   legal_terms: '', legal_privacy: '', legal_refunds: '', legal_updated: new Date().toISOString().slice(0, 10),
   faq: JSON.stringify([
     { q: 'How do I get my product after buying?', a: 'Instantly. Right after checkout you land on your private download page, and the same link is emailed to you.' },

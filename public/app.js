@@ -413,6 +413,7 @@
         <div class="mobile-buy"><div><b>${esc(p.title)}</b><span>${p.price ? money(p.price) : 'Free'}</span></div><button class="btn btn-primary" id="mobile-buy">${p.price ? 'Buy now' : 'Get it free'}</button></div>
       </div></div>`, { active: 'shop' });
 
+    window.Analytics?.track('view_product', { slug: p.slug, title: p.title, amount: p.price, currency: S.store.settings.currency });
     $$('[data-preview]').forEach(b => b.addEventListener('click', () => previewFile(p.fileList.find(f => f.id === Number(b.dataset.preview)))));
     $('#share-copy').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(`${location.origin}/p/${p.slug}`); toast('Link copied — it shows a preview when shared'); }
@@ -508,6 +509,7 @@
     const paid = p.prices[state.currency] && state.discounted !== 0;
     btn.disabled = true; btn.textContent = paid ? 'Opening secure checkout…' : 'Getting your files…';
     try {
+      if (paid) window.Analytics?.track('begin_checkout', { slug: p.slug, title: p.title, amount: state.discounted ?? p.prices[state.currency], currency: state.currency });
       const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon: state.coupon, currency: state.currency, name, email, phone, ref: referral() } });
       if (r.url) return void (location.href = r.url);
       if (r.demo) {
@@ -588,6 +590,9 @@
         ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
       </div>`);
 
+    const o = p.order || {};
+    if (o.status === 'paid') window.Analytics?.trackOnce(o.ref, 'purchase', { ref: o.ref, slug: p.slug, title: p.title, amount: o.amount, currency: o.currency });
+    if (o.status === 'free') window.Analytics?.trackOnce(o.ref, 'free_download', { slug: p.slug, title: p.title });
     $('#copy-link').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(location.href); toast('Link copied'); } catch { toast('Copy the address from your browser bar', true); }
     });
@@ -693,6 +698,8 @@
     const q = new URLSearchParams(qs || '');
     document.title = S.store.settings.store_name;
     scrollTo(0, 0);
+    // Count visitors' pages, not the owner's own dashboard visits or partners checking their stats.
+    if (!['admin', 'login', 'account', 'affiliate'].includes(parts[0]) && !S.store.user?.isAdmin) setTimeout(() => window.Analytics?.page(), 0);
     try {
       switch (parts[0]) {
         case undefined: return await home();
@@ -714,6 +721,7 @@
   window.addEventListener('hashchange', route);
   window.addEventListener('DOMContentLoaded', async () => {
     try { await loadStore(); } catch { app.innerHTML = '<div class="wrap page"><h1>Store is offline.</h1></div>'; return; }
+    if (!S.store.user?.isAdmin) window.Analytics?.init(S.store.settings);
     // Share links are plain paths (/p/<slug>, /terms …) so link previews work; turn them into app routes.
     const ref = new URLSearchParams(location.search).get('ref');
     if (ref) try { localStorage.setItem('cs_ref', JSON.stringify({ code: ref.slice(0, 40), at: Date.now() })); } catch {}

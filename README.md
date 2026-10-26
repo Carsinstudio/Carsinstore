@@ -78,6 +78,14 @@ Buyers then get a "Your files are ready" email after every purchase or free down
 - **Affiliates:** add partners with a commission % on the Affiliates page. Their link is `carsin.store/?ref=CODE`, and `?ref=CODE` works on any product link too. A referral counts if the buyer pays within 30 days, and self-referrals don't count. Commission is locked in at the time of sale. You pay partners yourself, then click **Record payout**. Each partner gets a private stats page showing their sales and earnings, without buyer details.
 - **Extra currencies:** tick a currency (e.g. USD) under "Also sell in", then set that price on each product. Buyers see a currency switch on the product page. Percent-off codes work in any currency; fixed-amount codes only in the store currency. Your Paystack account must be enabled for each currency.
 
+## Analytics (Store settings → Analytics)
+
+Optional. Paste a **Plausible** domain, a **Google Analytics 4** Measurement ID (`G-…`) and/or a **Meta Pixel** ID to switch each one on.
+
+- **What's reported:** page views, product viewed, checkout started, purchase (amount and currency, once per order) and free download. Names, emails and phone numbers are never sent.
+- **What's not counted:** your own visits while signed in, and partner stats pages.
+- **Meta Pixel:** needed for Instagram and Facebook ads to optimise for purchases.
+
 ## Backups and moving the store
 
 Store settings → **Backup & move** downloads the whole store (products, files, covers, settings, owner account) as one `.tar.gz` file. Restore it on another computer or host from the same panel.
