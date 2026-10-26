@@ -1,6 +1,6 @@
 /* Optional analytics: Plausible, Google Analytics 4 and the Meta Pixel, switched on by pasting their IDs in
    Store settings → Analytics. Only page views and store events (product viewed, checkout started, purchase,
-   free download) are sent — never names, emails or phone numbers. */
+   free download) are sent, never names, emails or phone numbers. */
 (() => {
   const on = { plausible: false, ga: false, pixel: false };
 

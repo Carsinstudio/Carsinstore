@@ -48,7 +48,7 @@ async function* tarEntries(entries) {
 }
 
 // Writes a consistent snapshot of the store to `out` (a writable stream). With includeOrders off,
-// buyers, orders and the email list are left out — what you want when moving a catalog to a fresh site.
+// buyers, orders and the email list are left out, which is what you want when moving a catalog to a fresh site.
 async function exportBackup(out, { includeOrders = false } = {}) {
   const tmp = path.join(DATA_DIR, `.export-${crypto.randomBytes(4).toString('hex')}.db`);
   try {

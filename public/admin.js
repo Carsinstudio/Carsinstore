@@ -28,7 +28,7 @@
         ${items.map(([k, l, ic]) => `<a href="#/admin${k ? '/' + k : ''}" class="${active === k ? 'on' : ''}">${ic}${l}</a>`).join('')}
         <div class="bottom"><a href="#/" target="_blank">${A.store}View store</a></div>
       </aside>
-      <main class="admin-main">${S.store.payments !== 'paystack' ? `<div class="setup-banner">${S.store.payments === 'demo' ? '<b>Test mode.</b> Checkout is simulated — no real payments.' : '<b>Payments are off.</b> Paid products can’t be bought yet.'} Add <code>PAYSTACK_SECRET_KEY</code> to your <code>.env</code> file to take real payments (see README).</div>` : ''}${content}</main></div>`;
+      <main class="admin-main">${S.store.payments !== 'paystack' ? `<div class="setup-banner">${S.store.payments === 'demo' ? '<b>Test mode.</b> Checkout is simulated, so no real payments are taken.' : '<b>Payments are off.</b> Paid products can’t be bought yet.'} Add <code>PAYSTACK_SECRET_KEY</code> to your <code>.env</code> file to take real payments (see README).</div>` : ''}${content}</main></div>`;
     window.onscroll = null;
   }
   const head = (title, actions = '') => `<div class="admin-head"><h1>${title}</h1><div style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div></div>`;
@@ -74,7 +74,7 @@
         <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Top products</h3></div>
           ${s.top.length ? `<table class="tbl"><tr><th>Product</th><th>Sales</th><th>Revenue</th></tr>${s.top.map(t => `<tr><td>${esc(t.title)}</td><td>${t.sales}</td><td>${money(t.revenue)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No products yet.</p>'}</div>
         <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Recent activity</h3><a class="btn btn-sm btn-ghost" href="#/admin/orders">All orders</a></div>
-          ${s.recent.length ? `<table class="tbl">${s.recent.map(o => `<tr><td><div>${esc(o.name || o.email)}</div><small class="dim">${esc(o.title)}</small></td><td>${statusPill(o.status)}</td><td style="text-align:right">${o.amount_cents ? money(o.amount_cents) : '—'}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">Sales will show up here.</p>'}</div>
+          ${s.recent.length ? `<table class="tbl">${s.recent.map(o => `<tr><td><div>${esc(o.name || o.email)}</div><small class="dim">${esc(o.title)}</small></td><td>${statusPill(o.status)}</td><td style="text-align:right">${o.amount_cents ? money(o.amount_cents) : 'Free'}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">Sales will show up here.</p>'}</div>
       </div>`);
   }
 
@@ -93,7 +93,7 @@
   }
   function newProduct() {
     modal(`<h3>New product</h3><p class="muted" style="margin:0 0 20px">You can change everything later.</p>
-      <form id="np"><label class="field"><span>Title</span><input class="input" name="title" required placeholder="e.g. Cinematic LUT Pack + Tutorial"><small>Next you'll upload the files — videos, PDFs, ZIPs, anything.</small></label>
+      <form id="np"><label class="field"><span>Title</span><input class="input" name="title" required placeholder="e.g. Cinematic LUT Pack + Tutorial"><small>Next you'll upload the files: videos, PDFs, ZIPs, anything.</small></label>
       <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Create product</button></div></form>`,
       (m, close) => {
         $('#np', m).addEventListener('submit', async e => {
@@ -117,19 +117,19 @@
         <div class="panel"><h3>Files <span class="muted" style="font:13px var(--sans)">${p.files.length ? `${plural(p.files.length, 'file')} · ${size(total)}` : ''}</span></h3>
           <p class="muted" style="margin:-8px 0 14px;font-size:13px">These are what buyers download. Switch on <b style="color:var(--text);font-weight:500">Free preview</b> for a sample clip or sample pages anyone can view on the product page.</p>
           <div class="mini-files">${p.files.map((f, i) => fileHtml(f, i, p.files.length)).join('')}</div>
-          <div class="dropzone" data-drop>${A.upload}<div><b style="font-weight:500;color:var(--text)">Drop files here</b> or click to upload</div><small class="dim">Videos, PDFs, ZIPs, documents, audio — anything. Max 4 GB each.</small><div class="upbar hidden"><i></i></div></div>
+          <div class="dropzone" data-drop>${A.upload}<div><b style="font-weight:500;color:var(--text)">Drop files here</b> or click to upload</div><small class="dim">Videos, PDFs, ZIPs, documents, audio, anything. Max 4 GB each.</small><div class="upbar hidden"><i></i></div></div>
         </div>
         <form class="panel" id="pf"><h3>Details</h3>
           <label class="field"><span>Title</span><input class="input" name="title" value="${esc(p.title)}" required></label>
           <label class="field"><span>Subtitle</span><input class="input" name="subtitle" value="${esc(p.subtitle)}" placeholder="One line that sells it"></label>
           <label class="field"><span>Description</span><textarea class="input" name="description" rows="10" placeholder="What's inside, who it's for, what they'll get…">${esc(p.description)}</textarea>
             <small>Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code></small></label>
-          <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(p.slug)}"><small>Share link: ${esc(location.origin)}/p/${esc(p.slug)} — shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
+          <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(p.slug)}"><small>Share link: ${esc(location.origin)}/p/${esc(p.slug)}. It shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
         </form>
       </div>
       <aside>
         <div class="panel"><h3>Status</h3>
-          <label class="check" style="margin-bottom:14px"><span class="switch"><input type="checkbox" form="pf" name="published" ${p.published ? 'checked' : ''}><i></i></span>Published — visible in the store</label>
+          <label class="check" style="margin-bottom:14px"><span class="switch"><input type="checkbox" form="pf" name="published" ${p.published ? 'checked' : ''}><i></i></span>Published (visible in the store)</label>
           <label class="check"><span class="switch"><input type="checkbox" form="pf" name="featured" ${p.featured ? 'checked' : ''}><i></i></span>Featured on the homepage</label>
         </div>
         <div class="panel"><h3>Pricing</h3>
@@ -145,7 +145,7 @@
           <div class="cover-edit" id="cover">${p.cover ? `<img src="${esc(p.cover)}">` : coverHtml({ ...p, kinds: [...new Set(p.files.map(f => f.kind))] }, { title: true })}<div class="over">Upload image (16:10 works best)</div></div>
           <input type="file" id="cover-in" accept="image/*" hidden>
         </div>
-        <div class="panel"><h3>Give access</h3><p class="muted" style="font-size:13px;margin:-6px 0 12px">Give someone this product for free — you get a download link to send them.</p>
+        <div class="panel"><h3>Give access</h3><p class="muted" style="font-size:13px;margin:-6px 0 12px">Give someone this product for free. You get a download link to send them.</p>
           <form id="grant" style="display:grid;gap:8px"><input class="input" name="name" placeholder="Their name" style="height:36px"><div style="display:flex;gap:8px"><input class="input" name="email" type="email" placeholder="their@email.com" required style="height:36px"><button class="btn btn-sm">Grant</button></div></form></div>
         <button class="btn btn-danger btn-block" id="del">${A.trash.replace('<svg', '<svg width="15" height="15"')} Delete product</button>
       </aside></div>`);
@@ -249,7 +249,7 @@
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Name</th><th>Description</th><th>Products</th><th>Order</th><th></th></tr>
       ${list.map(c => `<tr><td>${esc(c.name)}</td><td class="muted">${esc(c.description)}</td><td>${c.count}</td><td>${c.sort}</td>
         <td style="text-align:right;white-space:nowrap"><button class="icon-btn" data-edit="${c.id}">${A.edit}</button><button class="icon-btn" data-del="${c.id}">${A.trash}</button></td></tr>`).join('')}</table></div>`
-      : '<div class="empty"><h3>No categories</h3><p>Group your products — e.g. Courses, Templates, Presets, Ebooks.</p></div>'));
+      : '<div class="empty"><h3>No categories</h3><p>Group your products, e.g. Video Packs, Templates, Presets, Ebooks.</p></div>'));
     const form = (c = {}) => modal(`<h3>${c.id ? 'Edit' : 'New'} category</h3><form id="cf" style="margin-top:16px">
       <label class="field"><span>Name</span><input class="input" name="name" value="${esc(c.name || '')}" required></label>
       <label class="field"><span>Description</span><input class="input" name="description" value="${esc(c.description || '')}"></label>
@@ -282,13 +282,13 @@
     };
     layout('orders', head('Orders', `<button class="btn" id="csv">Export CSV</button>`) + (shown.length ? `
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Ref</th><th>Date</th><th>Buyer</th><th>Product</th><th>Amount</th><th>Status</th><th></th></tr>
-      ${shown.map(o => `<tr><td class="dim" style="font-family:var(--mono);font-size:12px">${esc(o.ref)}</td><td class="muted">${date(o.created_at)}</td><td><div>${esc(o.name || '—')}</div><small class="dim">${esc(o.email)}${o.phone ? ' · ' + esc(o.phone) : ''}</small>${o.affiliate_code ? `<div><span class="status free" title="Referred by an affiliate">via ${esc(o.affiliate_code)}</span></div>` : ''}</td><td>${esc(o.title)}</td>
-        <td>${o.amount_cents ? money(o.amount_cents, o.currency) : '—'}${o.coupon_code ? ` <small class="dim">${esc(o.coupon_code)}</small>` : ''}</td><td>${statusPill(o.status)}</td>
+      ${shown.map(o => `<tr><td class="dim" style="font-family:var(--mono);font-size:12px">${esc(o.ref)}</td><td class="muted">${date(o.created_at)}</td><td><div>${esc(o.name || 'No name')}</div><small class="dim">${esc(o.email)}${o.phone ? ' · ' + esc(o.phone) : ''}</small>${o.affiliate_code ? `<div><span class="status free" title="Referred by an affiliate">via ${esc(o.affiliate_code)}</span></div>` : ''}</td><td>${esc(o.title)}</td>
+        <td>${o.amount_cents ? money(o.amount_cents, o.currency) : 'Free'}${o.coupon_code ? ` <small class="dim">${esc(o.coupon_code)}</small>` : ''}</td><td>${statusPill(o.status)}</td>
         <td style="text-align:right;white-space:nowrap">${o.status !== 'refunded' ? `<button class="btn btn-sm btn-ghost" data-copy="${esc(o.link)}" title="Copy this buyer's private download link">Copy link</button>${S.store.emails ? `<button class="btn btn-sm btn-ghost" data-resend="${o.id}">Email link</button>` : ''}<button class="btn btn-sm btn-ghost" data-revoke="${o.id}">Revoke</button>` : ''}</td></tr>`).join('')}</table></div>`
       : '<div class="empty"><h3>No orders yet</h3><p>Purchases and free claims will show up here.</p></div>'));
     $('#csv').addEventListener('click', csv);
     $$('[data-copy]').forEach(b => b.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(b.dataset.copy); toast('Download link copied — paste it to the buyer'); } catch { prompt('Copy this link:', b.dataset.copy); }
+      try { await navigator.clipboard.writeText(b.dataset.copy); toast('Download link copied. Paste it to the buyer.'); } catch { prompt('Copy this link:', b.dataset.copy); }
     }));
     $$('[data-resend]').forEach(b => b.addEventListener('click', async () => {
       try { await api(`/api/admin/orders/${b.dataset.resend}/resend`, { method: 'POST' }); toast('Download link emailed'); } catch (err) { toast(err.message, true); }
@@ -302,7 +302,7 @@
     const list = await api('/api/admin/customers');
     layout('customers', head('Customers', `<span class="muted" style="font-size:13px;align-self:center">${plural(list.length, 'buyer')}</span><button class="btn" id="csv">Export emails</button>`) + (list.length ? `
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Name</th><th>Email</th><th>Phone</th><th>First seen</th><th>Products</th><th>Spent</th></tr>
-      ${list.map(u => `<tr><td>${esc(u.name || '—')}</td><td class="muted">${esc(u.email)}</td><td class="muted">${esc(u.phone || '—')}</td><td class="muted">${date(u.created_at)}</td><td>${u.products}</td><td>${money(u.spent)}</td></tr>`).join('')}</table></div>`
+      ${list.map(u => `<tr><td>${esc(u.name || 'No name')}</td><td class="muted">${esc(u.email)}</td><td class="muted">${esc(u.phone || 'Not given')}</td><td class="muted">${date(u.created_at)}</td><td>${u.products}</td><td>${money(u.spent)}</td></tr>`).join('')}</table></div>`
       : '<div class="empty"><h3>No buyers yet</h3><p>Everyone who buys or grabs a free product shows up here with their name and email.</p></div>'));
     $('#csv').addEventListener('click', () => {
       const blob = new Blob(['email,name,phone,joined,products,spent\n' + list.map(u => [u.email, u.name || '', u.phone || '', u.created_at, u.products, (u.spent / 100).toFixed(2)].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' });
@@ -320,7 +320,7 @@
   // ---------- affiliates ----------
   async function affiliates() {
     const list = await api('/api/admin/affiliates');
-    const owedText = a => a.totals.filter(t => t.owed).map(t => money(t.owed, t.currency)).join(' + ') || '—';
+    const owedText = a => a.totals.filter(t => t.owed).map(t => money(t.owed, t.currency)).join(' + ') || 'Nothing owed';
     layout('affiliates', head('Affiliates', `<button class="btn btn-primary" id="new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New affiliate</button>`) + `
       <p class="muted" style="margin:-12px 0 22px;font-size:13.5px;max-width:680px">Partners share their link, and earn a commission on every paid order from buyers who arrive through it (within 30 days). You pay them yourself, then record it here. Each partner has a private stats page you can send them.</p>` + (list.length ? `
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Partner</th><th>Code</th><th>Commission</th><th>Sales</th><th>Owed</th><th>Status</th><th></th></tr>
@@ -332,7 +332,7 @@
       : '<div class="empty"><h3>No affiliates yet</h3><p>Add creators, friends or customers who\'d like to promote your products for a commission.</p></div>'));
     const find = id => list.find(a => a.id === Number(id));
     $$('[data-link]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.link).link, 'Referral link copied')));
-    $$('[data-stats]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.stats).statsUrl, 'Stats page link copied — send it to your partner')));
+    $$('[data-stats]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.stats).statsUrl, 'Stats page link copied. Send it to your partner.')));
     const form = (a = {}) => modal(`<h3>${a.id ? 'Edit' : 'New'} affiliate</h3><form id="af" style="margin-top:16px">
       <label class="field"><span>Name</span><input class="input" name="name" value="${esc(a.name || '')}" required></label>
       <label class="field"><span>Email</span><input class="input" name="email" type="email" value="${esc(a.email || '')}" required><small>Where you'll reach them about payouts. Their own purchases don't earn commission.</small></label>
@@ -413,12 +413,12 @@
     const f = (k, label, hint = '', type = 'text') => `<label class="field"><span>${label}</span><input class="input" name="${k}" type="${type}" value="${esc(s[k] || '')}">${hint ? `<small>${hint}</small>` : ''}</label>`;
     layout('settings', head('Store settings', '<button class="btn btn-primary" id="save">Save settings</button>') + `<form id="sf"><div class="editor"><div>
       <div class="panel"><h3>Brand</h3>${f('store_name', 'Store name')}${f('tagline', 'Tagline')}${f('footer_blurb', 'Footer text')}
-        <label class="field"><span>Currency</span><select class="input" name="currency">${[['ngn', 'NGN — Naira'], ['ghs', 'GHS — Cedi'], ['kes', 'KES — Shilling'], ['zar', 'ZAR — Rand'], ['usd', 'USD — Dollar']].map(([c, l]) => `<option value="${c}" ${s.currency === c ? 'selected' : ''}>${l}</option>`).join('')}</select><small>Paystack charges in the currency your account is approved for — Naira works for every Nigerian account; USD needs to be enabled by Paystack.</small></label></div>
+        <label class="field"><span>Currency</span><select class="input" name="currency">${[['ngn', 'NGN (Naira)'], ['ghs', 'GHS (Cedi)'], ['kes', 'KES (Shilling)'], ['zar', 'ZAR (Rand)'], ['usd', 'USD (Dollar)']].map(([c, l]) => `<option value="${c}" ${s.currency === c ? 'selected' : ''}>${l}</option>`).join('')}</select><small>Paystack charges in the currency your account is approved for. Naira works for every Nigerian account; USD needs to be enabled by Paystack.</small></label></div>
       <div class="panel"><h3>Homepage</h3>${f('announcement', 'Announcement bar', 'Leave empty to hide it.')}${f('hero_eyebrow', 'Hero label', 'The last word is highlighted.')}${f('hero_title', 'Hero headline', 'Use | to split into two lines. The second line is softly faded.')}
         <label class="field"><span>Hero text</span><textarea class="input" name="hero_sub" rows="3">${esc(s.hero_sub || '')}</textarea></label></div>
       <div class="panel"><h3>FAQ <button type="button" class="btn btn-sm" id="add-faq">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add question</button></h3><div id="faq"></div></div>
       <div class="panel"><h3>Legal pages</h3>
-        <p class="muted" style="margin:-6px 0 16px;font-size:13px">Drafts written for how this store works (guest checkout, Paystack, emailed download links, Nigerian law). Read them and adjust anything that doesn't match your business — they're a starting point, not legal advice. <code>{{STORE}}</code>, <code>{{EMAIL}}</code>, <code>{{WEBSITE}}</code>, <code>{{LOCATION}}</code> and <code>{{UPDATED}}</code> are filled in automatically.</p>
+        <p class="muted" style="margin:-6px 0 16px;font-size:13px">Drafts written for how this store works (guest checkout, Paystack, emailed download links, Nigerian law). Read them and adjust anything that doesn't match your business. They're a starting point, not legal advice. <code>{{STORE}}</code>, <code>{{EMAIL}}</code>, <code>{{WEBSITE}}</code>, <code>{{LOCATION}}</code> and <code>{{UPDATED}}</code> are filled in automatically.</p>
         ${[['legal_terms', 'Terms of Sale', 'terms'], ['legal_refunds', 'Refund Policy', 'refunds'], ['legal_privacy', 'Privacy Policy', 'privacy']].map(([k, label, page]) => `
           <label class="field"><span style="display:flex;justify-content:space-between;align-items:center">${label}
             <span style="display:flex;gap:6px"><a class="btn btn-sm btn-ghost" href="#/${page}" target="_blank">View</a><button type="button" class="btn btn-sm btn-ghost" data-reset-legal="${k}">Reset to draft</button></span></span>
@@ -427,17 +427,17 @@
     </div><aside>
       <div class="panel"><h3>Contact &amp; business</h3>${f('support_email', 'Support email', 'Shown in the footer and legal pages. Leave empty to use your owner email.', 'email')}${f('business_location', 'Business location', 'e.g. Lagos, Nigeria')}</div>
       <div class="panel"><h3>Checkout</h3>
-        <label class="field"><span>Ask for phone number</span><select class="input" name="checkout_phone">${[['off', 'No — just name and email'], ['optional', 'Optional'], ['required', 'Required']].map(([v, l]) => `<option value="${v}" ${s.checkout_phone === v ? 'selected' : ''}>${l}</option>`).join('')}</select><small>Each extra field costs a few sales. Only ask if you'll use it.</small></label>
+        <label class="field"><span>Ask for phone number</span><select class="input" name="checkout_phone">${[['off', 'No, just name and email'], ['optional', 'Optional'], ['required', 'Required']].map(([v, l]) => `<option value="${v}" ${s.checkout_phone === v ? 'selected' : ''}>${l}</option>`).join('')}</select><small>Each extra field costs a few sales. Only ask if you'll use it.</small></label>
         <label class="check" style="margin-bottom:6px"><span class="switch"><input type="checkbox" data-flag="abandoned_reminders" ${s.abandoned_reminders !== '0' ? 'checked' : ''}><i></i></span>Remind unfinished checkouts</label>
         <small class="dim" style="display:block;margin:0 0 16px;font-size:12px">If someone opens Paystack but doesn't pay, they get one "Still want it?" email about an hour later.</small>
         <span style="display:block;font-size:13px;color:#c9c5bf;margin-bottom:8px;font-weight:500">Also sell in</span>
         <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:6px">${['ngn', 'ghs', 'kes', 'zar', 'usd'].filter(c => c !== (s.currency || 'ngn')).map(c => `<label class="check" style="font-size:13px"><input type="checkbox" data-extra-cur="${c}" ${String(s.extra_currencies || '').split(',').includes(c) ? 'checked' : ''} style="accent-color:var(--accent)">${c.toUpperCase()}</label>`).join('')}</div>
-        <small class="dim" style="display:block;font-size:12px">Then set a price in that currency on each product. Your Paystack account must be enabled for it — USD needs Paystack's approval.</small>
+        <small class="dim" style="display:block;font-size:12px">Then set a price in that currency on each product. Your Paystack account must be enabled for it. USD needs Paystack's approval.</small>
       </div>
       <div class="panel"><h3>Analytics</h3>
-        <p class="muted" style="margin:-8px 0 14px;font-size:12.5px">Optional. Paste an ID to switch a tool on; leave empty to keep it off. Visits, product views, checkouts and purchases are tracked — never names or emails. Your own visits while signed in aren't counted.</p>
-        ${f('plausible_domain', 'Plausible — site domain', 'e.g. carsin.store (add the site in your Plausible account first)')}
-        ${f('ga_id', 'Google Analytics 4 — Measurement ID', 'Starts with G-, from Admin → Data streams')}
+        <p class="muted" style="margin:-8px 0 14px;font-size:12.5px">Optional. Paste an ID to switch a tool on; leave empty to keep it off. Visits, product views, checkouts and purchases are tracked, never names or emails. Your own visits while signed in aren't counted.</p>
+        ${f('plausible_domain', 'Plausible: site domain', 'e.g. carsin.store (add the site in your Plausible account first)')}
+        ${f('ga_id', 'Google Analytics 4: Measurement ID', 'Starts with G-, from Admin → Data streams')}
         ${f('meta_pixel_id', 'Meta Pixel ID', 'Numbers only, from Events Manager. Needed for Instagram/Facebook ads.')}
       </div>
       <div class="panel"><h3>Notifications</h3>
@@ -447,13 +447,13 @@
         ${f('notify_email', 'Send alerts to', 'Leave empty to use your support email.', 'email')}
       </div>
       <div class="panel"><h3>Share image</h3>
-        <p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Shown when your homepage — or a product without a cover — is posted on WhatsApp, Instagram or X. 1200×630 px, under 600 KB.</p>
+        <p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Shown when your homepage, or a product without a cover, is posted on WhatsApp, Instagram or X. 1200×630 px, under 600 KB.</p>
         <div class="cover-edit" id="share-img" style="aspect-ratio:1200/630">${s.share_image ? `<img src="/media/covers/${esc(s.share_image)}">` : '<div style="display:grid;place-items:center;height:100%;font-size:13px" class="muted">No image yet</div>'}<div class="over">Upload image</div></div>
         <input type="file" id="share-in" accept="image/png,image/jpeg,image/webp" hidden>
       </div>
       <div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}</div></aside></div></form>
       <div class="panel" style="max-width:860px"><h3>Backup &amp; move</h3>
-        <p class="muted" style="margin:-6px 0 18px;font-size:13.5px">Download your whole store — products, files, covers and settings — as one file, then restore it on another computer or host. Also a good safety copy to keep.</p>
+        <p class="muted" style="margin:-6px 0 18px;font-size:13.5px">Download your whole store (products, files, covers and settings) as one file, then restore it on another computer or host. Also a good safety copy to keep.</p>
         <div class="row" style="align-items:start">
           <div>
             <label class="check" style="margin-bottom:14px"><span class="switch"><input type="checkbox" id="bk-orders"><i></i></span>Include orders &amp; buyers</label>
@@ -470,7 +470,7 @@
     let faq = Array.isArray(s.faq) ? s.faq : [];
     const drawFaq = () => {
       $('#faq').innerHTML = faq.map((x, i) => `<div class="mod-edit" style="padding:12px"><div style="display:flex;gap:8px"><input class="input" data-fq="${i}" value="${esc(x.q)}" placeholder="Question"><button type="button" class="icon-btn" data-fdel="${i}">${A.trash}</button></div>
-        <textarea class="input" data-fa="${i}" rows="2" style="margin-top:8px;min-height:60px" placeholder="Answer">${esc(x.a)}</textarea></div>`).join('') || '<p class="muted" style="margin:0">No questions — the FAQ section is hidden.</p>';
+        <textarea class="input" data-fa="${i}" rows="2" style="margin-top:8px;min-height:60px" placeholder="Answer">${esc(x.a)}</textarea></div>`).join('') || '<p class="muted" style="margin:0">No questions yet, so the FAQ section is hidden.</p>';
       $$('[data-fq]').forEach(i => i.addEventListener('input', () => (faq[i.dataset.fq].q = i.value)));
       $$('[data-fa]').forEach(i => i.addEventListener('input', () => (faq[i.dataset.fa].a = i.value)));
       $$('[data-fdel]').forEach(b => b.addEventListener('click', () => { faq.splice(Number(b.dataset.fdel), 1); drawFaq(); }));
@@ -486,7 +486,7 @@
     });
     $$('[data-reset-legal]').forEach(b => b.addEventListener('click', () => {
       $(`[name="${b.dataset.resetLegal}"]`).value = s.legal_defaults[b.dataset.resetLegal];
-      toast('Draft restored — click Save settings to keep it');
+      toast('Draft restored. Click Save settings to keep it.');
     }));
 
     // backup & restore
@@ -501,7 +501,7 @@
       try {
         const r = await upload('/api/admin/restore', fd, pct => {
           bar.firstElementChild.style.width = pct * 100 + '%';
-          label.textContent = pct < 1 ? `Uploading backup… ${Math.round(pct * 100)}%` : 'Restoring — this can take a minute for large stores…';
+          label.textContent = pct < 1 ? `Uploading backup… ${Math.round(pct * 100)}%` : 'Restoring. This can take a minute for large stores…';
         });
         modal(`<h3>Store restored</h3><p class="muted" style="margin:0">${plural(r.products, 'product')}, ${plural(r.files, 'file')}${r.orders ? ` and ${plural(r.orders, 'order')}` : ''} are now on this store.${r.missingFiles ? ` ${plural(r.missingFiles, 'file')} referenced in the backup were missing from it.` : ''}</p>
           <p class="muted">Sign in again with the owner email and password from the backup.</p>

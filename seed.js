@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { one, run, DATA_DIR } = require('./db');
 
 if (one('SELECT COUNT(*) AS n FROM products').n > 0) {
-  console.log('Store already has products — skipping seed.');
+  console.log('Store already has products, so the seed was skipped.');
   process.exit(0);
 }
 
@@ -54,8 +54,8 @@ cats.forEach(([name, description], i) => {
 
 // files: [name, isFreePreview]
 const products = [
-  { title: 'Creator Systems Video Pack', subtitle: 'Three hours of workflow videos — download and watch offline.', price: 2500000, compare: 4000000, cat: 'Video Packs', featured: 1,
-    description: 'Every video from my creator-systems workshop, in full quality, yours to download.\n\n## What you get\n- Full walkthrough videos (MP4, 1080p)\n- The companion workbook (PDF)\n- A free sample clip so you know what you are getting\n\n**Yours forever** — including any updated versions I upload.',
+  { title: 'Creator Systems Video Pack', subtitle: 'Three hours of workflow videos to download and watch offline.', price: 2500000, compare: 4000000, cat: 'Video Packs', featured: 1,
+    description: 'Every video from my creator-systems workshop, in full quality, yours to download.\n\n## What you get\n- Full walkthrough videos (MP4, 1080p)\n- The companion workbook (PDF)\n- A free sample clip so you know what you are getting\n\n**Yours forever**, including any updated versions I upload.',
     files: [['Preview - Sample-Clip.mp4', true], ['01-Full-Walkthrough.mp4'], ['02-Batch-Production.mp4'], ['Companion-Workbook.pdf']] },
   { title: 'Brand Identity Template Kit', subtitle: '40+ editable templates for logos, socials and pitch decks.', price: 1500000, cat: 'Templates', featured: 1,
     description: 'Everything you need to look polished from day one.\n\n- Logo lockups & brand board\n- 30 social post templates\n- Pitch deck & one-pager\n- Brand guidelines PDF',
@@ -63,7 +63,7 @@ const products = [
   { title: 'Pricing Your Work: The Guide', subtitle: 'A 60-page playbook for charging what you are worth.', price: 800000, cat: 'Guides & Ebooks', featured: 1,
     description: 'Stop guessing. This guide walks through value-based pricing, packaging and negotiation with real scripts.',
     files: [['Pricing-Guide.pdf']] },
-  { title: 'Starter Toolkit', subtitle: 'My favourite checklists and planners — free.', price: 0, cat: 'Free Resources', featured: 0,
+  { title: 'Starter Toolkit', subtitle: 'My favourite checklists and planners, free.', price: 0, cat: 'Free Resources', featured: 0,
     description: 'A free bundle to get you moving today. Create an account and it is yours.',
     files: [['Weekly-Planner.pdf'], ['Launch-Checklist.pdf']] },
   { title: 'First 1,000 Followers (Free Video)', subtitle: 'A free 8-minute video on growing from zero.', price: 0, cat: 'Free Resources', featured: 1,

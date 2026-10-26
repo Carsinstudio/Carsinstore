@@ -64,7 +64,7 @@ We share only what is needed to run the store:
 We do not sell your personal information.
 
 ### Cookies and your device
-We use a cookie only to keep the store owner signed in to the dashboard. To make repeat purchases quicker, your name and email may be remembered in your own browser (local storage). If you arrive through a partner's referral link, that partner's code is also remembered in your browser for 30 days, so they can be credited if you buy — they never see your personal details. You can clear this at any time in your browser settings.
+We use a cookie only to keep the store owner signed in to the dashboard. To make repeat purchases quicker, your name and email may be remembered in your own browser (local storage). If you arrive through a partner's referral link, that partner's code is also remembered in your browser for 30 days, so they can be credited if you buy. They never see your personal details. You can clear this at any time in your browser settings.
 
 ### How long we keep it
 We keep order records so you can re-download your purchases and so we can meet tax and accounting obligations. You can ask us to delete your details at any time; we keep only what the law requires.
@@ -93,7 +93,7 @@ Email {{EMAIL}} within **7 days** of purchase with:
 - the product name;
 - what went wrong (a screenshot helps).
 
-We usually reply within 1–2 business days. Often we can fix the problem by sending a working file.
+We usually reply within 1 to 2 business days. Often we can fix the problem by sending a working file.
 
 ### How refunds are paid
 Approved refunds go back to your original payment method through Paystack. Depending on your bank, they can take a few working days to appear. Once a refund is issued, access to the product's files is removed.

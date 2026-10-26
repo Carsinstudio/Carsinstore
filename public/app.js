@@ -1,4 +1,4 @@
-/* Carsinstore storefront — a small hash-routed single-page app. */
+/* Carsinstore storefront: a small hash-routed single-page app. */
 (() => {
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -252,18 +252,18 @@
     </section>
 
     ${cats.length ? `<section class="block"><div class="wrap">
-      <div class="section-head reveal"><div class="left"><span class="label">Categories</span><h2>Find exactly what<br>you came for.</h2></div><p>Videos, templates, guides and toolkits — organised so you can get straight to the good stuff.</p></div>
+      <div class="section-head reveal"><div class="left"><span class="label">Categories</span><h2>Find exactly what<br>you came for.</h2></div><p>Videos, templates, guides and toolkits, organised so you can get straight to the good stuff.</p></div>
       <div class="cat-grid">${cats.map((c, i) => `<a class="cat-card reveal" href="#/shop?cat=${esc(c.slug)}"><span class="n">${String(c.count).padStart(2, '0')}</span><div class="ico">${catIcons[i % catIcons.length]}</div><div><h3>${esc(c.name)}</h3><p>${esc(c.description || plural(c.count, 'product'))}</p></div></a>`).join('')}</div>
     </div></section>` : ''}
 
     <section class="block" style="padding-top:${cats.length ? 0 : 110}px"><div class="wrap">
-      <div class="section-head reveal"><div class="left"><span class="label">${featured.length ? 'Featured' : 'Latest'}</span><h2>Made to help you<br>move faster.</h2></div><p>Hand-built products with everything included — download once, keep forever.</p></div>
-      ${highlight.length ? `<div class="grid">${highlight.map(productCard).join('')}</div>` : `<div class="empty"><h3>No products yet</h3><p>${S.store.user?.isAdmin ? 'Add your first product from the <a href="#/admin/products" style="color:var(--accent-2)">dashboard</a>.' : 'Check back soon — new drops are on the way.'}</p></div>`}
+      <div class="section-head reveal"><div class="left"><span class="label">${featured.length ? 'Featured' : 'Latest'}</span><h2>Made to help you<br>move faster.</h2></div><p>Hand-built products with everything included. Download once, keep forever.</p></div>
+      ${highlight.length ? `<div class="grid">${highlight.map(productCard).join('')}</div>` : `<div class="empty"><h3>No products yet</h3><p>${S.store.user?.isAdmin ? 'Add your first product from the <a href="#/admin/products" style="color:var(--accent-2)">dashboard</a>.' : 'Check back soon. New drops are on the way.'}</p></div>`}
       <div style="text-align:center;margin-top:34px"><a class="btn" href="#/shop">View all products ${I.arrow}</a></div>
     </div></section>
 
     <section class="block" style="padding-top:20px"><div class="wrap">
-      <div class="section-head reveal"><div class="left"><span class="label">Delivery</span><h2>Pay once,<br>download instantly.</h2></div><p>Every purchase comes with a private download link — on screen right away and emailed to you to keep.</p></div>
+      <div class="section-head reveal"><div class="left"><span class="label">Delivery</span><h2>Pay once,<br>download instantly.</h2></div><p>Every purchase comes with a private download link, shown on screen right away and emailed to you to keep.</p></div>
       <div class="tabs-layout reveal">
         <div class="tab-list" id="tabs"><button class="on" data-t="0">Video downloads</button><button data-t="1">Files & bundles</button><button data-t="2">Free previews</button></div>
         <div class="tab-panel"><div class="tab-stage" id="tab-stage"></div><div class="tab-caption" id="tab-cap"></div></div>
@@ -274,13 +274,13 @@
       <div class="section-head center reveal"><span class="label">How it works</span><h2>From checkout to<br>download in seconds.</h2></div>
       <div class="flow reveal">
         <div class="flow-step"><div class="flow-node"><span class="k">01</span>${I.search}</div><h4>Pick a product</h4><p>Browse by category, watch a free preview and see every file included.</p></div>
-        <div class="flow-step"><div class="flow-node"><span class="k">02</span>${I.shield}</div><h4>Check out securely</h4><p>Pay by card, bank transfer or USSD through Paystack — or grab free products with just your email.</p></div>
-        <div class="flow-step"><div class="flow-node"><span class="k">03</span>${I.bolt}</div><h4>Download instantly</h4><p>Your private download link appears the moment you pay — and lands in your inbox too.</p></div>
+        <div class="flow-step"><div class="flow-node"><span class="k">02</span>${I.shield}</div><h4>Check out securely</h4><p>Pay by card, bank transfer or USSD through Paystack, or grab free products with just your email.</p></div>
+        <div class="flow-step"><div class="flow-node"><span class="k">03</span>${I.bolt}</div><h4>Download instantly</h4><p>Your private download link appears the moment you pay, and lands in your inbox too.</p></div>
       </div>
     </div></section>
 
     ${free.length ? `<section class="block" style="padding-top:20px"><div class="wrap">
-      <div class="section-head reveal"><div class="left"><span class="label">Free</span><h2>Start with something<br>on the house.</h2></div><p>No card, no account — just your name and email.</p></div>
+      <div class="section-head reveal"><div class="left"><span class="label">Free</span><h2>Start with something<br>on the house.</h2></div><p>No card, no account. Just your name and email.</p></div>
       <div class="grid">${free.map(productCard).join('')}</div>
     </div></section>` : ''}
 
@@ -299,10 +299,10 @@
     const sample = all.find(p => p.kinds.includes('video')) || all[0];
     const dlBtn = `<span class="btn btn-sm">${I.down} Download</span>`;
     const tabs = [
-      { cap: ['Video Downloads', '<b>Keep them offline.</b> Download full-quality video files to watch on any device — or play them right on your download page.'],
+      { cap: ['Video Downloads', '<b>Keep them offline.</b> Download full-quality video files to watch on any device, or play them right on your download page.'],
         html: `<div class="mock"><div class="mock-video"><div class="play">${I.play.replace('<svg', '<svg width="20" height="20"')}</div><div class="bar"><i></i></div></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px;gap:10px"><span>${esc(sample?.title || 'Full walkthrough')} <small class="dim">· MP4 · 1080p</small></span>${dlBtn}</div></div>` },
-      { cap: ['Files & Bundles', '<b>Everything included.</b> PDFs, ZIP bundles, templates and documents — download them whenever you need, as often as you like.'],
+      { cap: ['Files & Bundles', '<b>Everything included.</b> PDFs, ZIP bundles, templates and documents. Download them whenever you need, as often as you like.'],
         html: `<div class="mock">${[['PDF', 'Workbook.pdf', '4.2 MB'], ['ZIP', 'Templates bundle.zip', '86 MB'], ['DOC', 'Checklist.docx', '210 KB'], ['MP4', 'Bonus walkthrough.mp4', '1.1 GB']].map(([k, n, z]) => `<div class="mock-row"><div class="fi">${k}</div><div class="grow">${n}<small>${z}</small></div><span class="dim">${I.down}</span></div>`).join('')}</div>` },
       { cap: ['Free Previews', '<b>Try before you buy.</b> Watch a sample clip or flip through a sample page right on the product page.'],
         html: `<div class="mock"><div class="mock-row"><div class="fi">MP4</div><div class="grow">Sample clip.mp4<small>Free preview</small></div><span class="tag-preview">Preview</span></div>
@@ -324,7 +324,7 @@
     const catObj = S.store.categories.find(c => c.slug === cat);
     const kindName = kinds.find(k => k[0] === kind)?.[1];
     const title = catObj ? catObj.name : price === 'free' ? 'Free resources' : kindName || 'All products';
-    const desc = catObj?.description || (price === 'free' ? 'Grab these with a free account — no card required.' : 'Videos, guides, templates and toolkits — everything in the store.');
+    const desc = catObj?.description || (price === 'free' ? 'Grab these with just your name and email. No card required.' : 'Videos, guides, templates and toolkits: everything in the store.');
     const active = price === 'free' ? 'free' : kind === 'video' ? 'videos' : 'shop';
     const link = (patch) => {
       const n = new URLSearchParams({ cat, price, kind, sort, q: term, ...patch });
@@ -368,7 +368,7 @@
     const kinds = [...new Set(p.fileList.map(f => f.kind))];
     const previews = p.fileList.filter(f => f.preview);
     const off = p.compare && p.compare > p.price ? Math.round((1 - p.price / p.compare) * 100) : 0;
-    document.title = `${p.title} — ${S.store.settings.store_name}`;
+    document.title = `${p.title} | ${S.store.settings.store_name}`;
 
     shell(`<div class="page-top" style="padding-bottom:20px"><div class="aurora"><i></i></div><div class="wrap" style="position:relative">
         <div class="crumbs"><a href="#/shop">Store</a>${p.category ? `<span>/</span><a href="#/shop?cat=${esc(p.category.slug)}">${esc(p.category.name)}</a>` : ''}</div>
@@ -399,16 +399,16 @@
           <ul class="includes">
             ${p.fileList.length ? `<li>${I.checkC}${plural(p.fileList.length, 'downloadable file')}${kinds.length ? ` (${kinds.map(k => kindLabel[k]).join(', ')})` : ''}</li>` : ''}
             <li>${I.checkC}Instant download link after checkout</li>
-            <li>${I.checkC}No account needed — just your email</li>
+            <li>${I.checkC}No account needed, just your email</li>
             <li>${I.checkC}Free future updates to the files</li>
           </ul>
           <div style="display:flex;gap:8px;align-items:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13px">
             <span class="muted" style="margin-right:auto">Share</span>
             <button class="btn btn-sm btn-ghost" id="share-copy">Copy link</button>
-            <a class="btn btn-sm btn-ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`${p.title} — ${location.origin}/p/${p.slug}`)}">WhatsApp</a>
+            <a class="btn btn-sm btn-ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`${p.title}: ${location.origin}/p/${p.slug}`)}">WhatsApp</a>
             <a class="btn btn-sm btn-ghost" target="_blank" rel="noopener" href="https://x.com/intent/post?text=${encodeURIComponent(p.title)}&url=${encodeURIComponent(`${location.origin}/p/${p.slug}`)}">X</a>
           </div>
-          ${S.store.payments === 'demo' && p.price ? '<div class="demo-note">Test mode: checkout is simulated — no real payment is taken.</div>' : ''}
+          ${S.store.payments === 'demo' && p.price ? '<div class="demo-note">Test mode: checkout is simulated and no real payment is taken.</div>' : ''}
         </div></aside>
         <div class="mobile-buy"><div><b>${esc(p.title)}</b><span>${p.price ? money(p.price) : 'Free'}</span></div><button class="btn btn-primary" id="mobile-buy">${p.price ? 'Buy now' : 'Get it free'}</button></div>
       </div></div>`, { active: 'shop' });
@@ -416,7 +416,7 @@
     window.Analytics?.track('view_product', { slug: p.slug, title: p.title, amount: p.price, currency: S.store.settings.currency });
     $$('[data-preview]').forEach(b => b.addEventListener('click', () => previewFile(p.fileList.find(f => f.id === Number(b.dataset.preview)))));
     $('#share-copy').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(`${location.origin}/p/${p.slug}`); toast('Link copied — it shows a preview when shared'); }
+      try { await navigator.clipboard.writeText(`${location.origin}/p/${p.slug}`); toast('Link copied. It shows a preview when shared.'); }
       catch { prompt('Copy this link:', `${location.origin}/p/${p.slug}`); }
     });
     // Price shown in the chosen currency, with the "compare at" price (store currency only) or an applied code.
@@ -485,7 +485,7 @@
     if (!f) return;
     const view = viewerHtml(f);
     modal(`<h3>${esc(f.name)}</h3><span class="tag-preview">Free preview</span>
-      <div style="margin-top:16px">${view || `<p class="muted">This file type can't be previewed in the browser — <a href="${fileUrl(f)}" style="color:var(--accent-2)">download the sample</a>.</p>`}</div>
+      <div style="margin-top:16px">${view || `<p class="muted">This file type can't be previewed in the browser. <a href="${fileUrl(f)}" style="color:var(--accent-2)">download the sample</a>.</p>`}</div>
       <div class="actions"><button class="btn" data-close>Close</button></div>`, m => { m.style.maxWidth = '820px'; });
   }
 
@@ -502,7 +502,7 @@
     const name = form.name.value.trim(), email = form.email.value.trim(), phone = form.phone ? form.phone.value.trim() : '';
     err.textContent = '';
     if (!name) { err.textContent = 'Please enter your name.'; return form.name.focus(); }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = 'Please enter a valid email — your download link goes there.'; return form.email.focus(); }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = 'Please enter a valid email. Your download link goes there.'; return form.email.focus(); }
     if (S.store.settings.checkout_phone === 'required' && !phone) { err.textContent = 'Please enter your phone number.'; return form.phone.focus(); }
     try { localStorage.setItem('cs_buyer', JSON.stringify({ name, email, phone })); } catch {}
     const btn = $('#buy'), label = btn.innerHTML;
@@ -530,7 +530,7 @@
     finally { if (btn.isConnected) { btn.disabled = false; btn.innerHTML = label; } }
   }
 
-  // Owner sign-in only — buyers never need an account.
+  // Owner sign-in only: buyers never need an account.
   function authPage(q) {
     const next = q.get('next') || '#/admin';
     if (S.store.user?.isAdmin) return void (location.hash = next);
@@ -563,28 +563,28 @@
         <p class="muted">Lost your link? We can email it to you again.</p><a class="btn btn-primary" href="#/find" style="margin-top:20px">Find my downloads</a></div>`);
     }
     if (p.pending) {
-      // Payment just finished and Paystack is still confirming (bank transfers can take a moment) — check again shortly.
+      // Payment just finished and Paystack is still confirming (bank transfers can take a moment), so check again shortly.
       if (attempt === 0) shell(`<div class="wrap page" style="text-align:center;padding-top:120px"><div class="spinner" style="margin:0 auto 24px"></div><h1 style="font-size:40px">Confirming your payment…</h1><p class="muted">This usually takes a few seconds.</p></div>`);
       if (attempt < 20) return setTimeout(() => location.hash === `#/download/${token}` && downloadPage(token, attempt + 1), 2000);
       return shell(`<div class="wrap page" style="text-align:center;padding-top:120px"><h1 style="font-size:40px">Still waiting on payment.</h1><p class="muted">If you completed checkout, refresh this page in a minute. Your link will also be emailed to you.</p></div>`);
     }
-    document.title = `${p.title} — ${S.store.settings.store_name}`;
+    document.title = `${p.title} | ${S.store.settings.store_name}`;
     const viewable = f => ['video', 'audio', 'pdf', 'image'].includes(f.kind);
     const first = (p.buyer.name || '').split(' ')[0];
 
     shell(`<div class="page-top"><div class="aurora"><i></i></div><div class="wrap" style="position:relative;max-width:960px">
         <span class="label">${p.price ? 'Order confirmed' : 'All yours'}</span>
         <h1>Thanks${first ? ', ' + esc(first) : ''}! Your files are ready.</h1>
-        <p>${esc(p.title)} — ${p.emailed ? `we've also emailed this link to <b style="color:var(--text);font-weight:500">${esc(p.buyer.email)}</b>.` : 'bookmark this page to come back to your files any time.'}</p></div></div>
+        <p>${esc(p.title)}: ${p.emailed ? `we've also emailed this link to <b style="color:var(--text);font-weight:500">${esc(p.buyer.email)}</b>.` : 'bookmark this page to come back to your files any time.'}</p></div></div>
       <div class="wrap page" style="padding-top:10px;max-width:960px">
         <div id="viewer" style="margin-bottom:22px"></div>
         ${p.downloads.length ? `<div class="box"><div class="box-head"><h3>Your files</h3><span class="muted" style="font-size:13px">${plural(p.downloads.length, 'file')} · ${size(p.totalSize)}</span></div>
           ${p.downloads.map(f => `<div class="file-row"><div class="file-ico ${f.kind}">${esc(extOf(f.name))}</div><div class="grow"><div class="nm">${esc(f.name)}</div><small>${size(f.size)}</small></div>
             ${viewable(f) ? `<button class="btn btn-sm btn-ghost" data-view="${f.id}">${f.kind === 'video' || f.kind === 'audio' ? 'Play' : 'View'}</button>` : ''}
             <a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" download>${I.down} Download</a></div>`).join('')}
-        </div>` : '<div class="empty"><h3>Files coming soon</h3><p>The files for this product haven\'t been uploaded yet — this same link will work once they are.</p></div>'}
+        </div>` : '<div class="empty"><h3>Files coming soon</h3><p>The files for this product haven\'t been uploaded yet. This same link will work once they are.</p></div>'}
         <div class="box" style="margin-top:18px;padding:16px 20px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
-          <span class="muted" style="font-size:13.5px">This private link is your access — keep it safe and don't share it.</span>
+          <span class="muted" style="font-size:13.5px">This private link is your access. Keep it safe and don't share it.</span>
           <button class="btn btn-sm" id="copy-link">Copy link</button>
         </div>
         ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
@@ -614,7 +614,7 @@
           <label class="field"><span>Email</span><input class="input" name="email" type="email" required autocomplete="email"></label>
           <div class="error-msg" id="err"></div>
           <button class="btn btn-primary btn-lg btn-block">Email my links ${I.arrow}</button>`
-          : `<p>Your download link was shown right after checkout — check your browser bookmarks or history for a page starting with <code>${esc(location.host)}/#/download/</code>.</p>
+          : `<p>Your download link was shown right after checkout. Check your browser bookmarks or history for a page starting with <code>${esc(location.host)}/#/download/</code>.</p>
           <p style="margin:0">Still can't find it? Reply to your payment receipt and we'll send it over.</p>`}
       </form></div>`, { active: 'find' });
     $('#find').addEventListener('submit', async e => {
@@ -644,14 +644,14 @@
   async function affiliatePage(token) {
     let a;
     try { a = await api('/api/affiliate/' + encodeURIComponent(token)); } catch { return notFound(); }
-    document.title = `Partner stats — ${S.store.settings.store_name}`;
+    document.title = `Partner stats | ${S.store.settings.store_name}`;
     const totals = a.totals.length ? a.totals : [{ currency: S.store.settings.currency || 'ngn', sales: 0, earned: 0, paid: 0, owed: 0 }];
     shell(`<div class="page-top"><div class="aurora"><i></i></div><div class="wrap" style="position:relative;max-width:960px">
         <span class="label">Partner program</span><h1>Hi ${esc(a.name.split(' ')[0])}.</h1>
         <p>You earn <b style="color:var(--text);font-weight:500">${a.percent}%</b> of every sale made through your link.${a.active ? '' : ' Your link is currently paused.'}</p></div></div>
       <div class="wrap page" style="padding-top:10px;max-width:960px">
         <div class="box" style="padding:18px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-          <div style="flex:1;min-width:220px"><div class="muted" style="font-size:12.5px;margin-bottom:4px">Your link — share it anywhere. Works on any product page too: add <code>?ref=${esc(a.code)}</code></div>
+          <div style="flex:1;min-width:220px"><div class="muted" style="font-size:12.5px;margin-bottom:4px">Your link. Share it anywhere. Works on any product page too: add <code>?ref=${esc(a.code)}</code></div>
             <code style="font-size:14px;word-break:break-all">${esc(a.link)}</code></div>
           <button class="btn btn-primary btn-sm" id="aff-copy">Copy link</button>
         </div>
@@ -675,7 +675,7 @@
   async function legalPage(page) {
     let doc;
     try { doc = await api('/api/legal/' + page); } catch { return notFound(); }
-    document.title = `${doc.title} — ${S.store.settings.store_name}`;
+    document.title = `${doc.title} | ${S.store.settings.store_name}`;
     const others = [['terms', 'Terms of Sale'], ['privacy', 'Privacy Policy'], ['refunds', 'Refund Policy']].filter(([k]) => k !== page);
     shell(`<div class="wrap page legal-doc" style="max-width:760px;padding-top:56px">
       <span class="label">Legal</span>

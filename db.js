@@ -93,18 +93,28 @@ CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_files_product ON files(product_id);
 `;
 
-// Pre-"downloads only" defaults; replaced on startup if the owner never changed them.
-const OLD_DEFAULTS = {
-  tagline: 'Courses, templates & tools — built to help you ship.',
-  hero_sub: 'Courses, templates, files and toolkits — paid and free — delivered instantly to your personal library.',
+// Defaults from older versions; replaced on startup if the owner never changed them.
+// (Kept escaped: the store no longer uses dashes in any of its text.)
+const OLD_DEFAULTS = [
+  ['tagline', 'Courses, templates & tools \u2014 built to help you ship.'],
+  ['hero_sub', 'Courses, templates, files and toolkits \u2014 paid and free \u2014 delivered instantly to your personal library.'],
+  ['tagline', 'Videos, templates & tools \u2014 built to help you ship.'],
+  ['announcement', 'New drops every month \u2014 free resources inside the store.'],
+  ['hero_sub', 'Videos, templates, guides and toolkits \u2014 paid and free \u2014 ready to download the moment you check out.'],
+];
+// Old default FAQ answers that used dashes, matched one by one so edited questions are left alone.
+const OLD_FAQ_TEXT = {
+  'I lost my download link \u2014 what now?': 'I lost my download link. What now?',
+  'Videos, PDFs, ZIP bundles, documents, templates, audio \u2014 whatever the product includes.': 'Videos, PDFs, ZIP bundles, documents, templates, audio: whatever the product includes.',
+  'Yes \u2014 enter it on the product page before checkout and the price updates instantly.': 'Yes. Enter it on the product page before checkout and the price updates instantly.',
 };
 const DEFAULT_SETTINGS = {
   store_name: 'Carsinstore',
-  tagline: 'Videos, templates & tools — built to help you ship.',
-  announcement: 'New drops every month — free resources inside the store.',
+  tagline: 'Videos, templates and tools, built to help you ship.',
+  announcement: 'New drops every month, plus free resources inside the store.',
   hero_eyebrow: 'Digital Products',
   hero_title: 'Learn the craft,|Built to Work.',
-  hero_sub: 'Videos, templates, guides and toolkits — paid and free — ready to download the moment you check out.',
+  hero_sub: 'Videos, templates, guides and toolkits, paid and free, ready to download the moment you check out.',
   currency: 'ngn',
   footer_blurb: 'Digital products that keep your work moving.',
   instagram: '', x: '', youtube: '', tiktok: '',
@@ -112,16 +122,16 @@ const DEFAULT_SETTINGS = {
   notify_sales: '1', notify_free: '0', notify_email: '',
   checkout_phone: 'off',          // 'off' | 'optional' | 'required'
   abandoned_reminders: '1',       // email buyers once if they start paying but don't finish
-  extra_currencies: '',           // e.g. 'usd' — products can then have a price in that currency too
+  extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '',   // analytics, all optional
   legal_terms: '', legal_privacy: '', legal_refunds: '', legal_updated: new Date().toISOString().slice(0, 10),
   faq: JSON.stringify([
     { q: 'How do I get my product after buying?', a: 'Instantly. Right after checkout you land on your private download page, and the same link is emailed to you.' },
     { q: 'Do I need to create an account?', a: 'No. Just enter your name and email, pay, and download. No passwords.' },
     { q: 'Are free products really free?', a: 'Yes. Enter your name and email and you get the download link straight away.' },
-    { q: 'I lost my download link — what now?', a: 'Use “Find my downloads” at the bottom of the page and we will email your links again.' },
-    { q: 'What file types do you deliver?', a: 'Videos, PDFs, ZIP bundles, documents, templates, audio — whatever the product includes.' },
-    { q: 'Can I use a discount code?', a: 'Yes — enter it on the product page before checkout and the price updates instantly.' },
+    { q: 'I lost my download link. What now?', a: 'Use “Find my downloads” at the bottom of the page and we will email your links again.' },
+    { q: 'What file types do you deliver?', a: 'Videos, PDFs, ZIP bundles, documents, templates, audio: whatever the product includes.' },
+    { q: 'Can I use a discount code?', a: 'Yes. Enter it on the product page before checkout and the price updates instantly.' },
     { q: 'What if I have a problem with my order?', a: 'Reach out through the contact link in the footer and we will sort it out quickly.' },
   ]),
 };
@@ -141,7 +151,13 @@ function migrate(db) {
   if (!hasColumn(db, 'files', 'sort')) db.exec('ALTER TABLE files ADD COLUMN sort INTEGER NOT NULL DEFAULT 0');
   if (hasColumn(db, 'files', 'lesson_id')) db.exec('UPDATE files SET lesson_id = NULL WHERE lesson_id IS NOT NULL');
   db.exec("UPDATE products SET type = 'download' WHERE type != 'download'");
-  for (const [k, v] of Object.entries(OLD_DEFAULTS)) db.prepare('UPDATE settings SET value = ? WHERE key = ? AND value = ?').run(DEFAULT_SETTINGS[k], k, v);
+  for (const [k, v] of OLD_DEFAULTS) db.prepare('UPDATE settings SET value = ? WHERE key = ? AND value = ?').run(DEFAULT_SETTINGS[k], k, v);
+  const faqRow = db.prepare("SELECT value FROM settings WHERE key = 'faq'").get();
+  try {
+    const faq = JSON.parse(faqRow?.value || '[]');
+    const fixed = faq.map(f => ({ q: OLD_FAQ_TEXT[f.q] || f.q, a: OLD_FAQ_TEXT[f.a] || f.a }));
+    if (JSON.stringify(fixed) !== JSON.stringify(faq)) db.prepare("UPDATE settings SET value = ? WHERE key = 'faq'").run(JSON.stringify(fixed));
+  } catch {}
   db.prepare("UPDATE settings SET value = ? WHERE key = 'faq' AND (value LIKE '%Video lessons, PDFs%' OR value LIKE '%Create an account with your email%')").run(DEFAULT_SETTINGS.faq);
 
   // Guest checkout: every order carries its own private download token.

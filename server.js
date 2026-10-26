@@ -1,5 +1,5 @@
 // Carsinstore server: storefront API, guest checkout, private download links and admin.
-try { process.loadEnvFile(); } catch { /* no .env file — fine */ }
+try { process.loadEnvFile(); } catch { /* no .env file, which is fine */ }
 
 const path = require('path');
 const fs = require('fs');
@@ -276,7 +276,7 @@ async function confirmPayment(order) {
 }
 
 // ---------- abandoned checkout reminders ----------
-// A buyer who opened Paystack checkout but didn't pay gets one "still want it?" email, 1–48 hours later.
+// A buyer who opened Paystack checkout but didn't pay gets one "still want it?" email, between 1 and 48 hours later.
 // Each order is checked with Paystack first (bank transfers can confirm late), and nobody is reminded
 // about a product they've since bought or been reminded about.
 const REMIND_AFTER_MIN = Number(process.env.REMIND_AFTER_MINUTES || 60);
@@ -294,7 +294,7 @@ async function remindAbandoned() {
     const p = one('SELECT * FROM products WHERE id = ? AND published = 1', o.product_id);
     if (done || !u || !p) continue;
     await mailer.sendCheckoutReminder({
-      to: u.email, store: s.store_name, name: u.name, title: p.title, amount: formatPrice(o.amount_cents, o.currency),
+      to: u.email, store: s.store_name, name: u.name, title: p.title, amount: formatPrice(o.amount_cents, o.currency), ref: orderRef(o),
       url: `${BASE_URL}/p/${p.slug}`, siteUrl: BASE_URL, support: supportEmail(s), key: `${emailKey(o)}-reminder`, replyTo: supportEmail(s),
     }).catch(e => console.error('Reminder failed:', e.message));
   }
@@ -327,7 +327,7 @@ app.post('/api/paystack/webhook', express.raw({ type: '*/*' }), wrap(async (req,
   if (given.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected))) return res.status(401).end();
   const event = JSON.parse(req.body.toString('utf8'));
   if (event.event === 'charge.success' && event.data?.reference) {
-    // Never trust the webhook payload alone — re-verify with Paystack before releasing files.
+    // Never trust the webhook payload alone: re-verify with Paystack before releasing files.
     await confirmPayment(one('SELECT * FROM orders WHERE payment_ref = ?', event.data.reference));
   }
   if (event.event === 'refund.processed') {
@@ -569,7 +569,7 @@ app.get('/api/order/:token', limit({ name: 'order', max: 120, windowMs: 60 * 100
 // Limited per address and per visitor so the form can't be used to flood someone's inbox.
 app.post('/api/resend-links',
   limit({ name: 'links-ip', max: 10, windowMs: 60 * 60 * 1000, message: 'Too many requests. Try again in {minutes} minutes.' }),
-  limit({ name: 'links-email', max: 3, windowMs: 60 * 60 * 1000, keyOf: req => String(req.body?.email || '').trim().toLowerCase(), message: 'We already sent your links recently — check your inbox and spam folder.' }),
+  limit({ name: 'links-email', max: 3, windowMs: 60 * 60 * 1000, keyOf: req => String(req.body?.email || '').trim().toLowerCase(), message: 'We already sent your links recently. Check your inbox and spam folder.' }),
   wrap(async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!mailer.enabled) return bad(res, 'Email delivery is not set up for this store yet.', 503);
@@ -718,7 +718,7 @@ admin.post('/grant', (req, res) => {
 admin.post('/orders/:id/resend', wrap(async (req, res) => {
   const o = one('SELECT * FROM orders WHERE id = ?', req.params.id);
   if (!o) return bad(res, 'Not found', 404);
-  if (!mailer.enabled) return bad(res, 'Email is not set up — copy the link and send it yourself.');
+  if (!mailer.enabled) return bad(res, 'Email is not set up. Copy the link and send it yourself.');
   await sendLinks([o], { resend: true });
   res.json({ ok: true });
 }));
@@ -727,7 +727,7 @@ admin.post('/orders/:id/revoke', (req, res) => { run("UPDATE orders SET status =
 // ----- affiliates -----
 const affiliateLink = a => `${BASE_URL}/?ref=${encodeURIComponent(a.code)}`;
 const affiliateStatsUrl = a => `${BASE_URL}/#/affiliate/${a.token}`;
-// Sales, commission earned, paid out and still owed — per currency, since sales can be in more than one.
+// Sales, commission earned, paid out and still owed, per currency, since sales can be in more than one.
 function affiliateSummary(a) {
   const rows = all(`SELECT currency, COUNT(*) AS sales, SUM(amount_cents) AS revenue, SUM(commission_cents) AS earned
     FROM orders WHERE affiliate_id = ? AND status = 'paid' GROUP BY currency`, a.id);
@@ -891,7 +891,7 @@ function sendPage(res, m) {
 const shareImage = s => (s.share_image ? `${BASE_URL}/media/covers/${s.share_image}` : null);
 function sendHome(res) {
   const s = getSettings();
-  sendPage(res, { title: `${s.store_name} — ${plain(s.tagline)}`, ogTitle: s.store_name, description: shortText(plain(s.hero_sub || s.tagline)), url: `${BASE_URL}/`, site: s.store_name, image: shareImage(s) });
+  sendPage(res, { title: `${s.store_name} | ${plain(s.tagline)}`, ogTitle: s.store_name, description: shortText(plain(s.hero_sub || s.tagline)), url: `${BASE_URL}/`, site: s.store_name, image: shareImage(s) });
 }
 
 app.get('/p/:slug', (req, res) => {
@@ -900,7 +900,7 @@ app.get('/p/:slug', (req, res) => {
   if (!p) return sendHome(res);
   const price = p.price_cents ? formatPrice(p.price_cents, s.currency || 'ngn') : 'Free';
   sendPage(res, {
-    title: `${p.title} — ${s.store_name}`, ogTitle: `${p.title} · ${price}`,
+    title: `${p.title} | ${s.store_name}`, ogTitle: `${p.title} · ${price}`,
     description: shortText(plain(p.subtitle) || plain(p.description) || s.tagline),
     url: `${BASE_URL}/p/${p.slug}`, site: s.store_name, type: 'product',
     image: p.cover_path ? `${BASE_URL}/media/covers/${p.cover_path}` : shareImage(s),
@@ -922,5 +922,5 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`Carsinstore running at ${BASE_URL}`);
-  console.log(`Payments: ${PAYSTACK_KEY ? (PAYSTACK_KEY.startsWith('sk_live') ? 'Paystack (LIVE)' : 'Paystack (test mode)') : DEMO_CHECKOUT ? 'DEMO mode (no real charges)' : 'OFF — add PAYSTACK_SECRET_KEY to .env'}`);
+  console.log(`Payments: ${PAYSTACK_KEY ? (PAYSTACK_KEY.startsWith('sk_live') ? 'Paystack (LIVE)' : 'Paystack (test mode)') : DEMO_CHECKOUT ? 'DEMO mode (no real charges)' : 'OFF (add PAYSTACK_SECRET_KEY to .env)'}`);
 });
