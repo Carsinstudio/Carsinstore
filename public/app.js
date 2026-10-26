@@ -41,7 +41,10 @@
   function md(src) {
     // Tiny markdown: headings, bullet lists, bold, italics, links, paragraphs.
     const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      .replace(/(^|\s)_(.+?)_(?=\s|$)/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/\[([^\]]+)\]\((#\/[\w/-]*)\)/g, '<a href="$2">$1</a>')
+      .replace(/(^|[\s(])([\w.+-]+@[\w-]+\.[\w.-]+\w)/g, '$1<a href="mailto:$2">$2</a>');
     let out = '', para = [], list = [];
     const flush = () => {
       if (para.length) out += `<p>${para.map(inline).join('<br>')}</p>`;
@@ -191,9 +194,9 @@
           ${social.length ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Stay connected</div><div class="socials">${social.map(([k, ic]) => `<a href="${esc(s[k])}" target="_blank" rel="noopener" aria-label="${k}">${ic}</a>`).join('')}</div>` : ''}</div>
         <div><h5>Store</h5><a href="#/shop">All products</a><a href="#/shop?kind=video">Videos</a><a href="#/shop?kind=pdf">PDFs & guides</a><a href="#/shop?price=free">Free resources</a></div>
         <div><h5>Categories</h5>${cats.map(c => `<a href="#/shop?cat=${esc(c.slug)}">${esc(c.name)}</a>`).join('') || '<a href="#/shop">Browse all</a>'}</div>
-        <div><h5>Help</h5><a href="#/find">Find my downloads</a><a href="#/" data-faq>FAQ</a></div>
+        <div><h5>Help</h5><a href="#/find">Find my downloads</a><a href="#/" data-faq>FAQ</a>${s.support_email ? `<a href="mailto:${esc(s.support_email)}">Contact us</a>` : ''}<a href="#/refunds">Refund policy</a></div>
       </div>
-      <div class="foot-bottom"><span>© ${new Date().getFullYear()} ${esc(s.store_name)}. All rights reserved.</span><div><span>Secure checkout</span><span>Instant delivery</span></div></div>
+      <div class="foot-bottom"><span>© ${new Date().getFullYear()} ${esc(s.store_name)}. All rights reserved.</span><div><a href="#/terms">Terms</a><a href="#/privacy">Privacy</a><a href="#/refunds">Refunds</a></div></div>
     </div><div class="wordmark">${esc(s.store_name)}</div><div class="foot-glow"></div></footer>`;
   }
   function shell(content, { active, bare } = {}) {
@@ -388,6 +391,7 @@
             <input class="input" name="email" type="email" placeholder="Your email" autocomplete="email" inputmode="email" required>
             <div class="error-msg" id="buy-err"></div>
             <button class="btn btn-primary btn-lg btn-block" id="buy">${p.price ? 'Buy now' : 'Get it free'} ${I.arrow}</button>
+            <small class="dim" style="font-size:11.5px;text-align:center;line-height:1.5">By continuing you agree to our <a href="#/terms" style="text-decoration:underline">Terms</a>${p.price ? `, <a href="#/refunds" style="text-decoration:underline">Refund Policy</a>` : ''} and <a href="#/privacy" style="text-decoration:underline">Privacy Policy</a>.</small>
           </form>
           ${p.price ? `<button class="coupon-toggle" id="coupon-toggle">Have a discount code?</button><form class="coupon hidden" id="coupon-form"><input class="input" name="code" placeholder="CODE"><button class="btn btn-sm">Apply</button></form>` : ''}
           <ul class="includes">
@@ -586,6 +590,19 @@
     });
   }
 
+  async function legalPage(page) {
+    let doc;
+    try { doc = await api('/api/legal/' + page); } catch { return notFound(); }
+    document.title = `${doc.title} — ${S.store.settings.store_name}`;
+    const others = [['terms', 'Terms of Sale'], ['privacy', 'Privacy Policy'], ['refunds', 'Refund Policy']].filter(([k]) => k !== page);
+    shell(`<div class="wrap page" style="max-width:760px;padding-top:56px">
+      <span class="label">Legal</span>
+      <div class="prose" style="margin-top:6px">${md(doc.text)}</div>
+      <div class="box" style="margin-top:36px;padding:16px 20px;display:flex;gap:18px;flex-wrap:wrap;font-size:14px">
+        <span class="muted">Also see:</span>${others.map(([k, t]) => `<a href="#/${k}" style="color:var(--accent-2)">${t}</a>`).join('')}
+      </div></div>`);
+  }
+
   function notFound() {
     shell(`<div class="wrap page" style="text-align:center;padding-top:120px"><span class="label">404</span><h1 style="margin:18px 0 12px">Page not found.</h1><p class="muted">That product or page doesn't exist.</p><a class="btn btn-primary" href="#/shop" style="margin-top:20px">Back to the store</a></div>`);
   }
@@ -607,6 +624,7 @@
         case 'login': return authPage(q);
         case 'download': return await downloadPage(parts[1]);
         case 'find': return findDownloads();
+        case 'terms': case 'privacy': case 'refunds': return await legalPage(parts[0]);
         case 'account': return account();
         case 'admin': return await window.Admin.render(parts.slice(1), q);
         default: return notFound();

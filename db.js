@@ -97,6 +97,8 @@ const DEFAULT_SETTINGS = {
   currency: 'ngn',
   footer_blurb: 'Digital products that keep your work moving.',
   instagram: '', x: '', youtube: '', tiktok: '',
+  support_email: '', business_location: 'Nigeria',
+  legal_terms: '', legal_privacy: '', legal_refunds: '', legal_updated: new Date().toISOString().slice(0, 10),
   faq: JSON.stringify([
     { q: 'How do I get my product after buying?', a: 'Instantly. Right after checkout you land on your private download page, and the same link is emailed to you.' },
     { q: 'Do I need to create an account?', a: 'No. Just enter your name and email, pay, and download. No passwords.' },

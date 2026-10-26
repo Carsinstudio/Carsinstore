@@ -9,6 +9,7 @@ const multer = require('multer');
 const { all, one, run, getSettings, DATA_DIR } = require('./db');
 const mailer = require('./mailer');
 const backup = require('./backup');
+const { LEGAL_PAGES } = require('./legal');
 
 const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -115,6 +116,23 @@ function findOrCreateCustomer(name, email) {
 }
 
 function publicUser(u) { return u && { id: u.id, email: u.email, name: u.name, isAdmin: !!u.is_admin }; }
+
+// Where buyers can reach the store: the support email from settings, else the owner's email.
+function supportEmail(s = getSettings()) {
+  return s.support_email || one('SELECT email FROM users WHERE is_admin = 1 ORDER BY id LIMIT 1')?.email || '';
+}
+
+// A legal page's text: the owner's edited version, or the built-in draft, with store details filled in.
+function legalText(page, s = getSettings()) {
+  const p = LEGAL_PAGES[page];
+  const raw = (s[p.key] || '').trim() || p.text;
+  const updated = s.legal_updated || new Date().toISOString().slice(0, 10);
+  const vars = {
+    STORE: s.store_name, EMAIL: supportEmail(s) || 'the email shown in the footer', WEBSITE: BASE_URL.replace(/^https?:\/\//, ''),
+    LOCATION: s.business_location || 'Nigeria', UPDATED: new Date(updated).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+  };
+  return raw.replace(/\{\{(STORE|EMAIL|WEBSITE|LOCATION|UPDATED)\}\}/g, (_, k) => vars[k]);
+}
 
 // Emails each order's download link (one email per order). The delivery email after payment uses a
 // fixed idempotency key so it is never sent twice; manual re-sends get a fresh key each time.
@@ -228,8 +246,11 @@ const requireAdmin = (req, res, next) => (req.user?.is_admin ? next() : bad(res,
 app.get('/api/store', (req, res) => {
   const categories = all(`SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.published = 1) AS count
     FROM categories c ORDER BY c.sort, c.name`);
+  const settings = getSettings();
+  for (const k of Object.keys(settings)) if (k.startsWith('legal_')) delete settings[k];
+  settings.support_email = supportEmail();
   res.json({
-    settings: getSettings(), categories, user: req.user?.is_admin ? publicUser(req.user) : null,
+    settings, categories, user: req.user?.is_admin ? publicUser(req.user) : null,
     payments: PAYSTACK_KEY ? 'paystack' : DEMO_CHECKOUT ? 'demo' : 'off', emails: mailer.enabled,
     needsSetup: !one('SELECT id FROM users WHERE is_admin = 1'),
   });
@@ -264,6 +285,12 @@ app.get('/api/products/:slug', (req, res) => {
   // File ids are only exposed for free previews; everything else stays locked until purchase.
   const files = productFiles(p.id).map(f => ({ name: f.name, size: f.size, kind: f.kind, preview: f.preview, ...(f.preview ? { id: f.id } : {}) }));
   res.json({ ...productCard(p), description: p.description, fileList: files });
+});
+
+app.get('/api/legal/:page', (req, res) => {
+  const p = LEGAL_PAGES[req.params.page];
+  if (!p) return bad(res, 'Page not found.', 404);
+  res.json({ title: p.title, text: legalText(req.params.page) });
 });
 
 // ----- owner auth (buyers never need an account) -----
@@ -542,12 +569,29 @@ admin.post('/coupons', (req, res) => {
 admin.put('/coupons/:id', (req, res) => { run('UPDATE coupons SET active = ? WHERE id = ?', req.body.active ? 1 : 0, req.params.id); res.json({ ok: true }); });
 admin.delete('/coupons/:id', (req, res) => { run('DELETE FROM coupons WHERE id = ?', req.params.id); res.json({ ok: true }); });
 
-admin.get('/settings', (_req, res) => res.json(getSettings()));
+// Settings as the dashboard edits them: legal pages show their draft text until the owner changes them.
+function adminSettings() {
+  const s = getSettings();
+  for (const p of Object.values(LEGAL_PAGES)) if (!(s[p.key] || '').trim()) s[p.key] = p.text;
+  s.legal_defaults = Object.fromEntries(Object.values(LEGAL_PAGES).map(p => [p.key, p.text]));
+  return s;
+}
+admin.get('/settings', (_req, res) => res.json(adminSettings()));
 admin.put('/settings', (req, res) => {
-  for (const [k, v] of Object.entries(req.body || {})) {
+  const before = adminSettings();
+  let legalChanged = false;
+  for (let [k, v] of Object.entries(req.body || {})) {
+    if (k === 'legal_defaults' || k === 'legal_updated') continue;
+    const legal = Object.values(LEGAL_PAGES).find(p => p.key === k);
+    if (legal) {
+      v = String(v).replace(/\r\n/g, '\n');
+      if (v.trim() !== String(before[k]).trim()) legalChanged = true;
+      if (v.trim() === legal.text.trim()) v = ''; // unchanged draft: keep following the built-in text
+    }
     run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, typeof v === 'string' ? v : JSON.stringify(v));
   }
-  res.json(getSettings());
+  if (legalChanged) run("INSERT INTO settings (key, value) VALUES ('legal_updated', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", new Date().toISOString().slice(0, 10));
+  res.json(adminSettings());
 });
 
 // ----- backups: move the whole store between computers/hosts -----

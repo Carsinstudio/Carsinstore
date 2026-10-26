@@ -346,7 +346,16 @@
       <div class="panel"><h3>Homepage</h3>${f('announcement', 'Announcement bar', 'Leave empty to hide it.')}${f('hero_eyebrow', 'Hero label', 'The last word is highlighted.')}${f('hero_title', 'Hero headline', 'Use | to split into two lines. The second line is softly faded.')}
         <label class="field"><span>Hero text</span><textarea class="input" name="hero_sub" rows="3">${esc(s.hero_sub || '')}</textarea></label></div>
       <div class="panel"><h3>FAQ <button type="button" class="btn btn-sm" id="add-faq">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add question</button></h3><div id="faq"></div></div>
-    </div><aside><div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}</div></aside></div></form>
+      <div class="panel"><h3>Legal pages</h3>
+        <p class="muted" style="margin:-6px 0 16px;font-size:13px">Drafts written for how this store works (guest checkout, Paystack, emailed download links, Nigerian law). Read them and adjust anything that doesn't match your business — they're a starting point, not legal advice. <code>{{STORE}}</code>, <code>{{EMAIL}}</code>, <code>{{WEBSITE}}</code>, <code>{{LOCATION}}</code> and <code>{{UPDATED}}</code> are filled in automatically.</p>
+        ${[['legal_terms', 'Terms of Sale', 'terms'], ['legal_refunds', 'Refund Policy', 'refunds'], ['legal_privacy', 'Privacy Policy', 'privacy']].map(([k, label, page]) => `
+          <label class="field"><span style="display:flex;justify-content:space-between;align-items:center">${label}
+            <span style="display:flex;gap:6px"><a class="btn btn-sm btn-ghost" href="#/${page}" target="_blank">View</a><button type="button" class="btn btn-sm btn-ghost" data-reset-legal="${k}">Reset to draft</button></span></span>
+            <textarea class="input" name="${k}" rows="12" style="font-family:var(--mono);font-size:12.5px">${esc(s[k] || '')}</textarea></label>`).join('')}
+      </div>
+    </div><aside>
+      <div class="panel"><h3>Contact &amp; business</h3>${f('support_email', 'Support email', 'Shown in the footer and legal pages. Leave empty to use your owner email.', 'email')}${f('business_location', 'Business location', 'e.g. Lagos, Nigeria')}</div>
+      <div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}</div></aside></div></form>
       <div class="panel" style="max-width:860px"><h3>Backup &amp; move</h3>
         <p class="muted" style="margin:-6px 0 18px;font-size:13.5px">Download your whole store — products, files, covers and settings — as one file, then restore it on another computer or host. Also a good safety copy to keep.</p>
         <div class="row" style="align-items:start">
@@ -372,6 +381,11 @@
     };
     drawFaq();
     $('#add-faq').addEventListener('click', () => { faq.push({ q: '', a: '' }); drawFaq(); });
+
+    $$('[data-reset-legal]').forEach(b => b.addEventListener('click', () => {
+      $(`[name="${b.dataset.resetLegal}"]`).value = s.legal_defaults[b.dataset.resetLegal];
+      toast('Draft restored — click Save settings to keep it');
+    }));
 
     // backup & restore
     $('#bk-orders').addEventListener('change', e => ($('#bk-download').href = `/api/admin/backup?orders=${e.target.checked ? 1 : 0}`));
