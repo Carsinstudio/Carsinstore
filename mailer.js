@@ -62,4 +62,13 @@ function sendSaleAlert({ to, store, type, amount, title, buyer, email, phone, da
   });
 }
 
-module.exports = { enabled, sendDownload, sendSaleAlert };
+// "Still want …?" — to a buyer whose payment didn't complete. Uses the "checkout-reminder" template.
+function sendCheckoutReminder({ to, store, name, title, amount, url, key, replyTo }) {
+  return sendTemplate({
+    template: process.env.RESEND_REMINDER_TEMPLATE || 'checkout-reminder', to, key, replyTo,
+    subject: `Still want ${title}?`,
+    variables: { STORE_NAME: store, BUYER_NAME: String(name || '').trim().split(/\s+/)[0] || 'there', PRODUCT_TITLE: title, AMOUNT: amount, PRODUCT_URL: url },
+  });
+}
+
+module.exports = { enabled, sendDownload, sendSaleAlert, sendCheckoutReminder };

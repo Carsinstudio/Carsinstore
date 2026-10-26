@@ -11,6 +11,7 @@
     pct: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M19 5 5 19"/><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/></svg>',
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>',
     store: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9 5.5 4h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"/></svg>',
+    link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
     upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m-5 5 5-5 5 5M4 20h16"/></svg>',
@@ -20,7 +21,7 @@
   };
 
   function layout(active, content) {
-    const items = [['', 'Overview', A.dash], ['products', 'Products', A.box], ['categories', 'Categories', A.tag], ['orders', 'Orders', A.receipt], ['customers', 'Customers', I.users], ['coupons', 'Discounts', A.pct], ['settings', 'Store settings', A.gear]];
+    const items = [['', 'Overview', A.dash], ['products', 'Products', A.box], ['categories', 'Categories', A.tag], ['orders', 'Orders', A.receipt], ['customers', 'Customers', I.users], ['coupons', 'Discounts', A.pct], ['affiliates', 'Affiliates', A.link], ['settings', 'Store settings', A.gear]];
     app.innerHTML = `<div class="admin">
       <aside class="admin-side">
         <a class="brand" href="#/" style="border:0">${I.logo}<span>${esc(S.store.settings.store_name)}</span></a>
@@ -62,7 +63,7 @@
     const max = Math.max(1, ...days.map(d => d.revenue));
     layout('', head('Overview', `<a class="btn btn-primary" href="#/admin/products/new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New product</a>`) + `
       <div class="stats">
-        <div class="stat"><small>Revenue</small><b>${money(s.revenue)}</b></div>
+        <div class="stat"><small>Revenue</small><b>${money(s.revenue)}</b>${(s.otherCurrencies || []).map(c => `<div class="muted" style="font-size:12.5px;margin-top:4px">+ ${money(c.revenue, c.currency)} in ${c.currency.toUpperCase()}</div>`).join('')}</div>
         <div class="stat"><small>Paid sales</small><b>${s.sales}</b></div>
         <div class="stat"><small>Customers</small><b>${s.customers}</b></div>
         <div class="stat"><small>Free claims</small><b>${s.free}</b></div>
@@ -107,6 +108,7 @@
     if (id === 'new') { location.hash = '#/admin/products'; return setTimeout(newProduct, 50); }
     const [p, cats] = await Promise.all([api(`/api/admin/products/${id}`), api('/api/admin/categories')]);
     const dollars = c => (c ? (c / 100).toFixed(2).replace(/\.00$/, '') : '');
+    let alt = {}; try { alt = JSON.parse(p.alt_prices || '{}'); } catch {}
     const total = p.files.reduce((n, f) => n + f.size, 0);
 
     layout('products', `<div class="crumbs" style="margin-bottom:12px"><a href="#/admin/products">Products</a><span>/</span><span>${esc(p.title)}</span></div>` +
@@ -133,7 +135,8 @@
         <div class="panel"><h3>Pricing</h3>
           <div class="row"><label class="field"><span>Price</span><input class="input" form="pf" name="price" inputmode="decimal" value="${dollars(p.price_cents)}" placeholder="0 = free"></label>
           <label class="field"><span>Compare at</span><input class="input" form="pf" name="compare" inputmode="decimal" value="${dollars(p.compare_cents)}" placeholder="optional"></label></div>
-          <small class="dim" style="font-size:12px">Leave price at 0 to make it a free product (customers just need an account).</small>
+          ${extraCurrencies().length ? `<div class="row" style="margin-top:4px">${extraCurrencies().map(c => `<label class="field"><span>Price in ${c.toUpperCase()}</span><input class="input" form="pf" name="price_${c}" inputmode="decimal" value="${dollars(alt[c])}" placeholder="not sold in ${c.toUpperCase()}"></label>`).join('')}</div>` : ''}
+          <small class="dim" style="font-size:12px">Leave price at 0 to make it a free product (buyers just enter their name and email).${extraCurrencies().length ? ' Leave an extra currency empty to sell only in ' + (S.store.settings.currency || 'ngn').toUpperCase() + '.' : ''}</small>
         </div>
         <div class="panel"><h3>Category</h3>
           <label class="field" style="margin:0"><select class="input" form="pf" name="category_id"><option value="">No category</option>${cats.map(c => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><small><a href="#/admin/categories" style="color:var(--accent-2)">Manage categories</a></small></label>
@@ -154,6 +157,7 @@
         title: f.title, subtitle: f.subtitle, description: f.description, slug: f.slug,
         price_cents: Math.round(parseFloat(f.price || 0) * 100) || 0, compare_cents: f.compare ? Math.round(parseFloat(f.compare) * 100) : null,
         category_id: f.category_id || null, published: !!f.published, featured: !!f.featured,
+        alt_prices: Object.fromEntries(extraCurrencies().map(c => [c, Math.round(parseFloat(f['price_' + c] || 0) * 100) || 0])),
       } });
       if (!quiet) toast('Saved');
       return r;
@@ -272,13 +276,13 @@
     const list = await api('/api/admin/orders');
     const shown = list.filter(o => o.status !== 'pending');
     const csv = () => {
-      const rows = [['id', 'date', 'name', 'email', 'product', 'amount', 'currency', 'status', 'coupon', 'download_link'], ...shown.map(o => [o.id, o.created_at, o.name || '', o.email, o.title, (o.amount_cents / 100).toFixed(2), o.currency, o.status, o.coupon_code || '', o.link])];
+      const rows = [['id', 'date', 'name', 'email', 'phone', 'product', 'amount', 'currency', 'status', 'coupon', 'referred_by', 'commission', 'download_link'], ...shown.map(o => [o.id, o.created_at, o.name || '', o.email, o.phone || '', o.title, (o.amount_cents / 100).toFixed(2), o.currency, o.status, o.coupon_code || '', o.affiliate_code || '', (o.commission_cents / 100).toFixed(2), o.link])];
       const blob = new Blob([rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' });
       Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'orders.csv' }).click();
     };
     layout('orders', head('Orders', `<button class="btn" id="csv">Export CSV</button>`) + (shown.length ? `
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>#</th><th>Date</th><th>Buyer</th><th>Product</th><th>Amount</th><th>Status</th><th></th></tr>
-      ${shown.map(o => `<tr><td class="dim">${o.id}</td><td class="muted">${date(o.created_at)}</td><td><div>${esc(o.name || '—')}</div><small class="dim">${esc(o.email)}</small></td><td>${esc(o.title)}</td>
+      ${shown.map(o => `<tr><td class="dim">${o.id}</td><td class="muted">${date(o.created_at)}</td><td><div>${esc(o.name || '—')}</div><small class="dim">${esc(o.email)}${o.phone ? ' · ' + esc(o.phone) : ''}</small>${o.affiliate_code ? `<div><span class="status free" title="Referred by an affiliate">via ${esc(o.affiliate_code)}</span></div>` : ''}</td><td>${esc(o.title)}</td>
         <td>${o.amount_cents ? money(o.amount_cents, o.currency) : '—'}${o.coupon_code ? ` <small class="dim">${esc(o.coupon_code)}</small>` : ''}</td><td>${statusPill(o.status)}</td>
         <td style="text-align:right;white-space:nowrap">${o.status !== 'refunded' ? `<button class="btn btn-sm btn-ghost" data-copy="${esc(o.link)}" title="Copy this buyer's private download link">Copy link</button>${S.store.emails ? `<button class="btn btn-sm btn-ghost" data-resend="${o.id}">Email link</button>` : ''}<button class="btn btn-sm btn-ghost" data-revoke="${o.id}">Revoke</button>` : ''}</td></tr>`).join('')}</table></div>`
       : '<div class="empty"><h3>No orders yet</h3><p>Purchases and free claims will show up here.</p></div>'));
@@ -297,13 +301,80 @@
   async function customers() {
     const list = await api('/api/admin/customers');
     layout('customers', head('Customers', `<span class="muted" style="font-size:13px;align-self:center">${plural(list.length, 'buyer')}</span><button class="btn" id="csv">Export emails</button>`) + (list.length ? `
-      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Name</th><th>Email</th><th>First seen</th><th>Products</th><th>Spent</th></tr>
-      ${list.map(u => `<tr><td>${esc(u.name || '—')}</td><td class="muted">${esc(u.email)}</td><td class="muted">${date(u.created_at)}</td><td>${u.products}</td><td>${money(u.spent)}</td></tr>`).join('')}</table></div>`
+      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Name</th><th>Email</th><th>Phone</th><th>First seen</th><th>Products</th><th>Spent</th></tr>
+      ${list.map(u => `<tr><td>${esc(u.name || '—')}</td><td class="muted">${esc(u.email)}</td><td class="muted">${esc(u.phone || '—')}</td><td class="muted">${date(u.created_at)}</td><td>${u.products}</td><td>${money(u.spent)}</td></tr>`).join('')}</table></div>`
       : '<div class="empty"><h3>No buyers yet</h3><p>Everyone who buys or grabs a free product shows up here with their name and email.</p></div>'));
     $('#csv').addEventListener('click', () => {
-      const blob = new Blob(['email,name,joined,products,spent\n' + list.map(u => [u.email, u.name || '', u.created_at, u.products, (u.spent / 100).toFixed(2)].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' });
+      const blob = new Blob(['email,name,phone,joined,products,spent\n' + list.map(u => [u.email, u.name || '', u.phone || '', u.created_at, u.products, (u.spent / 100).toFixed(2)].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' });
       Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'customers.csv' }).click();
     });
+  }
+
+  // Extra currencies switched on in Store settings (besides the store currency).
+  function extraCurrencies() {
+    const main = (S.store.settings.currency || 'ngn').toLowerCase();
+    return String(S.store.settings.extra_currencies || '').toLowerCase().split(',').map(c => c.trim()).filter(c => c && c !== main);
+  }
+  const copy = async (text, msg) => { try { await navigator.clipboard.writeText(text); toast(msg); } catch { prompt('Copy:', text); } };
+
+  // ---------- affiliates ----------
+  async function affiliates() {
+    const list = await api('/api/admin/affiliates');
+    const owedText = a => a.totals.filter(t => t.owed).map(t => money(t.owed, t.currency)).join(' + ') || '—';
+    layout('affiliates', head('Affiliates', `<button class="btn btn-primary" id="new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New affiliate</button>`) + `
+      <p class="muted" style="margin:-12px 0 22px;font-size:13.5px;max-width:680px">Partners share their link, and earn a commission on every paid order from buyers who arrive through it (within 30 days). You pay them yourself, then record it here. Each partner has a private stats page you can send them.</p>` + (list.length ? `
+      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Partner</th><th>Code</th><th>Commission</th><th>Sales</th><th>Owed</th><th>Status</th><th></th></tr>
+      ${list.map(a => `<tr><td><div>${esc(a.name)}</div><small class="dim">${esc(a.email)}</small></td><td style="font-family:var(--mono)">${esc(a.code)}</td>
+        <td>${a.percent}%</td><td>${a.sales}</td><td style="color:var(--amber)">${owedText(a)}</td><td>${a.active ? '<span class="status live">active</span>' : '<span class="status">paused</span>'}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" data-link="${a.id}">Copy link</button><button class="btn btn-sm btn-ghost" data-stats="${a.id}" title="Their private stats page">Stats page</button>
+          <button class="btn btn-sm btn-ghost" data-pay="${a.id}">Record payout</button><button class="icon-btn" data-edit="${a.id}" title="Edit">${A.edit}</button></td></tr>`).join('')}</table></div>`
+      : '<div class="empty"><h3>No affiliates yet</h3><p>Add creators, friends or customers who\'d like to promote your products for a commission.</p></div>'));
+    const find = id => list.find(a => a.id === Number(id));
+    $$('[data-link]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.link).link, 'Referral link copied')));
+    $$('[data-stats]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.stats).statsUrl, 'Stats page link copied — send it to your partner')));
+    const form = (a = {}) => modal(`<h3>${a.id ? 'Edit' : 'New'} affiliate</h3><form id="af" style="margin-top:16px">
+      <label class="field"><span>Name</span><input class="input" name="name" value="${esc(a.name || '')}" required></label>
+      <label class="field"><span>Email</span><input class="input" name="email" type="email" value="${esc(a.email || '')}" required><small>Where you'll reach them about payouts. Their own purchases don't earn commission.</small></label>
+      <div class="row"><label class="field"><span>Commission %</span><input class="input" name="percent" type="number" min="1" max="90" value="${a.percent ?? 20}" required></label>
+      ${a.id ? `<label class="field"><span>Status</span><select class="input" name="active"><option value="1" ${a.active ? 'selected' : ''}>Active</option><option value="0" ${a.active ? '' : 'selected'}>Paused</option></select></label>`
+        : `<label class="field"><span>Code (optional)</span><input class="input" name="code" placeholder="e.g. ADA" style="text-transform:uppercase"><small>Used in their link. Made from their name if empty.</small></label>`}</div>
+      ${a.id ? '<small class="dim" style="display:block;margin:-6px 0 6px;font-size:12px">A new commission rate applies to future sales only.</small>' : ''}
+      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Save</button></div></form>`, (m, close) => {
+      $('#af', m).addEventListener('submit', async e => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(e.target));
+        if (a.id) body.active = body.active === '1';
+        try {
+          const r = await api(`/api/admin/affiliates${a.id ? '/' + a.id : ''}`, { method: a.id ? 'PUT' : 'POST', body });
+          close(); affiliates();
+          if (!a.id) modal(`<h3>${esc(r.name)} is set up</h3><p class="muted" style="margin:0 0 14px">Send them both links:</p>
+            <label class="field"><span>Referral link (to share)</span><input class="input" readonly value="${esc(r.link)}" onclick="this.select()"></label>
+            <label class="field"><span>Private stats page (just for them)</span><input class="input" readonly value="${esc(r.statsUrl)}" onclick="this.select()"></label>
+            <div class="actions"><button class="btn btn-primary" data-close>Done</button></div>`);
+        } catch (err) { toast(err.message, true); }
+      });
+    });
+    $('#new').addEventListener('click', () => form());
+    $$('[data-edit]').forEach(b => b.addEventListener('click', () => form(find(b.dataset.edit))));
+    $$('[data-pay]').forEach(b => b.addEventListener('click', () => {
+      const a = find(b.dataset.pay);
+      const owed = a.totals.filter(t => t.owed);
+      const cur = (owed[0] || a.totals[0] || { currency: S.store.settings.currency || 'ngn' }).currency;
+      const curs = [...new Set([cur, ...a.totals.map(t => t.currency)])];
+      modal(`<h3>Record a payout to ${esc(a.name)}</h3><p class="muted" style="margin:0 0 16px">Owed: ${owedText(a)}. Record what you've sent them (e.g. by bank transfer).</p>
+        <form id="pf2"><div class="row"><label class="field"><span>Amount</span><input class="input" name="amount" inputmode="decimal" required value="${owed[0] ? (owed[0].owed / 100) : ''}"></label>
+        <label class="field"><span>Currency</span><select class="input" name="currency">${curs.map(c => `<option value="${c}">${c.toUpperCase()}</option>`).join('')}</select></label></div>
+        <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Record payout</button></div></form>`, (m, close) => {
+        $('#pf2', m).addEventListener('submit', async e => {
+          e.preventDefault();
+          try {
+            await api(`/api/admin/affiliates/${a.id}/payout`, { method: 'POST', body: { currency: e.target.currency.value, amount_cents: Math.round(parseFloat(e.target.amount.value) * 100) } });
+            close(); toast('Payout recorded'); affiliates();
+          } catch (err) { toast(err.message, true); }
+        });
+      });
+    }));
   }
 
   // ---------- coupons ----------
@@ -355,6 +426,14 @@
       </div>
     </div><aside>
       <div class="panel"><h3>Contact &amp; business</h3>${f('support_email', 'Support email', 'Shown in the footer and legal pages. Leave empty to use your owner email.', 'email')}${f('business_location', 'Business location', 'e.g. Lagos, Nigeria')}</div>
+      <div class="panel"><h3>Checkout</h3>
+        <label class="field"><span>Ask for phone number</span><select class="input" name="checkout_phone">${[['off', 'No — just name and email'], ['optional', 'Optional'], ['required', 'Required']].map(([v, l]) => `<option value="${v}" ${s.checkout_phone === v ? 'selected' : ''}>${l}</option>`).join('')}</select><small>Each extra field costs a few sales. Only ask if you'll use it.</small></label>
+        <label class="check" style="margin-bottom:6px"><span class="switch"><input type="checkbox" data-flag="abandoned_reminders" ${s.abandoned_reminders !== '0' ? 'checked' : ''}><i></i></span>Remind unfinished checkouts</label>
+        <small class="dim" style="display:block;margin:0 0 16px;font-size:12px">If someone opens Paystack but doesn't pay, they get one "Still want it?" email about an hour later.</small>
+        <span style="display:block;font-size:13px;color:#c9c5bf;margin-bottom:8px;font-weight:500">Also sell in</span>
+        <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:6px">${['ngn', 'ghs', 'kes', 'zar', 'usd'].filter(c => c !== (s.currency || 'ngn')).map(c => `<label class="check" style="font-size:13px"><input type="checkbox" data-extra-cur="${c}" ${String(s.extra_currencies || '').split(',').includes(c) ? 'checked' : ''} style="accent-color:var(--accent)">${c.toUpperCase()}</label>`).join('')}</div>
+        <small class="dim" style="display:block;font-size:12px">Then set a price in that currency on each product. Your Paystack account must be enabled for it — USD needs Paystack's approval.</small>
+      </div>
       <div class="panel"><h3>Notifications</h3>
         ${S.store.emails ? '' : '<p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Email isn\'t set up on this copy of the store, so alerts won\'t be sent from here.</p>'}
         <label class="check" style="margin-bottom:12px"><span class="switch"><input type="checkbox" data-flag="notify_sales" ${s.notify_sales !== '0' ? 'checked' : ''}><i></i></span>Email me for every sale</label>
@@ -433,6 +512,7 @@
       const body = Object.fromEntries(new FormData($('#sf')));
       for (const k of Object.keys(body)) if (k.startsWith('data-')) delete body[k];
       $$('[data-flag]').forEach(i => (body[i.dataset.flag] = i.checked ? '1' : '0'));
+      body.extra_currencies = $$('[data-extra-cur]').filter(i => i.checked).map(i => i.dataset.extraCur).join(',');
       body.faq = faq.filter(x => x.q.trim());
       await api('/api/admin/settings', { method: 'PUT', body });
       await loadStore(); toast('Settings saved');
@@ -447,7 +527,7 @@
       app.innerHTML = spinner();
       const [section, id] = parts;
       if (section === 'products' && id) return editor(id);
-      return ({ products, categories, orders, customers, coupons, settings }[section] || overview)();
+      return ({ products, categories, orders, customers, coupons, affiliates, settings }[section] || overview)();
     },
   };
 })();

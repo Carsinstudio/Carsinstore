@@ -385,10 +385,12 @@
         </div>
         <aside><div class="buy-card">
           <span class="label">${formatOf(p) === 'Download' ? 'Digital download' : formatOf(p) + ' download'}</span>
-          <div class="big-price" id="price">${p.price ? `${money(p.price)}${off ? `<s>${money(p.compare)}</s><span class="off">-${off}%</span>` : ''}` : 'Free'}</div>
+          ${Object.keys(p.prices).length > 1 && p.price ? `<div class="seg" id="cur-switch" style="float:right;margin-top:-2px">${Object.keys(p.prices).map(c => `<button type="button" data-cur="${c}">${c.toUpperCase()}</button>`).join('')}</div>` : ''}
+          <div class="big-price" id="price"></div>
           <form id="buy-form" class="buy-form" novalidate>
             <input class="input" name="name" placeholder="Your name" autocomplete="name" required>
             <input class="input" name="email" type="email" placeholder="Your email" autocomplete="email" inputmode="email" required>
+            ${['optional', 'required'].includes(S.store.settings.checkout_phone) ? `<input class="input" name="phone" type="tel" placeholder="Phone number${S.store.settings.checkout_phone === 'optional' ? ' (optional)' : ''}" autocomplete="tel" inputmode="tel">` : ''}
             <div class="error-msg" id="buy-err"></div>
             <button class="btn btn-primary btn-lg btn-block" id="buy">${p.price ? 'Buy now' : 'Get it free'} ${I.arrow}</button>
             <small class="dim" style="font-size:11.5px;text-align:center;line-height:1.5">By continuing you agree to our <a href="#/terms" style="text-decoration:underline">Terms</a>${p.price ? `, <a href="#/refunds" style="text-decoration:underline">Refund Policy</a>` : ''} and <a href="#/privacy" style="text-decoration:underline">Privacy Policy</a>.</small>
@@ -416,23 +418,45 @@
       try { await navigator.clipboard.writeText(`${location.origin}/p/${p.slug}`); toast('Link copied — it shows a preview when shared'); }
       catch { prompt('Copy this link:', `${location.origin}/p/${p.slug}`); }
     });
-    let coupon = '';
-    $('#coupon-toggle')?.addEventListener('click', () => { $('#coupon-form').classList.remove('hidden'); $('#coupon-toggle').remove(); $('#coupon-form input').focus(); });
-    $('#coupon-form')?.addEventListener('submit', async e => {
-      e.preventDefault();
-      const code = e.target.code.value.trim();
+    // Price shown in the chosen currency, with the "compare at" price (store currency only) or an applied code.
+    const main = (S.store.settings.currency || 'ngn').toLowerCase();
+    let saved = ''; try { saved = localStorage.getItem('cs_currency') || ''; } catch {}
+    const state = { currency: saved in p.prices ? saved : main, coupon: '', discounted: null };
+    const renderPrice = () => {
+      const base = p.prices[state.currency], cur = state.currency;
+      const d = state.discounted;
+      $('#price').innerHTML = !base ? 'Free'
+        : d !== null ? `${d ? money(d, cur) : 'Free'}<s>${money(base, cur)}</s><span class="off">${esc(state.coupon.toUpperCase())}</span>`
+        : `${money(base, cur)}${off && cur === main ? `<s>${money(p.compare, cur)}</s><span class="off">-${off}%</span>` : ''}`;
+      const paid = base && d !== 0;
+      $('#buy').innerHTML = (paid ? 'Buy now' : 'Get it free') + ' ' + I.arrow;
+      $('.mobile-buy span').textContent = base ? money(d ?? base, cur) : 'Free';
+      $$('#cur-switch button').forEach(b => b.classList.toggle('on', b.dataset.cur === cur));
+    };
+    const applyCoupon = async (code, quiet) => {
       try {
-        const r = await api('/api/coupons/validate', { method: 'POST', body: { code, productId: p.id } });
-        coupon = code;
-        $('#price').innerHTML = r.price ? `${money(r.price)}<s>${money(r.original)}</s><span class="off">${esc(code.toUpperCase())}</span>` : `Free<s>${money(r.original)}</s>`;
-        $('#buy').innerHTML = (r.price ? 'Buy now' : 'Get it free') + ' ' + I.arrow;
-        toast('Discount applied');
-      } catch (err) { toast(err.message, true); }
-    });
-    // Remember the buyer's name/email on this device so repeat purchases are one click.
+        const r = await api('/api/coupons/validate', { method: 'POST', body: { code, productId: p.id, currency: state.currency } });
+        Object.assign(state, { coupon: code, discounted: r.price });
+        if (!quiet) toast('Discount applied');
+      } catch (err) { Object.assign(state, { coupon: '', discounted: null }); toast(err.message, true); }
+      renderPrice();
+    };
+    renderPrice();
+    $$('#cur-switch button').forEach(b => b.addEventListener('click', () => {
+      state.currency = b.dataset.cur;
+      try { localStorage.setItem('cs_currency', state.currency); } catch {}
+      state.coupon ? applyCoupon(state.coupon, true) : renderPrice();
+    }));
+    $('#coupon-toggle')?.addEventListener('click', () => { $('#coupon-form').classList.remove('hidden'); $('#coupon-toggle').remove(); $('#coupon-form input').focus(); });
+    $('#coupon-form')?.addEventListener('submit', e => { e.preventDefault(); applyCoupon(e.target.code.value.trim()); });
+    // Remember the buyer's details on this device so repeat purchases are one click.
     const form = $('#buy-form');
-    try { const saved = JSON.parse(localStorage.getItem('cs_buyer') || '{}'); form.name.value = saved.name || ''; form.email.value = saved.email || ''; } catch {}
-    form.addEventListener('submit', e => { e.preventDefault(); checkout(p, coupon); });
+    try {
+      const s = JSON.parse(localStorage.getItem('cs_buyer') || '{}');
+      form.name.value = s.name || ''; form.email.value = s.email || '';
+      if (form.phone) form.phone.value = s.phone || '';
+    } catch {}
+    form.addEventListener('submit', e => { e.preventDefault(); checkout(p, state); });
     $('#mobile-buy').addEventListener('click', () => {
       $('.buy-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
       setTimeout(() => (form.name.value ? form.email : form.name).focus(), 400);
@@ -464,22 +488,32 @@
       <div class="actions"><button class="btn" data-close>Close</button></div>`, m => { m.style.maxWidth = '820px'; });
   }
 
-  async function checkout(p, coupon) {
+  // The partner code from a referral link (?ref=CODE), remembered for 30 days on this device.
+  function referral() {
+    try {
+      const r = JSON.parse(localStorage.getItem('cs_ref') || 'null');
+      return r && Date.now() - r.at < 30 * 864e5 ? r.code : '';
+    } catch { return ''; }
+  }
+
+  async function checkout(p, state) {
     const form = $('#buy-form'), err = $('#buy-err');
-    const name = form.name.value.trim(), email = form.email.value.trim();
+    const name = form.name.value.trim(), email = form.email.value.trim(), phone = form.phone ? form.phone.value.trim() : '';
     err.textContent = '';
     if (!name) { err.textContent = 'Please enter your name.'; return form.name.focus(); }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = 'Please enter a valid email — your download link goes there.'; return form.email.focus(); }
-    try { localStorage.setItem('cs_buyer', JSON.stringify({ name, email })); } catch {}
+    if (S.store.settings.checkout_phone === 'required' && !phone) { err.textContent = 'Please enter your phone number.'; return form.phone.focus(); }
+    try { localStorage.setItem('cs_buyer', JSON.stringify({ name, email, phone })); } catch {}
     const btn = $('#buy'), label = btn.innerHTML;
-    btn.disabled = true; btn.textContent = p.price ? 'Opening secure checkout…' : 'Getting your files…';
+    const paid = p.prices[state.currency] && state.discounted !== 0;
+    btn.disabled = true; btn.textContent = paid ? 'Opening secure checkout…' : 'Getting your files…';
     try {
-      const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon, name, email } });
+      const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon: state.coupon, currency: state.currency, name, email, phone, ref: referral() } });
       if (r.url) return void (location.href = r.url);
       if (r.demo) {
         modal(`<span class="label">Test checkout</span><h3 style="margin-top:14px">${esc(p.title)}</h3>
           <p class="muted" style="margin:0 0 18px">Paystack isn't connected yet, so this is a simulated payment. No money is charged.</p>
-          <div class="box" style="padding:16px 18px;display:flex;justify-content:space-between"><span>Total</span><b>${money(r.amount)}</b></div>
+          <div class="box" style="padding:16px 18px;display:flex;justify-content:space-between"><span>Total</span><b>${money(r.amount, state.currency)}</b></div>
           <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="pay">Complete test payment</button></div>`,
           (m, close) => {
             $('#pay', m).onclick = async () => {
@@ -497,6 +531,7 @@
   // Owner sign-in only — buyers never need an account.
   function authPage(q) {
     const next = q.get('next') || '#/admin';
+    if (S.store.user?.isAdmin) return void (location.hash = next);
     app.innerHTML = nav() + `<div class="auth"><div class="aurora"><i></i></div><div class="grain"></div>
       <form class="auth-card" id="auth">
         <span class="label">Store owner</span>
@@ -600,6 +635,38 @@
     });
   }
 
+  // A partner's private stats page: their link, sales and commission. Never shows buyer details.
+  async function affiliatePage(token) {
+    let a;
+    try { a = await api('/api/affiliate/' + encodeURIComponent(token)); } catch { return notFound(); }
+    document.title = `Partner stats — ${S.store.settings.store_name}`;
+    const totals = a.totals.length ? a.totals : [{ currency: S.store.settings.currency || 'ngn', sales: 0, earned: 0, paid: 0, owed: 0 }];
+    shell(`<div class="page-top"><div class="aurora"><i></i></div><div class="wrap" style="position:relative;max-width:960px">
+        <span class="label">Partner program</span><h1>Hi ${esc(a.name.split(' ')[0])}.</h1>
+        <p>You earn <b style="color:var(--text);font-weight:500">${a.percent}%</b> of every sale made through your link.${a.active ? '' : ' Your link is currently paused.'}</p></div></div>
+      <div class="wrap page" style="padding-top:10px;max-width:960px">
+        <div class="box" style="padding:18px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px"><div class="muted" style="font-size:12.5px;margin-bottom:4px">Your link — share it anywhere. Works on any product page too: add <code>?ref=${esc(a.code)}</code></div>
+            <code style="font-size:14px;word-break:break-all">${esc(a.link)}</code></div>
+          <button class="btn btn-primary btn-sm" id="aff-copy">Copy link</button>
+        </div>
+        <div class="stats" style="margin-top:18px">${totals.map(t => `
+          <div class="stat"><small>Sales${totals.length > 1 ? ' · ' + t.currency.toUpperCase() : ''}</small><b>${t.sales}</b></div>
+          <div class="stat"><small>Earned</small><b>${money(t.earned, t.currency)}</b></div>
+          <div class="stat"><small>Paid to you</small><b>${money(t.paid, t.currency)}</b></div>
+          <div class="stat"><small>Owed to you</small><b style="color:var(--amber)">${money(t.owed, t.currency)}</b></div>`).join('')}</div>
+        <div class="box" style="margin-top:8px"><div class="box-head"><h3>Your sales</h3></div>
+          ${a.recent.length ? a.recent.map(r => `<div class="file-row"><div class="grow"><div class="nm">${esc(r.title)}</div><small>${date(r.created_at)}</small></div>
+            <span class="muted" style="font-size:13px">${money(r.amount_cents, r.currency)}</span><b style="font-weight:500;min-width:90px;text-align:right">+${money(r.commission_cents, r.currency)}</b></div>`).join('')
+            : '<p class="muted" style="padding:20px;margin:0">No sales yet. Share your link to start earning.</p>'}
+        </div>
+        <p class="muted" style="font-size:13px;margin-top:18px">Sales count when a buyer opens your link and buys within 30 days. Refunded orders don't earn commission. Payouts are sent by ${esc(S.store.settings.store_name)} directly.</p>
+      </div>`);
+    $('#aff-copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(a.link); toast('Link copied'); } catch { prompt('Copy your link:', a.link); }
+    });
+  }
+
   async function legalPage(page) {
     let doc;
     try { doc = await api('/api/legal/' + page); } catch { return notFound(); }
@@ -635,6 +702,7 @@
         case 'download': return await downloadPage(parts[1]);
         case 'find': return findDownloads();
         case 'terms': case 'privacy': case 'refunds': return await legalPage(parts[0]);
+        case 'affiliate': return await affiliatePage(parts[1]);
         case 'account': return account();
         case 'admin': return await window.Admin.render(parts.slice(1), q);
         default: return notFound();
@@ -647,6 +715,8 @@
   window.addEventListener('DOMContentLoaded', async () => {
     try { await loadStore(); } catch { app.innerHTML = '<div class="wrap page"><h1>Store is offline.</h1></div>'; return; }
     // Share links are plain paths (/p/<slug>, /terms …) so link previews work; turn them into app routes.
+    const ref = new URLSearchParams(location.search).get('ref');
+    if (ref) try { localStorage.setItem('cs_ref', JSON.stringify({ code: ref.slice(0, 40), at: Date.now() })); } catch {}
     const m = location.pathname.match(/^\/(p\/[^/]+|shop|terms|privacy|refunds|find)\/?$/);
     if (m && !location.hash) history.replaceState(null, '', '/' + location.search + '#/' + m[1]);
     route();

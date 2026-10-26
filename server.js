@@ -103,16 +103,50 @@ function fileKind(mime = '', name = '') {
   return 'file';
 }
 const newToken = () => crypto.randomBytes(24).toString('base64url');
+// Idempotency keys for an order's emails. Resend remembers keys across the whole account for 24 hours, and
+// order numbers restart at 1 on every copy of the store, so keys come from the order's unique random token
+// (hashed, so the download link itself never appears in Resend's logs).
+const emailKey = o => 'order-' + crypto.createHash('sha256').update(o.access_token).digest('hex').slice(0, 24);
 const downloadUrl = token => `${BASE_URL}/#/download/${token}`;
 
-// Buyers are just a name + email record (no password); repeat buyers reuse the same row.
-function findOrCreateCustomer(name, email) {
+// Buyers are just a name + email (+ optional phone) record, no password; repeat buyers reuse the same row.
+function findOrCreateCustomer(name, email, phone = null) {
   const u = one('SELECT * FROM users WHERE email = ?', email);
   if (u) {
     if (name && !u.is_admin) run('UPDATE users SET name = ? WHERE id = ?', name, u.id);
-    return u;
+    if (phone) run('UPDATE users SET phone = ? WHERE id = ?', phone, u.id);
+    return one('SELECT * FROM users WHERE id = ?', u.id);
   }
-  return one('SELECT * FROM users WHERE id = ?', run("INSERT INTO users (email, name, password_hash) VALUES (?, ?, '')", email, name).lastInsertRowid);
+  return one('SELECT * FROM users WHERE id = ?', run("INSERT INTO users (email, name, phone, password_hash) VALUES (?, ?, ?, '')", email, name, phone).lastInsertRowid);
+}
+
+// Accepts "0803 123 4567", "+234 803-123-4567" etc. Returns a cleaned number, or null if it doesn't look like one.
+function cleanPhone(raw) {
+  const s = String(raw || '').trim().replace(/[\s().-]/g, '');
+  return /^\+?\d{7,15}$/.test(s) ? s : null;
+}
+
+// Currencies a product can be bought in: the store currency, plus any extra currency it has a price for.
+function storeCurrencies(s = getSettings()) {
+  const main = (s.currency || 'ngn').toLowerCase();
+  const extra = String(s.extra_currencies || '').toLowerCase().split(',').map(c => c.trim()).filter(c => /^[a-z]{3}$/.test(c) && c !== main);
+  return { main, extra };
+}
+function productPrices(p, s = getSettings()) {
+  const { main, extra } = storeCurrencies(s);
+  let alt = {};
+  try { alt = JSON.parse(p.alt_prices || '{}'); } catch {}
+  const prices = { [main]: p.price_cents };
+  // Free products stay free everywhere; paid ones only get an extra currency once a price is set for it.
+  for (const c of extra) if (p.price_cents === 0 || alt[c] > 0) prices[c] = p.price_cents === 0 ? 0 : alt[c];
+  return prices;
+}
+
+// The affiliate whose ?ref= code brought this buyer, unless they're buying through their own link.
+function affiliateFor(code, buyerEmail) {
+  if (!code) return null;
+  const a = one('SELECT * FROM affiliates WHERE code = ? AND active = 1', String(code).trim());
+  return a && a.email.toLowerCase() !== buyerEmail ? a : null;
 }
 
 function publicUser(u) { return u && { id: u.id, email: u.email, name: u.name, isAdmin: !!u.is_admin }; }
@@ -145,7 +179,7 @@ async function sendLinks(orders, { resend = false } = {}) {
     const title = one('SELECT title FROM products WHERE id = ?', o.product_id)?.title || 'your product';
     await mailer.sendDownload({
       to: u.email, store: s.store_name, name: u.name, title, url: downloadUrl(o.access_token), replyTo,
-      key: resend ? `order-${o.id}-resend-${Date.now()}` : `order-${o.id}-delivered`,
+      key: resend ? `${emailKey(o)}-resend-${Date.now()}` : `${emailKey(o)}-delivered`,
     });
   }
 }
@@ -160,7 +194,7 @@ function productCard(p) {
   const students = one(`SELECT COUNT(*) AS n FROM orders WHERE product_id = ? AND status IN ${ACCESS_STATUSES}`, p.id).n;
   return {
     id: p.id, slug: p.slug, title: p.title, subtitle: p.subtitle,
-    price: p.price_cents, compare: p.compare_cents, cover: p.cover_path ? `/media/covers/${p.cover_path}` : null,
+    price: p.price_cents, compare: p.compare_cents, prices: productPrices(p), cover: p.cover_path ? `/media/covers/${p.cover_path}` : null,
     category: p.category_id ? one('SELECT name, slug FROM categories WHERE id = ?', p.category_id) : null,
     featured: !!p.featured, published: !!p.published, createdAt: p.created_at,
     files: files.length, totalSize: files.reduce((n, f) => n + f.size, 0), students,
@@ -168,12 +202,14 @@ function productCard(p) {
   };
 }
 
-function priceAfterCoupon(price, code) {
+// Fixed-amount codes are in the store currency, so they only apply to prices in that currency.
+function priceAfterCoupon(price, code, currency, mainCurrency = currency) {
   if (!code) return { price, coupon: null };
   const c = one('SELECT * FROM coupons WHERE code = ? AND active = 1', String(code).trim());
   if (!c) return { error: 'That code is not valid.' };
   if (c.expires_at && new Date(c.expires_at) < new Date()) return { error: 'That code has expired.' };
   if (c.max_uses && c.uses >= c.max_uses) return { error: 'That code has been fully redeemed.' };
+  if (c.amount_off_cents && currency !== mainCurrency) return { error: `That code only works when paying in ${mainCurrency.toUpperCase()}.` };
   let next = price;
   if (c.percent_off) next = Math.round(price * (1 - c.percent_off / 100));
   if (c.amount_off_cents) next = price - c.amount_off_cents;
@@ -185,6 +221,11 @@ function fulfill(orderId, status = 'paid') {
   if (!o || ['paid', 'free', 'granted'].includes(o.status)) return o;
   run('UPDATE orders SET status = ? WHERE id = ?', status, orderId);
   if (o.coupon_code) run('UPDATE coupons SET uses = uses + 1 WHERE code = ?', o.coupon_code);
+  // Lock in the affiliate's commission at the rate in force when the sale happened.
+  if (status === 'paid' && o.affiliate_id) {
+    const a = one('SELECT percent FROM affiliates WHERE id = ?', o.affiliate_id);
+    if (a) run('UPDATE orders SET commission_cents = ? WHERE id = ?', Math.round((o.amount_cents * a.percent) / 100), orderId);
+  }
   const done = one('SELECT * FROM orders WHERE id = ?', orderId);
   sendLinks([done]).catch(e => console.error('Email failed:', e.message));
   notifyOwner(done).catch(e => console.error('Sale alert failed:', e.message));
@@ -203,7 +244,7 @@ async function notifyOwner(o) {
   await mailer.sendSaleAlert({
     to, store: s.store_name, type: o.status === 'paid' ? 'New sale' : 'Free download',
     amount: o.amount_cents ? formatPrice(o.amount_cents, o.currency) : 'Free', title: p.title,
-    buyer: u.name, email: u.email, phone: u.phone, dashboardUrl: `${BASE_URL}/#/admin/orders`, key: `order-${o.id}-owner-alert`,
+    buyer: u.name, email: u.email, phone: u.phone, dashboardUrl: `${BASE_URL}/#/admin/orders`, key: `${emailKey(o)}-owner-alert`,
   });
 }
 
@@ -226,6 +267,32 @@ async function confirmPayment(order) {
   const paid = t.status === 'success' && Number(t.amount) === order.amount_cents && String(t.currency).toLowerCase() === order.currency.toLowerCase();
   return paid ? fulfill(order.id) : order;
 }
+
+// ---------- abandoned checkout reminders ----------
+// A buyer who opened Paystack checkout but didn't pay gets one "still want it?" email, 1–48 hours later.
+// Each order is checked with Paystack first (bank transfers can confirm late), and nobody is reminded
+// about a product they've since bought or been reminded about.
+const REMIND_AFTER_MIN = Number(process.env.REMIND_AFTER_MINUTES || 60);
+async function remindAbandoned() {
+  const s = getSettings();
+  if (s.abandoned_reminders === '0' || !mailer.enabled || !PAYSTACK_KEY) return;
+  const due = all(`SELECT * FROM orders WHERE status = 'pending' AND payment_ref IS NOT NULL AND reminded_at IS NULL
+    AND created_at <= datetime('now', ?) AND created_at >= datetime('now', '-48 hours') ORDER BY id LIMIT 50`, `-${REMIND_AFTER_MIN} minutes`);
+  for (const o of due) {
+    run("UPDATE orders SET reminded_at = datetime('now') WHERE id = ?", o.id); // mark first: never email twice, even if sending fails
+    const fresh = await confirmPayment(o).catch(() => o);
+    if (fresh.status !== 'pending') continue;
+    const done = one(`SELECT 1 FROM orders WHERE user_id = ? AND product_id = ? AND id != ? AND (status IN ${ACCESS_STATUSES} OR reminded_at >= datetime('now', '-48 hours'))`, o.user_id, o.product_id, o.id);
+    const u = one('SELECT * FROM users WHERE id = ?', o.user_id);
+    const p = one('SELECT * FROM products WHERE id = ? AND published = 1', o.product_id);
+    if (done || !u || !p) continue;
+    await mailer.sendCheckoutReminder({
+      to: u.email, store: s.store_name, name: u.name, title: p.title, amount: formatPrice(o.amount_cents, o.currency),
+      url: `${BASE_URL}/p/${p.slug}`, key: `${emailKey(o)}-reminder`, replyTo: supportEmail(s),
+    }).catch(e => console.error('Reminder failed:', e.message));
+  }
+}
+setInterval(() => remindAbandoned().catch(e => console.error('Reminders:', e.message)), Number(process.env.REMINDER_CHECK_SECONDS || 600) * 1000).unref();
 
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
@@ -305,6 +372,16 @@ app.get('/api/products/:slug', (req, res) => {
   res.json({ ...productCard(p), description: p.description, fileList: files });
 });
 
+// An affiliate's own stats page (private link, no account): their sales and earnings, never buyer details.
+app.get('/api/affiliate/:token', (req, res) => {
+  const a = one('SELECT * FROM affiliates WHERE token = ?', req.params.token);
+  if (!a) return bad(res, 'This link is not valid.', 404);
+  const sum = affiliateSummary(a);
+  const recent = all(`SELECT o.created_at, o.amount_cents, o.currency, o.commission_cents, p.title FROM orders o JOIN products p ON p.id = o.product_id
+    WHERE o.affiliate_id = ? AND o.status = 'paid' ORDER BY o.id DESC LIMIT 100`, a.id);
+  res.json({ name: a.name, code: a.code, percent: a.percent, active: !!a.active, link: sum.link, totals: sum.totals, recent });
+});
+
 app.get('/api/legal/:page', (req, res) => {
   const p = LEGAL_PAGES[req.params.page];
   if (!p) return bad(res, 'Page not found.', 404);
@@ -347,28 +424,46 @@ app.post('/api/setup', (req, res) => {
 });
 
 // ----- checkout -----
+// The price of `p` in the currency the buyer picked (or the store currency).
+function priceIn(p, wanted, s) {
+  const prices = productPrices(p, s);
+  const currency = String(wanted || storeCurrencies(s).main).toLowerCase();
+  return currency in prices ? { currency, base: prices[currency] } : { error: `This product can't be bought in ${currency.toUpperCase()}.` };
+}
+
 app.post('/api/coupons/validate', (req, res) => {
+  const s = getSettings();
   const p = one('SELECT * FROM products WHERE id = ? AND published = 1', req.body?.productId);
   if (!p) return bad(res, 'Product not found.', 404);
-  const r = priceAfterCoupon(p.price_cents, req.body?.code);
+  const cur = priceIn(p, req.body?.currency, s);
+  if (cur.error) return bad(res, cur.error);
+  const r = priceAfterCoupon(cur.base, req.body?.code, cur.currency, storeCurrencies(s).main);
   if (r.error) return bad(res, r.error);
-  res.json({ price: r.price, original: p.price_cents });
+  res.json({ price: r.price, original: cur.base, currency: cur.currency });
 });
 
 app.post('/api/checkout', wrap(async (req, res) => {
+  const s = getSettings();
   const p = one('SELECT * FROM products WHERE id = ? AND published = 1', req.body?.productId);
   if (!p) return bad(res, 'Product not found.', 404);
   const name = String(req.body?.name || '').trim().slice(0, 120);
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!name) return bad(res, 'Enter your name.');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 'Enter a valid email address.');
-  const priced = priceAfterCoupon(p.price_cents, req.body?.coupon);
+  const askPhone = s.checkout_phone === 'optional' || s.checkout_phone === 'required';
+  const phone = askPhone ? cleanPhone(req.body?.phone) : null;
+  if (askPhone && String(req.body?.phone || '').trim() && !phone) return bad(res, 'Enter a valid phone number.');
+  if (s.checkout_phone === 'required' && !phone) return bad(res, 'Enter your phone number.');
+  const cur = priceIn(p, req.body?.currency, s);
+  if (cur.error) return bad(res, cur.error);
+  const priced = priceAfterCoupon(cur.base, req.body?.coupon, cur.currency, storeCurrencies(s).main);
   if (priced.error) return bad(res, priced.error);
-  const currency = getSettings().currency || 'ngn';
-  const customer = findOrCreateCustomer(name, email);
+  const currency = cur.currency;
+  const customer = findOrCreateCustomer(name, email, phone);
+  const affiliate = priced.price > 0 ? affiliateFor(req.body?.ref, email) : null;
   const token = newToken();
-  const r = run("INSERT INTO orders (user_id, product_id, amount_cents, currency, status, coupon_code, access_token) VALUES (?, ?, ?, ?, 'pending', ?, ?)",
-    customer.id, p.id, priced.price, currency, priced.coupon?.code || null, token);
+  const r = run("INSERT INTO orders (user_id, product_id, amount_cents, currency, status, coupon_code, access_token, affiliate_id) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)",
+    customer.id, p.id, priced.price, currency, priced.coupon?.code || null, token, affiliate?.id || null);
   const orderId = Number(r.lastInsertRowid);
 
   if (priced.price === 0) {
@@ -382,7 +477,14 @@ app.post('/api/checkout', wrap(async (req, res) => {
     const t = await paystack('POST', '/transaction/initialize', {
       email, amount: priced.price, currency: currency.toUpperCase(), reference,
       callback_url: `${BASE_URL}/api/paystack/callback`,
-      metadata: { order_id: orderId, product: p.title, custom_fields: [{ display_name: 'Name', variable_name: 'name', value: name }] },
+      metadata: {
+        order_id: orderId, product: p.title,
+        custom_fields: [
+          { display_name: 'Name', variable_name: 'name', value: name },
+          ...(phone ? [{ display_name: 'Phone', variable_name: 'phone', value: phone }] : []),
+          ...(affiliate ? [{ display_name: 'Referred by', variable_name: 'affiliate', value: affiliate.code }] : []),
+        ],
+      },
     });
     return res.json({ url: t.authorization_url });
   }
@@ -457,17 +559,19 @@ const admin = express.Router();
 admin.use(requireAdmin);
 
 admin.get('/stats', (_req, res) => {
-  const money = one(`SELECT COALESCE(SUM(amount_cents),0) AS revenue, COUNT(*) AS sales FROM orders WHERE status = 'paid'`);
+  const main = storeCurrencies().main;
+  const money = one(`SELECT COALESCE(SUM(amount_cents),0) AS revenue, COUNT(*) AS sales FROM orders WHERE status = 'paid' AND currency = ?`, main);
+  const otherCurrencies = all(`SELECT currency, SUM(amount_cents) AS revenue, COUNT(*) AS sales FROM orders WHERE status = 'paid' AND currency != ? GROUP BY currency`, main);
   const free = one(`SELECT COUNT(*) AS n FROM orders WHERE status IN ('free','granted')`).n;
   const customers = one(`SELECT COUNT(DISTINCT user_id) AS n FROM orders WHERE status IN ${ACCESS_STATUSES}`).n;
   const products = one('SELECT COUNT(*) AS n, SUM(published) AS live FROM products');
   const days = all(`SELECT date(created_at) AS day, SUM(amount_cents) AS revenue, COUNT(*) AS sales FROM orders
-    WHERE status = 'paid' AND created_at >= date('now','-29 days') GROUP BY day ORDER BY day`);
-  const top = all(`SELECT p.title, p.slug, COUNT(o.id) AS sales, COALESCE(SUM(o.amount_cents),0) AS revenue FROM products p
-    LEFT JOIN orders o ON o.product_id = p.id AND o.status IN ${ACCESS_STATUSES} GROUP BY p.id ORDER BY sales DESC LIMIT 5`);
+    WHERE status = 'paid' AND currency = ? AND created_at >= date('now','-29 days') GROUP BY day ORDER BY day`, main);
+  const top = all(`SELECT p.title, p.slug, COUNT(o.id) AS sales, COALESCE(SUM(CASE WHEN o.status = 'paid' AND o.currency = ? THEN o.amount_cents END),0) AS revenue FROM products p
+    LEFT JOIN orders o ON o.product_id = p.id AND o.status IN ${ACCESS_STATUSES} GROUP BY p.id ORDER BY sales DESC LIMIT 5`, main);
   const recent = all(`SELECT o.*, u.email, u.name, p.title FROM orders o JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id
     WHERE o.status IN ${ACCESS_STATUSES} ORDER BY o.id DESC LIMIT 8`);
-  res.json({ revenue: money.revenue, sales: money.sales, free, customers, products: products.n, live: products.live || 0, days, top, recent });
+  res.json({ currency: main, revenue: money.revenue, sales: money.sales, otherCurrencies, free, customers, products: products.n, live: products.live || 0, days, top, recent });
 });
 
 admin.get('/products', (_req, res) => res.json(all('SELECT * FROM products ORDER BY created_at DESC').map(productCard)));
@@ -486,10 +590,16 @@ admin.put('/products/:id', (req, res) => {
   if (!p) return bad(res, 'Not found', 404);
   const b = { ...p, ...req.body };
   const slug = req.body.slug ? uniqueSlug('products', req.body.slug, p.id) : p.slug;
-  run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, published=?, featured=? WHERE id=?`,
+  // Prices in extra currencies, in cents: {"usd": 1500}. Empty or zero removes that currency for this product.
+  const alt = {};
+  for (const [c, v] of Object.entries(typeof b.alt_prices === 'string' ? JSON.parse(b.alt_prices || '{}') : b.alt_prices || {})) {
+    const cents = Math.round(Number(v) || 0);
+    if (/^[a-z]{3}$/.test(c) && cents > 0) alt[c] = cents;
+  }
+  run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, published=?, featured=?, alt_prices=? WHERE id=?`,
     slug, b.title, b.subtitle || '', b.description || '',
     Math.max(0, Math.round(Number(b.price_cents) || 0)), b.compare_cents ? Math.round(Number(b.compare_cents)) : null,
-    b.category_id ? Number(b.category_id) : null, b.published ? 1 : 0, b.featured ? 1 : 0, p.id);
+    b.category_id ? Number(b.category_id) : null, b.published ? 1 : 0, b.featured ? 1 : 0, JSON.stringify(alt), p.id);
   res.json({ ok: true, slug });
 });
 admin.delete('/products/:id', (req, res) => {
@@ -546,13 +656,13 @@ admin.put('/categories/:id', (req, res) => {
 });
 admin.delete('/categories/:id', (req, res) => { run('DELETE FROM categories WHERE id = ?', req.params.id); res.json({ ok: true }); });
 
-admin.get('/orders', (_req, res) => res.json(all(`SELECT o.*, u.email, u.name, p.title, p.slug FROM orders o
-  JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id ORDER BY o.id DESC LIMIT 500`)
+admin.get('/orders', (_req, res) => res.json(all(`SELECT o.*, u.email, u.name, u.phone, p.title, p.slug, a.code AS affiliate_code FROM orders o
+  JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id LEFT JOIN affiliates a ON a.id = o.affiliate_id ORDER BY o.id DESC LIMIT 500`)
   .map(o => ({ ...o, link: downloadUrl(o.access_token) }))));
-admin.get('/customers', (_req, res) => res.json(all(`SELECT u.id, u.email, u.name, u.created_at, u.is_admin,
+admin.get('/customers', (_req, res) => res.json(all(`SELECT u.id, u.email, u.name, u.phone, u.created_at, u.is_admin,
   (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES}) AS products,
-  (SELECT COALESCE(SUM(amount_cents),0) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid') AS spent
-  FROM users u WHERE u.is_admin = 0 ORDER BY u.id DESC LIMIT 5000`)));
+  (SELECT COALESCE(SUM(amount_cents),0) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid' AND o.currency = ?) AS spent
+  FROM users u WHERE u.is_admin = 0 ORDER BY u.id DESC LIMIT 5000`, storeCurrencies().main)));
 admin.post('/grant', (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 'Enter a valid email address.');
@@ -571,6 +681,63 @@ admin.post('/orders/:id/resend', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 admin.post('/orders/:id/revoke', (req, res) => { run("UPDATE orders SET status = 'refunded' WHERE id = ?", req.params.id); res.json({ ok: true }); });
+
+// ----- affiliates -----
+const affiliateLink = a => `${BASE_URL}/?ref=${encodeURIComponent(a.code)}`;
+const affiliateStatsUrl = a => `${BASE_URL}/#/affiliate/${a.token}`;
+// Sales, commission earned, paid out and still owed — per currency, since sales can be in more than one.
+function affiliateSummary(a) {
+  const rows = all(`SELECT currency, COUNT(*) AS sales, SUM(amount_cents) AS revenue, SUM(commission_cents) AS earned
+    FROM orders WHERE affiliate_id = ? AND status = 'paid' GROUP BY currency`, a.id);
+  let paid = {};
+  try { paid = JSON.parse(a.paid_out || '{}'); } catch {}
+  const currencies = [...new Set([...rows.map(r => r.currency), ...Object.keys(paid)])];
+  const totals = currencies.map(c => {
+    const r = rows.find(x => x.currency === c) || { sales: 0, revenue: 0, earned: 0 };
+    return { currency: c, sales: r.sales, revenue: r.revenue, earned: r.earned, paid: paid[c] || 0, owed: Math.max(0, r.earned - (paid[c] || 0)) };
+  });
+  return {
+    id: a.id, name: a.name, email: a.email, code: a.code, percent: a.percent, active: !!a.active, created_at: a.created_at,
+    link: affiliateLink(a), statsUrl: affiliateStatsUrl(a), sales: totals.reduce((n, t) => n + t.sales, 0), totals,
+  };
+}
+admin.get('/affiliates', (_req, res) => res.json(all('SELECT * FROM affiliates ORDER BY id DESC').map(affiliateSummary)));
+admin.post('/affiliates', (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const percent = Math.round(Number(req.body?.percent));
+  if (!name) return bad(res, 'Enter a name.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 'Enter a valid email address.');
+  if (!(percent >= 1 && percent <= 90)) return bad(res, 'Commission must be between 1% and 90%.');
+  let code = String(req.body?.code || name).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20) || 'PARTNER';
+  if (one('SELECT id FROM affiliates WHERE code = ?', code)) {
+    if (req.body?.code) return bad(res, 'That code is already taken.');
+    let n = 2; while (one('SELECT id FROM affiliates WHERE code = ?', code + n)) n++; code += n;
+  }
+  const id = run('INSERT INTO affiliates (name, email, code, token, percent) VALUES (?, ?, ?, ?, ?)', name, email, code, newToken(), percent).lastInsertRowid;
+  res.json(affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', id)));
+});
+admin.put('/affiliates/:id', (req, res) => {
+  const a = one('SELECT * FROM affiliates WHERE id = ?', req.params.id);
+  if (!a) return bad(res, 'Not found', 404);
+  const percent = req.body.percent === undefined ? a.percent : Math.round(Number(req.body.percent));
+  if (!(percent >= 1 && percent <= 90)) return bad(res, 'Commission must be between 1% and 90%.');
+  run('UPDATE affiliates SET name = ?, email = ?, percent = ?, active = ? WHERE id = ?', req.body.name ?? a.name, req.body.email ?? a.email,
+    percent, req.body.active === undefined ? a.active : req.body.active ? 1 : 0, a.id);
+  res.json(affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', a.id)));
+});
+// Records commission you've paid an affiliate (you pay them yourself, e.g. by bank transfer).
+admin.post('/affiliates/:id/payout', (req, res) => {
+  const a = one('SELECT * FROM affiliates WHERE id = ?', req.params.id);
+  if (!a) return bad(res, 'Not found', 404);
+  const currency = String(req.body?.currency || '').toLowerCase();
+  const cents = Math.round(Number(req.body?.amount_cents));
+  if (!/^[a-z]{3}$/.test(currency) || !(cents > 0)) return bad(res, 'Enter the amount you paid.');
+  const paid = JSON.parse(a.paid_out || '{}');
+  paid[currency] = (paid[currency] || 0) + cents;
+  run('UPDATE affiliates SET paid_out = ? WHERE id = ?', JSON.stringify(paid), a.id);
+  res.json(affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', a.id)));
+});
 
 admin.get('/coupons', (_req, res) => res.json(all('SELECT * FROM coupons ORDER BY id DESC')));
 admin.post('/coupons', (req, res) => {

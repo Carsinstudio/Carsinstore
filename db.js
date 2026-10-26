@@ -78,6 +78,17 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+CREATE TABLE IF NOT EXISTS affiliates (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL COLLATE NOCASE,
+  code TEXT NOT NULL UNIQUE COLLATE NOCASE,       -- goes in links: ?ref=CODE
+  token TEXT NOT NULL UNIQUE,                     -- secret part of the affiliate's private stats page
+  percent INTEGER NOT NULL DEFAULT 20,            -- commission on each paid order
+  paid_out TEXT NOT NULL DEFAULT '{}',            -- commission already paid, per currency: {"ngn": 500000}
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_files_product ON files(product_id);
 `;
@@ -99,6 +110,9 @@ const DEFAULT_SETTINGS = {
   instagram: '', x: '', youtube: '', tiktok: '',
   support_email: '', business_location: 'Nigeria',
   notify_sales: '1', notify_free: '0', notify_email: '',
+  checkout_phone: 'off',          // 'off' | 'optional' | 'required'
+  abandoned_reminders: '1',       // email buyers once if they start paying but don't finish
+  extra_currencies: '',           // e.g. 'usd' — products can then have a price in that currency too
   legal_terms: '', legal_privacy: '', legal_refunds: '', legal_updated: new Date().toISOString().slice(0, 10),
   faq: JSON.stringify([
     { q: 'How do I get my product after buying?', a: 'Instantly. Right after checkout you land on your private download page, and the same link is emailed to you.' },
@@ -141,6 +155,13 @@ function migrate(db) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_payref ON orders(payment_ref)');
 
   if (!hasColumn(db, 'users', 'phone')) db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
+
+  // Abandoned-checkout reminders, affiliates and extra currencies.
+  if (!hasColumn(db, 'orders', 'reminded_at')) db.exec('ALTER TABLE orders ADD COLUMN reminded_at TEXT');
+  if (!hasColumn(db, 'orders', 'affiliate_id')) db.exec('ALTER TABLE orders ADD COLUMN affiliate_id INTEGER REFERENCES affiliates(id) ON DELETE SET NULL');
+  if (!hasColumn(db, 'orders', 'commission_cents')) db.exec('ALTER TABLE orders ADD COLUMN commission_cents INTEGER NOT NULL DEFAULT 0');
+  if (!hasColumn(db, 'products', 'alt_prices')) db.exec("ALTER TABLE products ADD COLUMN alt_prices TEXT NOT NULL DEFAULT '{}'"); // {"usd": 1500} in cents
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_pending ON orders(status, created_at)');
 }
 
 let db;

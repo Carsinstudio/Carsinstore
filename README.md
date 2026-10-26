@@ -71,6 +71,13 @@ Buyers then get a "Your files are ready" email after every purchase or free down
 
 **Sale alerts:** the owner gets a "New sale" email (Resend template "Sale alert (to owner)", alias sale-alert) for every paid order, and optionally for free downloads. Turn them on or off and choose the address in Store settings → Notifications. Replying to an alert emails the buyer, and buyers replying to their download email reach the support email.
 
+## Selling features (Store settings → Checkout, and the Affiliates page)
+
+- **Phone number:** off, optional or required at checkout. It's saved with the buyer, shown in Orders and Customers, included in CSV exports, and passed to Paystack.
+- **Abandoned checkout reminders:** a buyer who opens Paystack but doesn't pay gets one "Still want it?" email (Resend template `checkout-reminder`) after about an hour, within 48 hours. Each order is checked with Paystack first, so late bank transfers are unlocked instead of reminded, and nobody is reminded about something they've since bought.
+- **Affiliates:** add partners with a commission % on the Affiliates page. Their link is `carsin.store/?ref=CODE`, and `?ref=CODE` works on any product link too. A referral counts if the buyer pays within 30 days, and self-referrals don't count. Commission is locked in at the time of sale. You pay partners yourself, then click **Record payout**. Each partner gets a private stats page showing their sales and earnings, without buyer details.
+- **Extra currencies:** tick a currency (e.g. USD) under "Also sell in", then set that price on each product. Buyers see a currency switch on the product page. Percent-off codes work in any currency; fixed-amount codes only in the store currency. Your Paystack account must be enabled for each currency.
+
 ## Backups and moving the store
 
 Store settings → **Backup & move** downloads the whole store (products, files, covers, settings, owner account) as one `.tar.gz` file. Restore it on another computer or host from the same panel.

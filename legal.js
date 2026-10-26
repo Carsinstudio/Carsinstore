@@ -47,7 +47,7 @@ const privacy = `## Privacy Policy
 This policy explains what personal information {{STORE}} ({{WEBSITE}}) collects, why, and your rights. We follow the Nigeria Data Protection Act 2023.
 
 ### What we collect
-- **Your name and email address**, when you buy or claim a product. We use them to deliver your files, send your download link and receipt, and help you if something goes wrong.
+- **Your name and email address**, when you buy or claim a product. We use them to deliver your files, send your download link and receipt, and help you if something goes wrong. If you start a checkout but don't finish paying, we may send you **one** reminder email about it.
 - **Your phone number**, only if the checkout asks for it and you provide it. We use it to contact you about your order.
 - **Order details**: what you bought, the price and the date.
 - **Payment information** is collected and processed by **Paystack**, not by us. We receive confirmation that you paid, but never your card or bank details.
@@ -64,7 +64,7 @@ We share only what is needed to run the store:
 We do not sell your personal information.
 
 ### Cookies and your device
-We use a cookie only to keep the store owner signed in to the dashboard. To make repeat purchases quicker, your name and email may be remembered in your own browser (local storage). You can clear this at any time in your browser settings.
+We use a cookie only to keep the store owner signed in to the dashboard. To make repeat purchases quicker, your name and email may be remembered in your own browser (local storage). If you arrive through a partner's referral link, that partner's code is also remembered in your browser for 30 days, so they can be credited if you buy — they never see your personal details. You can clear this at any time in your browser settings.
 
 ### How long we keep it
 We keep order records so you can re-download your purchases and so we can meet tax and accounting obligations. You can ask us to delete your details at any time; we keep only what the law requires.
