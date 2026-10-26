@@ -138,12 +138,13 @@ function legalText(page, s = getSettings()) {
 // fixed idempotency key so it is never sent twice; manual re-sends get a fresh key each time.
 async function sendLinks(orders, { resend = false } = {}) {
   if (!mailer.enabled) return;
-  const store = getSettings().store_name;
+  const s = getSettings();
+  const replyTo = supportEmail(s);
   for (const o of orders) {
     const u = one('SELECT * FROM users WHERE id = ?', o.user_id);
     const title = one('SELECT title FROM products WHERE id = ?', o.product_id)?.title || 'your product';
     await mailer.sendDownload({
-      to: u.email, store, name: u.name, title, url: downloadUrl(o.access_token),
+      to: u.email, store: s.store_name, name: u.name, title, url: downloadUrl(o.access_token), replyTo,
       key: resend ? `order-${o.id}-resend-${Date.now()}` : `order-${o.id}-delivered`,
     });
   }
@@ -186,7 +187,24 @@ function fulfill(orderId, status = 'paid') {
   if (o.coupon_code) run('UPDATE coupons SET uses = uses + 1 WHERE code = ?', o.coupon_code);
   const done = one('SELECT * FROM orders WHERE id = ?', orderId);
   sendLinks([done]).catch(e => console.error('Email failed:', e.message));
+  notifyOwner(done).catch(e => console.error('Sale alert failed:', e.message));
   return done;
+}
+
+// Emails the owner about a completed sale (and, if they opt in, free downloads). Never for manual grants.
+async function notifyOwner(o) {
+  const s = getSettings();
+  const wanted = (o.status === 'paid' && s.notify_sales !== '0') || (o.status === 'free' && s.notify_free === '1');
+  if (!wanted || !mailer.enabled) return;
+  const to = s.notify_email || supportEmail(s);
+  const u = one('SELECT * FROM users WHERE id = ?', o.user_id);
+  const p = one('SELECT title FROM products WHERE id = ?', o.product_id);
+  if (!to || !u || !p) return;
+  await mailer.sendSaleAlert({
+    to, store: s.store_name, type: o.status === 'paid' ? 'New sale' : 'Free download',
+    amount: o.amount_cents ? formatPrice(o.amount_cents, o.currency) : 'Free', title: p.title,
+    buyer: u.name, email: u.email, phone: u.phone, dashboardUrl: `${BASE_URL}/#/admin/orders`, key: `order-${o.id}-owner-alert`,
+  });
 }
 
 // ---------- Paystack ----------

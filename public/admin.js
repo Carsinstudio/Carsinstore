@@ -355,6 +355,12 @@
       </div>
     </div><aside>
       <div class="panel"><h3>Contact &amp; business</h3>${f('support_email', 'Support email', 'Shown in the footer and legal pages. Leave empty to use your owner email.', 'email')}${f('business_location', 'Business location', 'e.g. Lagos, Nigeria')}</div>
+      <div class="panel"><h3>Notifications</h3>
+        ${S.store.emails ? '' : '<p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Email isn\'t set up on this copy of the store, so alerts won\'t be sent from here.</p>'}
+        <label class="check" style="margin-bottom:12px"><span class="switch"><input type="checkbox" data-flag="notify_sales" ${s.notify_sales !== '0' ? 'checked' : ''}><i></i></span>Email me for every sale</label>
+        <label class="check" style="margin-bottom:14px"><span class="switch"><input type="checkbox" data-flag="notify_free" ${s.notify_free === '1' ? 'checked' : ''}><i></i></span>Also for free downloads</label>
+        ${f('notify_email', 'Send alerts to', 'Leave empty to use your support email.', 'email')}
+      </div>
       <div class="panel"><h3>Share image</h3>
         <p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Shown when your homepage — or a product without a cover — is posted on WhatsApp, Instagram or X. 1200×630 px, under 600 KB.</p>
         <div class="cover-edit" id="share-img" style="aspect-ratio:1200/630">${s.share_image ? `<img src="/media/covers/${esc(s.share_image)}">` : '<div style="display:grid;place-items:center;height:100%;font-size:13px" class="muted">No image yet</div>'}<div class="over">Upload image</div></div>
@@ -426,6 +432,7 @@
     $('#save').addEventListener('click', async () => {
       const body = Object.fromEntries(new FormData($('#sf')));
       for (const k of Object.keys(body)) if (k.startsWith('data-')) delete body[k];
+      $$('[data-flag]').forEach(i => (body[i.dataset.flag] = i.checked ? '1' : '0'));
       body.faq = faq.filter(x => x.q.trim());
       await api('/api/admin/settings', { method: 'PUT', body });
       await loadStore(); toast('Settings saved');

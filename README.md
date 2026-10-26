@@ -69,6 +69,8 @@ Buyers then get a "Your files are ready" email after every purchase or free down
 
 **Current setup:** emails are sent from `downloads@mail.carsin.store` (domain verified in Resend, DNS at Namecheap). The `.env` key is a send-only key limited to that domain. The email's wording and design live in Resend → **Templates → "Download ready"** (alias `download-ready`), so you can edit them there without touching code. Keep its four variables: `STORE_NAME`, `BUYER_NAME`, `PRODUCT_TITLE` and `DOWNLOAD_URL`. Each order sends exactly one delivery email, and "Find my downloads" and the dashboard's **Email link** button send a fresh copy.
 
+**Sale alerts:** the owner gets a "New sale" email (Resend template "Sale alert (to owner)", alias sale-alert) for every paid order, and optionally for free downloads. Turn them on or off and choose the address in Store settings → Notifications. Replying to an alert emails the buyer, and buyers replying to their download email reach the support email.
+
 ## Backups and moving the store
 
 Store settings → **Backup & move** downloads the whole store (products, files, covers, settings, owner account) as one `.tar.gz` file. Restore it on another computer or host from the same panel.
