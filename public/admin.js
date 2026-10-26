@@ -346,7 +346,22 @@
       <div class="panel"><h3>Homepage</h3>${f('announcement', 'Announcement bar', 'Leave empty to hide it.')}${f('hero_eyebrow', 'Hero label', 'The last word is highlighted.')}${f('hero_title', 'Hero headline', 'Use | to split into two lines. The second line is softly faded.')}
         <label class="field"><span>Hero text</span><textarea class="input" name="hero_sub" rows="3">${esc(s.hero_sub || '')}</textarea></label></div>
       <div class="panel"><h3>FAQ <button type="button" class="btn btn-sm" id="add-faq">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add question</button></h3><div id="faq"></div></div>
-    </div><aside><div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}</div></aside></div></form>`);
+    </div><aside><div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}</div></aside></div></form>
+      <div class="panel" style="max-width:860px"><h3>Backup &amp; move</h3>
+        <p class="muted" style="margin:-6px 0 18px;font-size:13.5px">Download your whole store — products, files, covers and settings — as one file, then restore it on another computer or host. Also a good safety copy to keep.</p>
+        <div class="row" style="align-items:start">
+          <div>
+            <label class="check" style="margin-bottom:14px"><span class="switch"><input type="checkbox" id="bk-orders"><i></i></span>Include orders &amp; buyers</label>
+            <small class="dim" style="display:block;margin:-6px 0 14px;font-size:12px">Leave off when moving your catalog to a new site (test orders stay behind). Turn on for a complete safety copy.</small>
+            <a class="btn" id="bk-download" href="/api/admin/backup?orders=0">${I.down} Download backup</a>
+          </div>
+          <div>
+            <div class="dropzone" id="bk-drop" style="padding:20px">${A.upload}<div><b style="font-weight:500;color:var(--text)">Restore a backup</b><br>Drop a <code>.tar.gz</code> backup here or click</div><div class="upbar hidden"><i></i></div></div>
+            <input type="file" id="bk-file" accept=".gz,.tgz,application/gzip" hidden>
+            <small class="dim" style="display:block;margin-top:8px;font-size:12px">Replaces everything on this store with the backup. You'll sign in again with the owner account from the backup.</small>
+          </div>
+        </div>
+      </div>`);
     let faq = Array.isArray(s.faq) ? s.faq : [];
     const drawFaq = () => {
       $('#faq').innerHTML = faq.map((x, i) => `<div class="mod-edit" style="padding:12px"><div style="display:flex;gap:8px"><input class="input" data-fq="${i}" value="${esc(x.q)}" placeholder="Question"><button type="button" class="icon-btn" data-fdel="${i}">${A.trash}</button></div>
@@ -357,6 +372,31 @@
     };
     drawFaq();
     $('#add-faq').addEventListener('click', () => { faq.push({ q: '', a: '' }); drawFaq(); });
+
+    // backup & restore
+    $('#bk-orders').addEventListener('change', e => ($('#bk-download').href = `/api/admin/backup?orders=${e.target.checked ? 1 : 0}`));
+    const drop = $('#bk-drop'), picker = $('#bk-file');
+    const restore = async file => {
+      if (!file) return;
+      if (!(await confirmDialog('Restore this backup?', `“${file.name}” will replace ALL products, files, settings and the owner account on this store. The current data is kept in storage/.before-restore in case you need it back.`, 'Replace everything', true))) return;
+      const fd = new FormData(); fd.append('backup', file);
+      const bar = drop.querySelector('.upbar'), label = drop.querySelector('div');
+      bar.classList.remove('hidden');
+      try {
+        const r = await upload('/api/admin/restore', fd, pct => {
+          bar.firstElementChild.style.width = pct * 100 + '%';
+          label.textContent = pct < 1 ? `Uploading backup… ${Math.round(pct * 100)}%` : 'Restoring — this can take a minute for large stores…';
+        });
+        modal(`<h3>Store restored</h3><p class="muted" style="margin:0">${plural(r.products, 'product')}, ${plural(r.files, 'file')}${r.orders ? ` and ${plural(r.orders, 'order')}` : ''} are now on this store.${r.missingFiles ? ` ${plural(r.missingFiles, 'file')} referenced in the backup were missing from it.` : ''}</p>
+          <p class="muted">Sign in again with the owner email and password from the backup.</p>
+          <div class="actions"><button class="btn btn-primary" id="relog">Sign in</button></div>`, m => { $('#relog', m).onclick = () => { location.hash = '#/login?next=' + encodeURIComponent('#/admin'); location.reload(); }; });
+      } catch (err) { toast(err.message, true); label.innerHTML = '<b style="font-weight:500;color:var(--text)">Restore a backup</b><br>Drop a <code>.tar.gz</code> backup here or click'; bar.classList.add('hidden'); }
+    };
+    drop.addEventListener('click', () => picker.click());
+    picker.addEventListener('change', () => restore(picker.files[0]));
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); restore(e.dataTransfer.files[0]); });
     $('#sf').addEventListener('submit', e => e.preventDefault());
     $('#save').addEventListener('click', async () => {
       const body = Object.fromEntries(new FormData($('#sf')));

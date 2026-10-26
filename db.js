@@ -1,19 +1,19 @@
 // SQLite storage using Node's built-in driver (no native build step needed).
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'storage');
+const DB_PATH = path.join(DATA_DIR, 'store.db');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const db = new DatabaseSync(path.join(DATA_DIR, 'store.db'));
-db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-
-db.exec(`
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   name TEXT,
+  phone TEXT,
   password_hash TEXT NOT NULL,
   is_admin INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_files_product ON files(product_id);
-`);
+`;
 
 // Pre-"downloads only" defaults; replaced on startup if the owner never changed them.
 const OLD_DEFAULTS = {
@@ -107,32 +107,54 @@ const DEFAULT_SETTINGS = {
     { q: 'What if I have a problem with my order?', a: 'Reach out through the contact link in the footer and we will sort it out quickly.' },
   ]),
 };
-const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insSetting.run(k, v);
 
-// Migration from the earlier course-based version: everything becomes a plain download.
-const fileCols = db.prepare('PRAGMA table_info(files)').all().map(c => c.name);
-if (!fileCols.includes('preview')) db.exec('ALTER TABLE files ADD COLUMN preview INTEGER NOT NULL DEFAULT 0');
-if (!fileCols.includes('sort')) db.exec('ALTER TABLE files ADD COLUMN sort INTEGER NOT NULL DEFAULT 0');
-if (fileCols.includes('lesson_id')) db.exec('UPDATE files SET lesson_id = NULL WHERE lesson_id IS NOT NULL');
-db.exec("UPDATE products SET type = 'download' WHERE type != 'download'");
-for (const [k, v] of Object.entries(OLD_DEFAULTS)) db.prepare('UPDATE settings SET value = ? WHERE key = ? AND value = ?').run(DEFAULT_SETTINGS[k], k, v);
-db.prepare("UPDATE settings SET value = ? WHERE key = 'faq' AND (value LIKE '%Video lessons, PDFs%' OR value LIKE '%Create an account with your email%')").run(DEFAULT_SETTINGS.faq);
+const hasColumn = (db, table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === col);
 
-// Migration to guest checkout: every order carries its own private download token.
-if (!db.prepare('PRAGMA table_info(orders)').all().some(c => c.name === 'access_token')) db.exec('ALTER TABLE orders ADD COLUMN access_token TEXT');
-for (const o of db.prepare('SELECT id FROM orders WHERE access_token IS NULL').all()) {
-  db.prepare('UPDATE orders SET access_token = ? WHERE id = ?').run(require('crypto').randomBytes(24).toString('base64url'), o.id);
+// Creates missing tables, fills default settings and upgrades databases made by older versions.
+// Runs on every open, including after a backup is restored, so old backups load cleanly.
+function migrate(db) {
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+  db.exec(SCHEMA);
+  const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insSetting.run(k, v);
+
+  // Earlier course-based version: everything becomes a plain download.
+  if (!hasColumn(db, 'files', 'preview')) db.exec('ALTER TABLE files ADD COLUMN preview INTEGER NOT NULL DEFAULT 0');
+  if (!hasColumn(db, 'files', 'sort')) db.exec('ALTER TABLE files ADD COLUMN sort INTEGER NOT NULL DEFAULT 0');
+  if (hasColumn(db, 'files', 'lesson_id')) db.exec('UPDATE files SET lesson_id = NULL WHERE lesson_id IS NOT NULL');
+  db.exec("UPDATE products SET type = 'download' WHERE type != 'download'");
+  for (const [k, v] of Object.entries(OLD_DEFAULTS)) db.prepare('UPDATE settings SET value = ? WHERE key = ? AND value = ?').run(DEFAULT_SETTINGS[k], k, v);
+  db.prepare("UPDATE settings SET value = ? WHERE key = 'faq' AND (value LIKE '%Video lessons, PDFs%' OR value LIKE '%Create an account with your email%')").run(DEFAULT_SETTINGS.faq);
+
+  // Guest checkout: every order carries its own private download token.
+  if (!hasColumn(db, 'orders', 'access_token')) db.exec('ALTER TABLE orders ADD COLUMN access_token TEXT');
+  for (const o of db.prepare('SELECT id FROM orders WHERE access_token IS NULL').all()) {
+    db.prepare('UPDATE orders SET access_token = ? WHERE id = ?').run(crypto.randomBytes(24).toString('base64url'), o.id);
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_token ON orders(access_token)');
+
+  // Paystack: orders are matched to payments by Paystack's transaction reference.
+  if (!hasColumn(db, 'orders', 'payment_ref')) db.exec('ALTER TABLE orders ADD COLUMN payment_ref TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_payref ON orders(payment_ref)');
+
+  if (!hasColumn(db, 'users', 'phone')) db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
 }
-db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_token ON orders(access_token)');
 
-// Migration to Paystack: orders are matched to payments by Paystack's transaction reference.
-if (!db.prepare('PRAGMA table_info(orders)').all().some(c => c.name === 'payment_ref')) db.exec('ALTER TABLE orders ADD COLUMN payment_ref TEXT');
-db.exec('CREATE INDEX IF NOT EXISTS idx_orders_payref ON orders(payment_ref)');
+let db;
+function open() {
+  db = new DatabaseSync(DB_PATH);
+  migrate(db);
+}
+open();
+
+// Closes the connection so the database file can be swapped (backup restore), then reopens it.
+function close() { if (db) { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch {} db.close(); db = null; } }
+function reopen() { close(); open(); }
 
 const all = (sql, ...p) => db.prepare(sql).all(...p);
 const one = (sql, ...p) => db.prepare(sql).get(...p);
 const run = (sql, ...p) => db.prepare(sql).run(...p);
+const exec = sql => db.exec(sql);
 
 function getSettings() {
   const out = {};
@@ -141,4 +163,4 @@ function getSettings() {
   return out;
 }
 
-module.exports = { db, all, one, run, getSettings, DATA_DIR };
+module.exports = { all, one, run, exec, getSettings, close, reopen, migrate, DATA_DIR, DB_PATH };

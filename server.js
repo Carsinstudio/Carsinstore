@@ -8,6 +8,7 @@ const express = require('express');
 const multer = require('multer');
 const { all, one, run, getSettings, DATA_DIR } = require('./db');
 const mailer = require('./mailer');
+const backup = require('./backup');
 
 const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -42,6 +43,15 @@ function checkPassword(pw, stored) {
   const b = crypto.scryptSync(pw, salt, 64);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
+// Bumped on every backup restore so sign-ins made before the restore stop working
+// (the restored database has its own accounts, and user ids may now point at different people).
+const EPOCH_FILE = path.join(DATA_DIR, '.session-epoch');
+let sessionEpoch = fs.existsSync(EPOCH_FILE) ? fs.readFileSync(EPOCH_FILE, 'utf8').trim() : '0';
+function bumpSessionEpoch() {
+  sessionEpoch = String(Number(sessionEpoch) + 1);
+  fs.writeFileSync(EPOCH_FILE, sessionEpoch);
+}
+
 function sign(payload) {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const mac = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
@@ -54,7 +64,7 @@ function unsign(token) {
   if (mac.length !== expect.length || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expect))) return null;
   try {
     const p = JSON.parse(Buffer.from(body, 'base64url').toString());
-    return p.exp > Date.now() ? p : null;
+    return p.exp > Date.now() && String(p.ep ?? '0') === sessionEpoch ? p : null;
   } catch { return null; }
 }
 function cookies(req) {
@@ -67,7 +77,7 @@ function cookies(req) {
 }
 function setSession(res, userId) {
   const maxAge = 60 * 60 * 24 * 30;
-  const token = sign({ uid: userId, exp: Date.now() + maxAge * 1000 });
+  const token = sign({ uid: userId, ep: sessionEpoch, exp: Date.now() + maxAge * 1000 });
   const secure = BASE_URL.startsWith('https') ? '; Secure' : '';
   res.setHeader('Set-Cookie', `cs_sess=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`);
 }
@@ -539,6 +549,28 @@ admin.put('/settings', (req, res) => {
   }
   res.json(getSettings());
 });
+
+// ----- backups: move the whole store between computers/hosts -----
+admin.get('/backup', wrap(async (req, res) => {
+  const includeOrders = req.query.orders === '1';
+  const name = `carsinstore-${includeOrders ? 'full' : 'catalog'}-backup-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+  await backup.exportBackup(res, { includeOrders });
+}));
+const restoreUpload = multer({ dest: path.join(DATA_DIR, '.uploads'), limits: { fileSize: 200 * 1024 ** 3 } });
+admin.post('/restore', restoreUpload.single('backup'), wrap(async (req, res) => {
+  if (!req.file) return bad(res, 'Choose a backup file to restore.');
+  try {
+    const info = await backup.restoreBackup(req.file.path);
+    // The restored database has its own owner account: sign everyone out, including this browser.
+    bumpSessionEpoch();
+    res.setHeader('Set-Cookie', 'cs_sess=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+    res.json({ ok: true, products: info.products, files: info.files, orders: info.orders, missingFiles: info.missingFiles });
+  } finally {
+    fs.rm(req.file.path, { force: true }, () => {});
+  }
+}));
 
 app.use('/api/admin', admin);
 app.use('/api', (_req, res) => bad(res, 'Not found', 404));
