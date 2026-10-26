@@ -106,16 +106,19 @@ function findOrCreateCustomer(name, email) {
 
 function publicUser(u) { return u && { id: u.id, email: u.email, name: u.name, isAdmin: !!u.is_admin }; }
 
-async function sendLinks(orders) {
-  if (!mailer.enabled || !orders.length) return;
-  const u = one('SELECT * FROM users WHERE id = ?', orders[0].user_id);
+// Emails each order's download link (one email per order). The delivery email after payment uses a
+// fixed idempotency key so it is never sent twice; manual re-sends get a fresh key each time.
+async function sendLinks(orders, { resend = false } = {}) {
+  if (!mailer.enabled) return;
   const store = getSettings().store_name;
-  const items = orders.map(o => ({ title: one('SELECT title FROM products WHERE id = ?', o.product_id)?.title || 'Your product', url: downloadUrl(o.access_token) }));
-  await mailer.send({
-    to: u.email,
-    subject: items.length === 1 ? `Your download: ${items[0].title}` : `Your downloads from ${store}`,
-    html: mailer.downloadEmail({ store, name: u.name, items }),
-  });
+  for (const o of orders) {
+    const u = one('SELECT * FROM users WHERE id = ?', o.user_id);
+    const title = one('SELECT title FROM products WHERE id = ?', o.product_id)?.title || 'your product';
+    await mailer.sendDownload({
+      to: u.email, store, name: u.name, title, url: downloadUrl(o.access_token),
+      key: resend ? `order-${o.id}-resend-${Date.now()}` : `order-${o.id}-delivered`,
+    });
+  }
 }
 
 function productFiles(productId) {
@@ -372,7 +375,7 @@ app.post('/api/resend-links', wrap(async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!mailer.enabled) return bad(res, 'Email delivery is not set up for this store yet.', 503);
   const orders = all(`SELECT o.* FROM orders o JOIN users u ON u.id = o.user_id WHERE u.email = ? AND o.status IN ${ACCESS_STATUSES}`, email);
-  if (orders.length) await sendLinks(orders).catch(e => console.error('Email failed:', e.message));
+  if (orders.length) await sendLinks(orders, { resend: true }).catch(e => console.error('Email failed:', e.message));
   res.json({ ok: true });
 }));
 
@@ -509,7 +512,7 @@ admin.post('/orders/:id/resend', wrap(async (req, res) => {
   const o = one('SELECT * FROM orders WHERE id = ?', req.params.id);
   if (!o) return bad(res, 'Not found', 404);
   if (!mailer.enabled) return bad(res, 'Email is not set up — copy the link and send it yourself.');
-  await sendLinks([o]);
+  await sendLinks([o], { resend: true });
   res.json({ ok: true });
 }));
 admin.post('/orders/:id/revoke', (req, res) => { run("UPDATE orders SET status = 'refunded' WHERE id = ?", req.params.id); res.json({ ok: true }); });
