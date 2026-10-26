@@ -196,6 +196,21 @@ function productFiles(productId) {
     .map(f => ({ id: f.id, name: f.original_name, size: f.size, mime: f.mime, preview: !!f.preview, kind: fileKind(f.mime, f.original_name) }));
 }
 
+// Sales page sections for a product: lists of short lines, reviews and product questions.
+function cleanSales(v) {
+  let s = v; if (typeof s === 'string') { try { s = JSON.parse(s || '{}'); } catch { s = {}; } }
+  s = s && typeof s === 'object' ? s : {};
+  const str = (x, n) => String(x ?? '').trim().slice(0, n);
+  const lines = (x, max) => (Array.isArray(x) ? x : String(x ?? '').split('\n')).map(l => str(l, 300)).filter(Boolean).slice(0, max);
+  const list = (x, max, keys, need) => (Array.isArray(x) ? x : []).map(o => Object.fromEntries(keys.map(([k, n]) => [k, str(o?.[k], n)]))).filter(o => o[need]).slice(0, max);
+  return {
+    highlights: lines(s.highlights, 20),
+    audience: lines(s.audience, 12),
+    reviews: list(s.reviews, 12, [['quote', 800], ['name', 80], ['detail', 80]], 'quote'),
+    faq: list(s.faq, 15, [['q', 200], ['a', 1500]], 'q'),
+  };
+}
+
 function productCard(p) {
   const files = productFiles(p.id);
   const students = one(`SELECT COUNT(*) AS n FROM orders WHERE product_id = ? AND status IN ${ACCESS_STATUSES}`, p.id).n;
@@ -387,7 +402,7 @@ app.get('/api/products/:slug', (req, res) => {
   if (!p || (!p.published && !req.user?.is_admin)) return bad(res, 'Product not found.', 404);
   // File ids are only exposed for free previews; everything else stays locked until purchase.
   const files = productFiles(p.id).map(f => ({ name: f.name, size: f.size, kind: f.kind, preview: f.preview, ...(f.preview ? { id: f.id } : {}) }));
-  res.json({ ...productCard(p), description: p.description, fileList: files });
+  res.json({ ...productCard(p), description: p.description, sales: cleanSales(p.sales), fileList: files });
 });
 
 // An affiliate's own stats page (private link, no account): their sales and earnings, never buyer details.
@@ -619,13 +634,14 @@ admin.get('/stats', (_req, res) => {
 admin.get('/products', (_req, res) => res.json(all('SELECT * FROM products ORDER BY created_at DESC').map(productCard)));
 admin.post('/products', (req, res) => {
   const title = (req.body?.title || 'Untitled product').trim();
-  const r = run('INSERT INTO products (slug, title, price_cents) VALUES (?, ?, 0)', uniqueSlug('products', title), title);
+  const r = run('INSERT INTO products (slug, title, subtitle, description, price_cents) VALUES (?, ?, ?, ?, 0)', uniqueSlug('products', title), title,
+    String(req.body?.subtitle || '').trim(), String(req.body?.description || '').trim());
   res.json({ id: Number(r.lastInsertRowid) });
 });
 admin.get('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
-  res.json({ ...p, cover: p.cover_path ? `/media/covers/${p.cover_path}` : null, files: productFiles(p.id) });
+  res.json({ ...p, sales: cleanSales(p.sales), cover: p.cover_path ? `/media/covers/${p.cover_path}` : null, files: productFiles(p.id) });
 });
 admin.put('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
@@ -638,10 +654,10 @@ admin.put('/products/:id', (req, res) => {
     const cents = Math.round(Number(v) || 0);
     if (/^[a-z]{3}$/.test(c) && cents > 0) alt[c] = cents;
   }
-  run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, published=?, featured=?, alt_prices=? WHERE id=?`,
+  run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, published=?, featured=?, alt_prices=?, sales=? WHERE id=?`,
     slug, b.title, b.subtitle || '', b.description || '',
     Math.max(0, Math.round(Number(b.price_cents) || 0)), b.compare_cents ? Math.round(Number(b.compare_cents)) : null,
-    b.category_id ? Number(b.category_id) : null, b.published ? 1 : 0, b.featured ? 1 : 0, JSON.stringify(alt), p.id);
+    b.category_id ? Number(b.category_id) : null, b.published ? 1 : 0, b.featured ? 1 : 0, JSON.stringify(alt), JSON.stringify(cleanSales(b.sales)), p.id);
   res.json({ ok: true, slug });
 });
 admin.delete('/products/:id', (req, res) => {

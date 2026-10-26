@@ -369,6 +369,8 @@
     const previews = p.fileList.filter(f => f.preview);
     const off = p.compare && p.compare > p.price ? Math.round((1 - p.price / p.compare) * 100) : 0;
     document.title = `${p.title} | ${S.store.settings.store_name}`;
+    const sales = p.sales || { highlights: [], audience: [], reviews: [], faq: [] };
+    const sec = (title, body) => `<section class="sales-sec"><h3>${title}</h3>${body}</section>`;
 
     shell(`<div class="page-top" style="padding-bottom:20px"><div class="aurora"><i></i></div><div class="wrap" style="position:relative">
         <div class="crumbs"><a href="#/shop">Store</a>${p.category ? `<span>/</span><a href="#/shop?cat=${esc(p.category.slug)}">${esc(p.category.name)}</a>` : ''}</div>
@@ -377,11 +379,16 @@
         <div>
           <div class="product-hero-cover">${coverHtml(p, { title: false })}
             ${previews.length ? `<button class="btn btn-sm" data-preview="${previews[0].id}" style="position:absolute;left:16px;bottom:16px;z-index:3;background:rgba(10,10,10,.7);backdrop-filter:blur(8px)">${I.play.replace('<svg', '<svg width="13" height="13"')} ${previews[0].kind === 'video' ? 'Watch preview' : 'View sample'}</button>` : ''}</div>
+          ${sales.highlights.length ? sec('What you get', `<ul class="hl-list">${sales.highlights.map(h => `<li>${I.checkC}<span>${esc(h)}</span></li>`).join('')}</ul>`) : ''}
           ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
+          ${sales.audience.length ? sec("Who it's for", `<ul class="hl-list who">${sales.audience.map(h => `<li>${I.arrow}<span>${esc(h)}</span></li>`).join('')}</ul>`) : ''}
           ${p.fileList.length ? `<div class="box" style="margin-top:36px"><div class="box-head"><h3>What's included</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')} · ${size(p.totalSize)}</span></div>
             ${p.fileList.map(f => `<div class="file-row"><div class="file-ico ${f.kind}">${esc(extOf(f.name))}</div><div class="grow"><div class="nm">${esc(f.name)}</div><small>${size(f.size)}</small></div>
               ${f.preview ? `<button class="tag-preview" style="background:none;cursor:pointer" data-preview="${f.id}">Preview</button>` : `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`}</div>`).join('')}
           </div>` : ''}
+          ${sales.reviews.length ? sec('What buyers say', `<div class="reviews">${sales.reviews.map(r => `<figure class="review"><blockquote>${esc(r.quote)}</blockquote>${r.name ? `<figcaption><b>${esc(r.name)}</b>${r.detail ? `<span>${esc(r.detail)}</span>` : ''}</figcaption>` : ''}</figure>`).join('')}</div>`) : ''}
+          ${sales.faq.length ? sec('Questions', `<div class="faq">${sales.faq.map(f => `<div class="faq-item"><button class="faq-q">${esc(f.q)}${I.plus}</button><div class="faq-a"><div><p>${esc(f.a)}</p></div></div></div>`).join('')}</div>`) : ''}
+          ${sales.highlights.length + sales.reviews.length + sales.faq.length ? `<div class="end-cta"><div><b>${esc(p.title)}</b><span id="end-price">${p.price ? money(p.price) : 'Free'}</span></div><button class="btn btn-primary" id="end-buy">${p.price ? 'Buy now' : 'Get it free'} ${I.arrow}</button></div>` : ''}
         </div>
         <aside><div class="buy-card">
           <span class="label">${formatOf(p) === 'Download' ? 'Digital download' : formatOf(p) + ' download'}</span>
@@ -432,6 +439,8 @@
       const paid = base && d !== 0;
       $('#buy').innerHTML = (paid ? 'Buy now' : 'Get it free') + ' ' + I.arrow;
       $('.mobile-buy span').textContent = base ? money(d ?? base, cur) : 'Free';
+      if ($('#end-price')) $('#end-price').textContent = base ? money(d ?? base, cur) : 'Free';
+      if ($('#end-buy')) $('#end-buy').innerHTML = (paid ? 'Buy now' : 'Get it free') + ' ' + I.arrow;
       $$('#cur-switch button').forEach(b => b.classList.toggle('on', b.dataset.cur === cur));
     };
     const applyCoupon = async (code, quiet) => {
@@ -458,10 +467,13 @@
       if (form.phone) form.phone.value = s.phone || '';
     } catch {}
     form.addEventListener('submit', e => { e.preventDefault(); checkout(p, state); });
-    $('#mobile-buy').addEventListener('click', () => {
+    const toBuy = () => {
       $('.buy-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
       setTimeout(() => (form.name.value ? form.email : form.name).focus(), 400);
-    });
+    };
+    $('#mobile-buy').addEventListener('click', toBuy);
+    $('#end-buy')?.addEventListener('click', toBuy);
+    $$('.sales-sec .faq-q').forEach(b => b.addEventListener('click', () => b.parentElement.classList.toggle('open')));
     const io = new IntersectionObserver(([e]) => $('.mobile-buy')?.classList.toggle('show', !e.isIntersecting));
     io.observe($('.buy-card'));
   }

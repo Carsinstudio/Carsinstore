@@ -64,7 +64,7 @@ const products = [
     description: 'Stop guessing. This guide walks through value-based pricing, packaging and negotiation with real scripts.',
     files: [['Pricing-Guide.pdf']] },
   { title: 'Starter Toolkit', subtitle: 'My favourite checklists and planners, free.', price: 0, cat: 'Free Resources', featured: 0,
-    description: 'A free bundle to get you moving today. Create an account and it is yours.',
+    description: 'A free bundle to get you moving today. Enter your name and email and it is yours.',
     files: [['Weekly-Planner.pdf'], ['Launch-Checklist.pdf']] },
   { title: 'First 1,000 Followers (Free Video)', subtitle: 'A free 8-minute video on growing from zero.', price: 0, cat: 'Free Resources', featured: 1,
     description: 'A short, practical video on picking your lane, posting rhythm and hooks that work.',

@@ -92,8 +92,10 @@
     $('#new').addEventListener('click', newProduct);
   }
   function newProduct() {
-    modal(`<h3>New product</h3><p class="muted" style="margin:0 0 20px">You can change everything later.</p>
-      <form id="np"><label class="field"><span>Title</span><input class="input" name="title" required placeholder="e.g. Cinematic LUT Pack + Tutorial"><small>Next you'll upload the files: videos, PDFs, ZIPs, anything.</small></label>
+    modal(`<h3>New product</h3><p class="muted" style="margin:0 0 20px">Tell buyers what it is. Everything can be changed later.</p>
+      <form id="np"><label class="field"><span>Title</span><input class="input" name="title" required placeholder="e.g. Cinematic LUT Pack + Tutorial"></label>
+      <label class="field"><span>Short description</span><input class="input" name="subtitle" placeholder="One line that sells it"></label>
+      <label class="field"><span>Description</span><textarea class="input" name="description" rows="5" placeholder="What it is, who it's for and what they'll get"></textarea><small>Next you'll upload the files and build the sales page. You can change all of this later.</small></label>
       <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Create product</button></div></form>`,
       (m, close) => {
         $('#np', m).addEventListener('submit', async e => {
@@ -110,6 +112,7 @@
     const dollars = c => (c ? (c / 100).toFixed(2).replace(/\.00$/, '') : '');
     let alt = {}; try { alt = JSON.parse(p.alt_prices || '{}'); } catch {}
     const total = p.files.reduce((n, f) => n + f.size, 0);
+    const sales = p.sales;
 
     layout('products', `<div class="crumbs" style="margin-bottom:12px"><a href="#/admin/products">Products</a><span>/</span><span>${esc(p.title)}</span></div>` +
       head(esc(p.title), `<a class="btn" href="#/p/${esc(p.slug)}" target="_blank">${A.eye.replace('<svg', '<svg width="15" height="15"')} Preview</a><button class="btn btn-primary" id="save">Save changes</button>`) + `
@@ -121,11 +124,19 @@
         </div>
         <form class="panel" id="pf"><h3>Details</h3>
           <label class="field"><span>Title</span><input class="input" name="title" value="${esc(p.title)}" required></label>
-          <label class="field"><span>Subtitle</span><input class="input" name="subtitle" value="${esc(p.subtitle)}" placeholder="One line that sells it"></label>
+          <label class="field"><span>Short description</span><input class="input" name="subtitle" value="${esc(p.subtitle)}" placeholder="One line that sells it"></label>
           <label class="field"><span>Description</span><textarea class="input" name="description" rows="10" placeholder="What's inside, who it's for, what they'll get…">${esc(p.description)}</textarea>
             <small>Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code></small></label>
+          <small class="dim" style="display:block;margin:-6px 0 16px;font-size:12px">The short description shows under the title on the product page, on product cards and when the link is shared.</small>
           <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(p.slug)}"><small>Share link: ${esc(location.origin)}/p/${esc(p.slug)}. It shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
         </form>
+        <div class="panel"><h3>Sales page</h3>
+          <p class="muted" style="margin:-8px 0 16px;font-size:13px">Extra sections that turn the product page into a full sales page. Leave any of them empty to hide it.</p>
+          <label class="field"><span>What buyers get</span><textarea class="input" form="pf" name="highlights" rows="5" placeholder="3 hours of step-by-step video&#10;The editable project files&#10;A printable checklist">${esc(sales.highlights.join('\n'))}</textarea><small>One point per line. Shown as a checklist near the top of the page.</small></label>
+          <label class="field"><span>Who it's for</span><textarea class="input" form="pf" name="audience" rows="4" placeholder="Beginners starting from zero&#10;Freelancers who want to charge more">${esc(sales.audience.join('\n'))}</textarea><small>One per line.</small></label>
+          <div class="field"><span>Reviews</span><div id="reviews" style="display:grid;gap:8px"></div><button type="button" class="btn btn-sm" id="add-review" style="margin-top:8px;justify-self:start">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add review</button><small style="display:block;margin-top:6px">Real words from real buyers, with their permission.</small></div>
+          <div class="field" style="margin-bottom:0"><span>Questions about this product</span><div id="pfaq" style="display:grid;gap:8px"></div><button type="button" class="btn btn-sm" id="add-pfaq" style="margin-top:8px;justify-self:start">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add question</button><small style="display:block;margin-top:6px">For example: what software do I need, how long is it, what format are the files.</small></div>
+        </div>
       </div>
       <aside>
         <div class="panel"><h3>Status</h3>
@@ -151,6 +162,21 @@
       </aside></div>`);
 
     const reload = () => editor(id);
+    // Reviews and product questions are edited as lists of small cards.
+    const repeater = (box, list, fields, empty) => {
+      const draw = () => {
+        $(box).innerHTML = list.map((x, i) => `<div class="mod-edit" style="padding:12px">${fields.map(([k, ph, area], j) => {
+          const el = area ? `<textarea class="input" data-k="${k}" data-i="${i}" rows="2" style="min-height:60px" placeholder="${ph}">${esc(x[k])}</textarea>` : `<input class="input" data-k="${k}" data-i="${i}" value="${esc(x[k])}" placeholder="${ph}">`;
+          return j === 0 ? `<div style="display:flex;gap:8px;align-items:start">${el}<button type="button" class="icon-btn" data-del="${i}" title="Remove">${A.trash}</button></div>` : `<div style="margin-top:8px">${el}</div>`;
+        }).join('')}</div>`).join('') || `<p class="muted" style="margin:0;font-size:13px">${empty}</p>`;
+        $$(`${box} [data-k]`).forEach(el => el.addEventListener('input', () => (list[el.dataset.i][el.dataset.k] = el.value)));
+        $$(`${box} [data-del]`).forEach(b => b.addEventListener('click', () => { list.splice(Number(b.dataset.del), 1); draw(); }));
+      };
+      draw();
+      return () => { list.push(Object.fromEntries(fields.map(([k]) => [k, '']))); draw(); $(`${box} .mod-edit:last-child [data-k]`)?.focus(); };
+    };
+    $('#add-review').addEventListener('click', repeater('#reviews', sales.reviews, [['quote', 'What they said', true], ['name', 'Their name'], ['detail', 'Optional, e.g. Video editor, Lagos']], 'No reviews yet, so this section is hidden.'));
+    $('#add-pfaq').addEventListener('click', repeater('#pfaq', sales.faq, [['q', 'Question'], ['a', 'Answer', true]], 'No questions yet, so this section is hidden.'));
     const save = async (quiet) => {
       const f = Object.fromEntries(new FormData($('#pf')));
       const r = await api(`/api/admin/products/${id}`, { method: 'PUT', body: {
@@ -158,6 +184,7 @@
         price_cents: Math.round(parseFloat(f.price || 0) * 100) || 0, compare_cents: f.compare ? Math.round(parseFloat(f.compare) * 100) : null,
         category_id: f.category_id || null, published: !!f.published, featured: !!f.featured,
         alt_prices: Object.fromEntries(extraCurrencies().map(c => [c, Math.round(parseFloat(f['price_' + c] || 0) * 100) || 0])),
+        sales: { highlights: f.highlights, audience: f.audience, reviews: sales.reviews.filter(x => x.quote.trim()), faq: sales.faq.filter(x => x.q.trim()) },
       } });
       if (!quiet) toast('Saved');
       return r;

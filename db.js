@@ -177,6 +177,7 @@ function migrate(db) {
   if (!hasColumn(db, 'orders', 'reminded_at')) db.exec('ALTER TABLE orders ADD COLUMN reminded_at TEXT');
   if (!hasColumn(db, 'orders', 'affiliate_id')) db.exec('ALTER TABLE orders ADD COLUMN affiliate_id INTEGER REFERENCES affiliates(id) ON DELETE SET NULL');
   if (!hasColumn(db, 'orders', 'commission_cents')) db.exec('ALTER TABLE orders ADD COLUMN commission_cents INTEGER NOT NULL DEFAULT 0');
+  if (!hasColumn(db, 'products', 'sales')) db.exec("ALTER TABLE products ADD COLUMN sales TEXT NOT NULL DEFAULT '{}'"); // sales page sections, see cleanSales in server.js
   if (!hasColumn(db, 'products', 'alt_prices')) db.exec("ALTER TABLE products ADD COLUMN alt_prices TEXT NOT NULL DEFAULT '{}'"); // {"usd": 1500} in cents
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_pending ON orders(status, created_at)');
 }
