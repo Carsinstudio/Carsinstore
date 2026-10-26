@@ -59,7 +59,10 @@ async function exportBackup(out, { includeOrders = false } = {}) {
       snap.exec('VACUUM');
     }
     const files = snap.prepare('SELECT stored_name FROM files').all().map(r => r.stored_name);
-    const covers = snap.prepare('SELECT cover_path FROM products WHERE cover_path IS NOT NULL').all().map(r => r.cover_path);
+    const covers = [...new Set(snap.prepare('SELECT cover_path, covers FROM products').all().flatMap(r => {
+      let list = []; try { list = JSON.parse(r.covers || '[]'); } catch {}
+      return [r.cover_path, ...(Array.isArray(list) ? list : [])];
+    }).filter(Boolean))];
     const shareImage = snap.prepare("SELECT value FROM settings WHERE key = 'share_image'").get()?.value;
     if (shareImage) covers.push(shareImage);
     const counts = {

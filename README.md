@@ -15,8 +15,9 @@ Your own storefront for selling digital downloads: videos, PDFs, ZIPs, documents
 
 **For you (`/#/admin`)**
 - Overview: revenue, sales, customers, a 30-day chart, top products, recent activity
-- Products: set price and "compare at" price; publish or draft; feature on the homepage; add a cover image
-- Drag-and-drop uploads with a progress bar (up to 4 GB per file by default). You can rename files, reorder them, and turn on **Free preview** for any file.
+- Products: set price and "compare at" price; one-click Publish or Unpublish; feature on the homepage; up to 4 cover images that buyers swipe through (the first is the main one, used on product cards and link previews). Everything you type saves by itself.
+- Drag-and-drop uploads with a progress bar per file (up to 4 GB each by default). Keep editing, or move to another dashboard page, while they upload. You can rename files and reorder them.
+- **Free preview** for videos, audio, images and PDFs: visitors can view it on the product page but not download it. For a PDF they only get the first few pages (you choose 1 to 10), cut on the server, so the full file never leaves the store until someone buys.
 - Orders show each buyer's name and email, with **Copy link** (to send someone their download link yourself) and **Email link** buttons
 - Give a product to anyone for free: enter their name and email, and you get a link to send them
 - Categories, discount codes (percent or amount, max uses, expiry), orders (CSV export, revoke access), customers (CSV export)

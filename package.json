@@ -2,7 +2,7 @@
   "name": "carsinstore",
   "version": "1.0.0",
   "private": true,
-  "description": "Carsinstore — a personal storefront for selling courses and digital products.",
+  "description": "Carsinstore: a personal storefront for selling digital downloads.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "express": "4.21.2",
-    "multer": "2.0.2"
+    "multer": "2.0.2",
+    "pdf-lib": "1.17.1"
   }
 }

@@ -6,6 +6,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
+const { PDFDocument } = require('pdf-lib');
 const { all, one, run, getSettings, DATA_DIR } = require('./db');
 const mailer = require('./mailer');
 const backup = require('./backup');
@@ -193,7 +194,7 @@ async function sendLinks(orders, { resend = false } = {}) {
 
 function productFiles(productId) {
   return all('SELECT * FROM files WHERE product_id = ? ORDER BY sort, id', productId)
-    .map(f => ({ id: f.id, name: f.original_name, size: f.size, mime: f.mime, preview: !!f.preview, kind: fileKind(f.mime, f.original_name) }));
+    .map(f => ({ id: f.id, name: f.original_name, size: f.size, mime: f.mime, preview: !!f.preview, previewPages: f.preview_pages, kind: fileKind(f.mime, f.original_name) }));
 }
 
 // Sales page sections for a product: lists of short lines, reviews and product questions.
@@ -210,6 +211,32 @@ function cleanSales(v) {
     faq: list(s.faq, 15, [['q', 200], ['a', 1500]], 'q'),
   };
 }
+
+const MAX_COVERS = 4;
+const coversOf = p => { try { const c = JSON.parse(p.covers || '[]'); return Array.isArray(c) ? c.slice(0, MAX_COVERS) : []; } catch { return []; } };
+const coverUrls = p => coversOf(p).map(c => `/media/covers/${c}`);
+function setCovers(p, list) {
+  run('UPDATE products SET covers = ?, cover_path = ? WHERE id = ?', JSON.stringify(list), list[0] || null, p.id);
+}
+
+// File types a visitor can view in the browser. Only these can be free previews.
+const PREVIEWABLE = ['video', 'audio', 'pdf', 'image'];
+
+// A free PDF preview is a separate, shorter PDF: the first few pages only, cached next to the files.
+async function samplePdf(f) {
+  const pages = Math.min(Math.max(Number(f.preview_pages) || 3, 1), 20);
+  const dir = path.join(FILES_DIR, '.previews');
+  const out = path.join(dir, `${f.stored_name}-${pages}p.pdf`);
+  if (fs.existsSync(out)) return out;
+  const src = await PDFDocument.load(await fs.promises.readFile(path.join(FILES_DIR, f.stored_name)), { ignoreEncryption: true });
+  const doc = await PDFDocument.create();
+  for (const pg of await doc.copyPages(src, src.getPageIndices().slice(0, pages))) doc.addPage(pg);
+  await fs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.writeFile(out, await doc.save());
+  return out;
+}
+const dropSamples = f => fs.promises.readdir(path.join(FILES_DIR, '.previews')).then(names => names
+  .filter(n => n.startsWith(f.stored_name + '-')).forEach(n => fs.rm(path.join(FILES_DIR, '.previews', n), { force: true }, () => {}))).catch(() => {});
 
 function productCard(p) {
   const files = productFiles(p.id);
@@ -401,8 +428,11 @@ app.get('/api/products/:slug', (req, res) => {
   const p = one('SELECT * FROM products WHERE slug = ?', req.params.slug);
   if (!p || (!p.published && !req.user?.is_admin)) return bad(res, 'Product not found.', 404);
   // File ids are only exposed for free previews; everything else stays locked until purchase.
-  const files = productFiles(p.id).map(f => ({ name: f.name, size: f.size, kind: f.kind, preview: f.preview, ...(f.preview ? { id: f.id } : {}) }));
-  res.json({ ...productCard(p), description: p.description, sales: cleanSales(p.sales), fileList: files });
+  const files = productFiles(p.id).map(f => {
+    const preview = f.preview && PREVIEWABLE.includes(f.kind);
+    return { name: f.name, size: f.size, kind: f.kind, preview, ...(preview ? { id: f.id } : {}), ...(preview && f.kind === 'pdf' ? { previewPages: f.previewPages } : {}) };
+  });
+  res.json({ ...productCard(p), covers: coverUrls(p), description: p.description, sales: cleanSales(p.sales), fileList: files });
 });
 
 // An affiliate's own stats page (private link, no account): their sales and earnings, never buyer details.
@@ -593,16 +623,26 @@ app.post('/api/resend-links',
   res.json({ ok: true });
 }));
 
-app.get('/api/files/:id', (req, res) => {
+// Buyers (with their private link) and the owner get the whole file. Everyone else only gets a free preview:
+// viewable in the browser, never as a download, and for PDFs just the first few pages.
+// The owner can add ?sample=1 to see exactly what visitors get.
+app.get('/api/files/:id', wrap(async (req, res) => {
   const f = one('SELECT * FROM files WHERE id = ?', req.params.id);
   if (!f) return bad(res, 'File not found.', 404);
   const viaLink = req.query.t && one(`SELECT 1 FROM orders WHERE access_token = ? AND product_id = ? AND status IN ${ACCESS_STATUSES}`, String(req.query.t), f.product_id);
-  if (!f.preview && !viaLink && !req.user?.is_admin) return bad(res, 'This file is only available to buyers.', 403);
-  const disp = req.query.inline ? 'inline' : 'attachment';
-  res.setHeader('Content-Disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(f.original_name)}`);
+  const full = viaLink || (req.user?.is_admin && !req.query.sample);
+  const kind = fileKind(f.mime, f.original_name);
+  if (!full && !(f.preview && PREVIEWABLE.includes(kind))) return bad(res, 'This file is only available to buyers.', 403);
+  let file = path.join(FILES_DIR, f.stored_name), name = f.original_name;
+  if (!full && kind === 'pdf') {
+    try { file = await samplePdf(f); name = name.replace(/\.pdf$/i, '') + ' (sample).pdf'; }
+    catch (e) { console.error('PDF sample failed:', e.message); return bad(res, 'The preview for this file is not available.', 404); }
+  }
+  const disp = req.query.inline || !full ? 'inline' : 'attachment';
+  res.setHeader('Content-Disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(name)}`);
   res.setHeader('Cache-Control', 'private, max-age=0');
-  res.sendFile(path.join(FILES_DIR, f.stored_name), { headers: { 'Content-Type': f.mime || 'application/octet-stream' } });
-});
+  res.sendFile(file, { headers: { 'Content-Type': f.mime || 'application/octet-stream' } });
+}));
 
 // ---------- admin ----------
 const upload = multer({
@@ -641,7 +681,7 @@ admin.post('/products', (req, res) => {
 admin.get('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
-  res.json({ ...p, sales: cleanSales(p.sales), cover: p.cover_path ? `/media/covers/${p.cover_path}` : null, files: productFiles(p.id) });
+  res.json({ ...p, sales: cleanSales(p.sales), covers: coverUrls(p), files: productFiles(p.id) });
 });
 admin.put('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
@@ -664,16 +704,33 @@ admin.delete('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
   for (const f of all('SELECT stored_name FROM files WHERE product_id = ?', p.id)) fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
-  if (p.cover_path) fs.rm(path.join(COVERS_DIR, p.cover_path), { force: true }, () => {});
+  for (const c of new Set([...coversOf(p), p.cover_path].filter(Boolean))) fs.rm(path.join(COVERS_DIR, c), { force: true }, () => {});
+  for (const f of all('SELECT stored_name FROM files WHERE product_id = ?', p.id)) dropSamples(f);
   run('DELETE FROM products WHERE id = ?', p.id);
   res.json({ ok: true });
 });
+// Cover images: up to 4, shown as a slider on the product page. The first is the main one
+// (product cards and link previews).
 admin.post('/products/:id/cover', upload.single('cover'), (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p || !req.file) return bad(res, 'Upload failed.');
-  if (p.cover_path) fs.rm(path.join(COVERS_DIR, p.cover_path), { force: true }, () => {});
-  run('UPDATE products SET cover_path = ? WHERE id = ?', req.file.filename, p.id);
-  res.json({ cover: `/media/covers/${req.file.filename}` });
+  const list = coversOf(p);
+  if (list.length >= MAX_COVERS) {
+    fs.rm(req.file.path, { force: true }, () => {});
+    return bad(res, `You can have up to ${MAX_COVERS} cover images. Remove one first.`);
+  }
+  setCovers(p, [...list, req.file.filename]);
+  res.json({ covers: coverUrls(one('SELECT * FROM products WHERE id = ?', p.id)) });
+});
+// New order of the cover images (as their URLs); any left out are deleted.
+admin.put('/products/:id/covers', (req, res) => {
+  const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
+  if (!p) return bad(res, 'Not found', 404);
+  const list = coversOf(p);
+  const order = [...new Set((Array.isArray(req.body?.order) ? req.body.order : []).map(u => path.basename(String(u))).filter(c => list.includes(c)))];
+  for (const c of list) if (!order.includes(c)) fs.rm(path.join(COVERS_DIR, c), { force: true }, () => {});
+  setCovers(p, order);
+  res.json({ covers: coverUrls(one('SELECT * FROM products WHERE id = ?', p.id)) });
 });
 admin.post('/products/:id/files', upload.array('files', 50), (req, res) => {
   const p = one('SELECT id FROM products WHERE id = ?', req.params.id);
@@ -688,14 +745,16 @@ admin.post('/products/:id/files', upload.array('files', 50), (req, res) => {
 admin.put('/files/:id', (req, res) => {
   const f = one('SELECT * FROM files WHERE id = ?', req.params.id);
   if (!f) return bad(res, 'Not found', 404);
-  run('UPDATE files SET original_name = ?, preview = ?, sort = ? WHERE id = ?', req.body.name || f.original_name,
-    req.body.preview === undefined ? f.preview : req.body.preview ? 1 : 0, req.body.sort ?? f.sort, f.id);
+  const pages = req.body.preview_pages === undefined ? f.preview_pages : Math.min(Math.max(Math.round(Number(req.body.preview_pages)) || 3, 1), 20);
+  run('UPDATE files SET original_name = ?, preview = ?, sort = ?, preview_pages = ? WHERE id = ?', req.body.name || f.original_name,
+    req.body.preview === undefined ? f.preview : req.body.preview ? 1 : 0, req.body.sort ?? f.sort, pages, f.id);
   res.json({ ok: true });
 });
 admin.delete('/files/:id', (req, res) => {
   const f = one('SELECT * FROM files WHERE id = ?', req.params.id);
   if (!f) return bad(res, 'Not found', 404);
   fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
+  dropSamples(f);
   run('DELETE FROM files WHERE id = ?', f.id);
   res.json({ ok: true });
 });
@@ -927,6 +986,7 @@ app.get('/', (_req, res) => sendHome(res));
 for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find']) app.get(`/${page}`, (_req, res) => sendHome(res));
 
 app.use('/media/covers', express.static(COVERS_DIR, { maxAge: '7d' }));
+app.use(['/media', '/api'], (_req, res) => res.status(404).json({ error: 'Not found.' })); // never fall through to the store page
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], index: false }));
 app.get('*', (_req, res) => sendHome(res));
 

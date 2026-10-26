@@ -377,7 +377,9 @@
         <h1>${esc(p.title)}</h1><p style="font-size:17px">${esc(p.subtitle)}</p></div></div>
       <div class="wrap page" style="padding-top:20px"><div class="product-layout">
         <div>
-          <div class="product-hero-cover">${coverHtml(p, { title: false })}
+          <div class="product-hero-cover">${p.covers?.length > 1 ? `<div class="slides" id="slides">${p.covers.map((c, i) => `<img src="${esc(c)}" alt="" ${i ? 'loading="lazy"' : ''}>`).join('')}</div>
+            <button class="slide-nav prev" data-slide="-1" aria-label="Previous image">${I.arrow}</button><button class="slide-nav next" data-slide="1" aria-label="Next image">${I.arrow}</button>
+            <div class="slide-dots">${p.covers.map((_, i) => `<button data-dot="${i}" aria-label="Image ${i + 1}"></button>`).join('')}</div>` : coverHtml(p, { title: false })}
             ${previews.length ? `<button class="btn btn-sm" data-preview="${previews[0].id}" style="position:absolute;left:16px;bottom:16px;z-index:3;background:rgba(10,10,10,.7);backdrop-filter:blur(8px)">${I.play.replace('<svg', '<svg width="13" height="13"')} ${previews[0].kind === 'video' ? 'Watch preview' : 'View sample'}</button>` : ''}</div>
           ${sales.highlights.length ? sec('What you get', `<ul class="hl-list">${sales.highlights.map(h => `<li>${I.checkC}<span>${esc(h)}</span></li>`).join('')}</ul>`) : ''}
           ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
@@ -422,6 +424,17 @@
 
     window.Analytics?.track('view_product', { slug: p.slug, title: p.title, amount: p.price, currency: S.store.settings.currency });
     $$('[data-preview]').forEach(b => b.addEventListener('click', () => previewFile(p.fileList.find(f => f.id === Number(b.dataset.preview)))));
+    // Cover slider: swipe or scroll natively, arrows and dots jump between images.
+    const slides = $('#slides');
+    if (slides) {
+      const at = () => Math.round(slides.scrollLeft / slides.clientWidth);
+      const go = i => slides.scrollTo({ left: ((i + p.covers.length) % p.covers.length) * slides.clientWidth, behavior: 'smooth' });
+      const mark = () => $$('[data-dot]').forEach(d => d.classList.toggle('on', Number(d.dataset.dot) === at()));
+      $$('[data-slide]').forEach(b => b.addEventListener('click', () => go(at() + Number(b.dataset.slide))));
+      $$('[data-dot]').forEach(d => d.addEventListener('click', () => go(Number(d.dataset.dot))));
+      slides.addEventListener('scroll', mark, { passive: true });
+      mark();
+    }
     $('#share-copy').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(`${location.origin}/p/${p.slug}`); toast('Link copied. It shows a preview when shared.'); }
       catch { prompt('Copy this link:', `${location.origin}/p/${p.slug}`); }
@@ -483,21 +496,25 @@
     const q = new URLSearchParams();
     if (inline) q.set('inline', '1');
     if (token) q.set('t', token);
+    else q.set('sample', '1');
     return `/api/files/${f.id}${q.toString() ? '?' + q : ''}`;
   }
+  // Without a token this is a free preview: no download button, and PDFs are a short sample made by the server.
   function viewerHtml(f, token) {
     const src = fileUrl(f, token, true);
-    if (f.kind === 'video') return `<div class="player"><video src="${src}" controls autoplay playsinline></video></div>`;
-    if (f.kind === 'audio') return `<audio src="${src}" controls autoplay style="width:100%"></audio>`;
-    if (f.kind === 'pdf') return `<iframe class="pdf-frame" src="${src}"></iframe>`;
+    const lock = token ? '' : ' controlsList="nodownload" disablepictureinpicture oncontextmenu="return false"';
+    if (f.kind === 'video') return `<div class="player"><video src="${src}" controls autoplay playsinline${lock}></video></div>`;
+    if (f.kind === 'audio') return `<audio src="${src}" controls autoplay style="width:100%"${lock}></audio>`;
+    if (f.kind === 'pdf') return `<iframe class="pdf-frame" src="${src}${token ? '' : '#toolbar=0&navpanes=0'}"></iframe>`;
     if (f.kind === 'image') return `<img src="${src}" alt="" style="width:100%;border-radius:12px">`;
     return '';
   }
   function previewFile(f) {
     if (!f) return;
     const view = viewerHtml(f);
-    modal(`<h3>${esc(f.name)}</h3><span class="tag-preview">Free preview</span>
-      <div style="margin-top:16px">${view || `<p class="muted">This file type can't be previewed in the browser. <a href="${fileUrl(f)}" style="color:var(--accent-2)">download the sample</a>.</p>`}</div>
+    modal(`<h3>${esc(f.name)}</h3><span class="tag-preview">${f.kind === 'pdf' && f.previewPages ? `Free sample: first ${plural(f.previewPages, 'page')}` : 'Free preview'}</span>
+      <div style="margin-top:16px">${view || '<p class="muted">This file type can\'t be previewed in the browser.</p>'}</div>
+      <p class="dim" style="font-size:12.5px;margin:12px 0 0">Buy to download the full file.</p>
       <div class="actions"><button class="btn" data-close>Close</button></div>`, m => { m.style.maxWidth = '820px'; });
   }
 
