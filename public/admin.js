@@ -94,6 +94,7 @@
   function newProduct() {
     modal(`<h3>New product</h3><p class="muted" style="margin:0 0 20px">Everything can be changed later.</p>
       <form id="np"><label class="field"><span>Title</span><input class="input" name="title" required placeholder="e.g. Cinematic LUT Pack + Tutorial"></label>
+      <label class="field"><span>Short description</span><input class="input" name="subtitle" placeholder="One line that sells it"><small>Shown under the title, on product cards and as the text in link previews on WhatsApp, Instagram and X.</small></label>
       <label class="field"><span>Description</span><textarea class="input" name="description" rows="6" placeholder="What it is, what's inside, who it's for, questions buyers ask"></textarea><small>Next you'll upload the files and cover images.</small></label>
       <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Create product</button></div></form>`,
       (m, close) => {
@@ -131,8 +132,9 @@
         </div>
         <form class="panel" id="pf"><h3>Details</h3>
           <label class="field"><span>Title</span><input class="input" name="title" value="${esc(p.title)}" required></label>
+          <label class="field"><span>Short description</span><input class="input" name="subtitle" value="${esc(p.subtitle)}" placeholder="One line that sells it"><small>Shown under the title, on product cards and as the text in link previews on WhatsApp, Instagram and X.</small></label>
           <label class="field"><span>Description</span><textarea class="input" name="description" rows="16" placeholder="Everything about the product: what it is, what's inside, who it's for, questions buyers ask">${esc(p.description)}</textarea>
-            <small>This is the whole sales page text. Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code>. The first lines are also used when the link is shared.</small></label>
+            <small>This is the whole sales page text. Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code>. </small></label>
           <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(p.slug)}"><small>Share link: <span id="share-url">${esc(location.origin)}/p/${esc(p.slug)}</span>. It shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
         </form>
         <div class="panel"><h3>Reviews</h3>
@@ -170,7 +172,7 @@
     const body = () => {
       const f = Object.fromEntries(new FormData($('#pf')));
       return {
-        title: f.title, description: f.description, slug: f.slug,
+        title: f.title, subtitle: f.subtitle, description: f.description, slug: f.slug,
         price_cents: Math.round(parseFloat(f.price || 0) * 100) || 0, compare_cents: f.compare ? Math.round(parseFloat(f.compare) * 100) : null,
         category_id: f.category_id || null, published, featured: !!f.featured,
         alt_prices: Object.fromEntries(extraCurrencies().map(c => [c, Math.round(parseFloat(f['price_' + c] || 0) * 100) || 0])),

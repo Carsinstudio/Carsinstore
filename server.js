@@ -970,7 +970,7 @@ app.get('/p/:slug', (req, res) => {
   const price = p.price_cents ? formatPrice(p.price_cents, s.currency || 'ngn') : 'Free';
   sendPage(res, {
     title: `${p.title} | ${s.store_name}`, ogTitle: `${p.title} · ${price}`,
-    description: shortText(plain(p.description) || s.tagline),
+    description: shortText(plain(p.subtitle) || plain(p.description) || s.tagline),
     url: `${BASE_URL}/p/${p.slug}`, site: s.store_name, type: 'product',
     image: p.cover_path ? `${BASE_URL}/media/covers/${p.cover_path}` : shareImage(s),
     price: p.price_cents ? { cents: p.price_cents, currency: s.currency || 'ngn' } : null,

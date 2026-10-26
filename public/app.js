@@ -153,6 +153,7 @@
       <div class="card-body">
         ${p.category ? `<span class="cat">${esc(p.category.name)}</span>` : ''}
         <h3>${esc(p.title)}</h3>
+        <p class="sub">${esc(p.subtitle || '')}</p>
         <div class="card-foot"><div class="meta">${metaHtml(p)}</div>${priceHtml(p)}</div>
       </div></a>`;
   }
@@ -373,7 +374,7 @@
 
     shell(`<div class="page-top" style="padding-bottom:20px"><div class="aurora"><i></i></div><div class="wrap" style="position:relative">
         <div class="crumbs"><a href="#/shop">Store</a>${p.category ? `<span>/</span><a href="#/shop?cat=${esc(p.category.slug)}">${esc(p.category.name)}</a>` : ''}</div>
-        <h1>${esc(p.title)}</h1></div></div>
+        <h1>${esc(p.title)}</h1><p style="font-size:17px">${esc(p.subtitle)}</p></div></div>
       <div class="wrap page" style="padding-top:20px"><div class="product-layout">
         <div>
           <div class="product-hero-cover">${p.covers?.length > 1 ? `<div class="slides" id="slides">${p.covers.map((c, i) => `<img src="${esc(c)}" alt="" ${i ? 'loading="lazy"' : ''}>`).join('')}</div>

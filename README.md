@@ -7,7 +7,7 @@ Your own storefront for selling digital downloads: videos, PDFs, ZIPs, documents
 **For visitors**
 - Homepage with featured products, categories, free resources, FAQ
 - Store page with category, format (videos, PDFs, ZIPs, documents, audio) and free/paid filters, plus search and sorting
-- A sales page for every product: square cover images (1080×1080) buyers swipe through, the full description (headings, bullets, bold, links), buyer reviews, the list of included files, free previews and a closing buy button.
+- A sales page for every product: square cover images (1080×1080) buyers swipe through, a short description (also the text in link previews on WhatsApp, Instagram and X), the full description (headings, bullets, bold, links), buyer reviews, the list of included files, free previews and a closing buy button.
 - **No accounts.** The buy box asks for just a name and email, then goes straight to Paystack checkout (card, bank transfer, USSD, and more, depending on what you enable in Paystack). Free products skip payment.
 - After paying, the buyer lands on a **private download page** where they can download every file, or play videos and open PDFs in the browser. The link is unique to that order. If email is set up (below), it's also emailed to them.
 - **Find my downloads**: a buyer who lost their link enters their email and gets their links sent again (needs email set up).
