@@ -10,6 +10,7 @@ const { all, one, run, getSettings, DATA_DIR } = require('./db');
 const mailer = require('./mailer');
 const backup = require('./backup');
 const { LEGAL_PAGES } = require('./legal');
+const { limit, failures } = require('./ratelimit');
 
 const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -300,6 +301,17 @@ const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 // ---------- app ----------
 const app = express();
 app.disable('x-powered-by');
+// Behind a host's proxy (Railway, Render, Nginx), set TRUST_PROXY=1 so rate limits see each visitor's real IP.
+// Left off by default: without a proxy, trusting X-Forwarded-For would let anyone fake their IP.
+if (process.env.TRUST_PROXY) app.set('trust proxy', /^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY);
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY'); // the store and dashboard can't be embedded in other sites (clickjacking)
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (BASE_URL.startsWith('https')) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
 
 // Paystack webhook needs the raw body to check its signature, so it is registered before the JSON parser.
 app.post('/api/paystack/webhook', express.raw({ type: '*/*' }), wrap(async (req, res) => {
@@ -373,7 +385,7 @@ app.get('/api/products/:slug', (req, res) => {
 });
 
 // An affiliate's own stats page (private link, no account): their sales and earnings, never buyer details.
-app.get('/api/affiliate/:token', (req, res) => {
+app.get('/api/affiliate/:token', limit({ name: 'affiliate', max: 60, windowMs: 60 * 1000 }), (req, res) => {
   const a = one('SELECT * FROM affiliates WHERE token = ?', req.params.token);
   if (!a) return bad(res, 'This link is not valid.', 404);
   const sum = affiliateSummary(a);
@@ -389,10 +401,23 @@ app.get('/api/legal/:page', (req, res) => {
 });
 
 // ----- owner auth (buyers never need an account) -----
+// Password guessing: 5 wrong tries per email (from one IP) or 20 per IP lock sign-in for 15 minutes.
+const LOGIN_WINDOW = 15 * 60 * 1000;
+const DUMMY_HASH = hashPassword(crypto.randomBytes(16).toString('hex'));
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body || {};
-  const u = one('SELECT * FROM users WHERE email = ? AND is_admin = 1', String(email || '').trim());
-  if (!u || !checkPassword(password || '', u.password_hash)) return bad(res, 'Wrong email or password.', 401);
+  const who = String(email || '').trim().toLowerCase();
+  const keys = [`login:${req.ip}:${who}`, `login:${req.ip}`];
+  const wait = failures.blocked(keys[0], 5) || failures.blocked(keys[1], 20);
+  if (wait) return bad(res, `Too many sign-in attempts. Try again in ${wait} minute${wait === 1 ? '' : 's'}.`, 429);
+  const u = one('SELECT * FROM users WHERE email = ? AND is_admin = 1', who);
+  // Check a dummy hash when there's no such owner, so response time doesn't reveal which emails exist.
+  const ok = checkPassword(password || '', u ? u.password_hash : DUMMY_HASH) && !!u;
+  if (!ok) {
+    keys.forEach(k => failures.record(k, LOGIN_WINDOW));
+    return bad(res, 'Wrong email or password.', 401);
+  }
+  failures.reset(keys[0]);
   setSession(res, u.id);
   res.json({ user: publicUser(u) });
 });
@@ -402,12 +427,16 @@ app.post('/api/auth/logout', (_req, res) => {
 });
 app.post('/api/auth/password', requireAdmin, (req, res) => {
   const { current, next } = req.body || {};
-  if (!checkPassword(current || '', req.user.password_hash)) return bad(res, 'Current password is wrong.');
+  const key = `pw:${req.user.id}`;
+  const wait = failures.blocked(key, 5);
+  if (wait) return bad(res, `Too many attempts. Try again in ${wait} minute${wait === 1 ? '' : 's'}.`, 429);
+  if (!checkPassword(current || '', req.user.password_hash)) { failures.record(key, LOGIN_WINDOW); return bad(res, 'Current password is wrong.'); }
+  failures.reset(key);
   if (!next || next.length < 8) return bad(res, 'New password must be at least 8 characters.');
   run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(next), req.user.id);
   res.json({ ok: true });
 });
-app.post('/api/setup', (req, res) => {
+app.post('/api/setup', limit({ name: 'setup', max: 10, windowMs: 60 * 60 * 1000 }), (req, res) => {
   if (one('SELECT id FROM users WHERE is_admin = 1')) return bad(res, 'Store owner already exists.', 403);
   const { email, password, name } = req.body || {};
   if (!/^\S+@\S+\.\S+$/.test(email || '') || !password || password.length < 8) return bad(res, 'Enter an email and a password of 8+ characters.');
@@ -431,7 +460,8 @@ function priceIn(p, wanted, s) {
   return currency in prices ? { currency, base: prices[currency] } : { error: `This product can't be bought in ${currency.toUpperCase()}.` };
 }
 
-app.post('/api/coupons/validate', (req, res) => {
+// Stops anyone guessing discount codes by trying thousands.
+app.post('/api/coupons/validate', limit({ name: 'coupon', max: 30, windowMs: 10 * 60 * 1000, message: 'Too many code attempts. Try again in {minutes} minutes.' }), (req, res) => {
   const s = getSettings();
   const p = one('SELECT * FROM products WHERE id = ? AND published = 1', req.body?.productId);
   if (!p) return bad(res, 'Product not found.', 404);
@@ -442,7 +472,7 @@ app.post('/api/coupons/validate', (req, res) => {
   res.json({ price: r.price, original: cur.base, currency: cur.currency });
 });
 
-app.post('/api/checkout', wrap(async (req, res) => {
+app.post('/api/checkout', limit({ name: 'checkout', max: 20, windowMs: 10 * 60 * 1000, message: 'Too many checkout attempts. Please wait {minutes} minutes and try again.' }), wrap(async (req, res) => {
   const s = getSettings();
   const p = one('SELECT * FROM products WHERE id = ? AND published = 1', req.body?.productId);
   if (!p) return bad(res, 'Product not found.', 404);
@@ -509,7 +539,7 @@ app.post('/api/checkout/demo/:token', (req, res) => {
 });
 
 // ----- delivery: the private link IS the access -----
-app.get('/api/order/:token', wrap(async (req, res) => {
+app.get('/api/order/:token', limit({ name: 'order', max: 120, windowMs: 60 * 1000 }), wrap(async (req, res) => {
   const find = () => one('SELECT o.*, u.name, u.email FROM orders o JOIN users u ON u.id = o.user_id WHERE o.access_token = ?', req.params.token);
   let o = find();
   if (!o) return bad(res, 'This download link is not valid.', 404);
@@ -530,7 +560,11 @@ app.get('/api/order/:token', wrap(async (req, res) => {
 }));
 
 // Emails every download link for an address. Same reply either way, so it can't be used to probe who bought what.
-app.post('/api/resend-links', wrap(async (req, res) => {
+// Limited per address and per visitor so the form can't be used to flood someone's inbox.
+app.post('/api/resend-links',
+  limit({ name: 'links-ip', max: 10, windowMs: 60 * 60 * 1000, message: 'Too many requests. Try again in {minutes} minutes.' }),
+  limit({ name: 'links-email', max: 3, windowMs: 60 * 60 * 1000, keyOf: req => String(req.body?.email || '').trim().toLowerCase(), message: 'We already sent your links recently — check your inbox and spam folder.' }),
+  wrap(async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!mailer.enabled) return bad(res, 'Email delivery is not set up for this store yet.', 503);
   const orders = all(`SELECT o.* FROM orders o JOIN users u ON u.id = o.user_id WHERE u.email = ? AND o.status IN ${ACCESS_STATUSES}`, email);

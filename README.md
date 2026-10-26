@@ -86,6 +86,13 @@ Optional. Paste a **Plausible** domain, a **Google Analytics 4** Measurement ID 
 - **What's not counted:** your own visits while signed in, and partner stats pages.
 - **Meta Pixel:** needed for Instagram and Facebook ads to optimise for purchases.
 
+## Security
+
+- **Owner sign-in:** 5 wrong passwords for an email (or 20 from one IP) lock sign-in for 15 minutes. Responses don't reveal whether an email is the owner's.
+- **Rate limits:** checkout (20 per 10 min per visitor), discount codes (30 per 10 min), "Find my downloads" (3 per hour per email, 10 per visitor) and the download and partner pages.
+- **Headers:** the store can't be embedded in other sites; standard security headers are set.
+- **Behind a proxy:** when hosting behind one (Railway, Render, Nginx), set `TRUST_PROXY=1` so limits apply per visitor instead of to everyone at once.
+
 ## Backups and moving the store
 
 Store settings → **Backup & move** downloads the whole store (products, files, covers, settings, owner account) as one `.tar.gz` file. Restore it on another computer or host from the same panel.
