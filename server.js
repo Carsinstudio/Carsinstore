@@ -197,19 +197,13 @@ function productFiles(productId) {
     .map(f => ({ id: f.id, name: f.original_name, size: f.size, mime: f.mime, preview: !!f.preview, previewPages: f.preview_pages, kind: fileKind(f.mime, f.original_name) }));
 }
 
-// Sales page sections for a product: lists of short lines, reviews and product questions.
+// Extra product page sections: buyer reviews (everything else lives in the description).
 function cleanSales(v) {
   let s = v; if (typeof s === 'string') { try { s = JSON.parse(s || '{}'); } catch { s = {}; } }
   s = s && typeof s === 'object' ? s : {};
   const str = (x, n) => String(x ?? '').trim().slice(0, n);
-  const lines = (x, max) => (Array.isArray(x) ? x : String(x ?? '').split('\n')).map(l => str(l, 300)).filter(Boolean).slice(0, max);
-  const list = (x, max, keys, need) => (Array.isArray(x) ? x : []).map(o => Object.fromEntries(keys.map(([k, n]) => [k, str(o?.[k], n)]))).filter(o => o[need]).slice(0, max);
-  return {
-    highlights: lines(s.highlights, 20),
-    audience: lines(s.audience, 12),
-    reviews: list(s.reviews, 12, [['quote', 800], ['name', 80], ['detail', 80]], 'quote'),
-    faq: list(s.faq, 15, [['q', 200], ['a', 1500]], 'q'),
-  };
+  const reviews = (Array.isArray(s.reviews) ? s.reviews : []).map(o => ({ quote: str(o?.quote, 800), name: str(o?.name, 80), detail: str(o?.detail, 80) }));
+  return { reviews: reviews.filter(o => o.quote).slice(0, 12) };
 }
 
 const MAX_COVERS = 4;
@@ -976,7 +970,7 @@ app.get('/p/:slug', (req, res) => {
   const price = p.price_cents ? formatPrice(p.price_cents, s.currency || 'ngn') : 'Free';
   sendPage(res, {
     title: `${p.title} | ${s.store_name}`, ogTitle: `${p.title} · ${price}`,
-    description: shortText(plain(p.subtitle) || plain(p.description) || s.tagline),
+    description: shortText(plain(p.description) || s.tagline),
     url: `${BASE_URL}/p/${p.slug}`, site: s.store_name, type: 'product',
     image: p.cover_path ? `${BASE_URL}/media/covers/${p.cover_path}` : shareImage(s),
     price: p.price_cents ? { cents: p.price_cents, currency: s.currency || 'ngn' } : null,

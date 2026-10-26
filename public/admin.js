@@ -92,10 +92,9 @@
     $('#new').addEventListener('click', newProduct);
   }
   function newProduct() {
-    modal(`<h3>New product</h3><p class="muted" style="margin:0 0 20px">Tell buyers what it is. Everything can be changed later.</p>
+    modal(`<h3>New product</h3><p class="muted" style="margin:0 0 20px">Everything can be changed later.</p>
       <form id="np"><label class="field"><span>Title</span><input class="input" name="title" required placeholder="e.g. Cinematic LUT Pack + Tutorial"></label>
-      <label class="field"><span>Short description</span><input class="input" name="subtitle" placeholder="One line that sells it"></label>
-      <label class="field"><span>Description</span><textarea class="input" name="description" rows="5" placeholder="What it is, who it's for and what they'll get"></textarea><small>Next you'll upload the files and build the sales page. You can change all of this later.</small></label>
+      <label class="field"><span>Description</span><textarea class="input" name="description" rows="6" placeholder="What it is, what's inside, who it's for, questions buyers ask"></textarea><small>Next you'll upload the files and cover images.</small></label>
       <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Create product</button></div></form>`,
       (m, close) => {
         $('#np', m).addEventListener('submit', async e => {
@@ -132,18 +131,13 @@
         </div>
         <form class="panel" id="pf"><h3>Details</h3>
           <label class="field"><span>Title</span><input class="input" name="title" value="${esc(p.title)}" required></label>
-          <label class="field"><span>Short description</span><input class="input" name="subtitle" value="${esc(p.subtitle)}" placeholder="One line that sells it"></label>
-          <label class="field"><span>Description</span><textarea class="input" name="description" rows="10" placeholder="What's inside, who it's for, what they'll get…">${esc(p.description)}</textarea>
-            <small>Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code></small></label>
-          <small class="dim" style="display:block;margin:-6px 0 16px;font-size:12px">The short description shows under the title on the product page, on product cards and when the link is shared.</small>
+          <label class="field"><span>Description</span><textarea class="input" name="description" rows="16" placeholder="Everything about the product: what it is, what's inside, who it's for, questions buyers ask">${esc(p.description)}</textarea>
+            <small>This is the whole sales page text. Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code>. The first lines are also used when the link is shared.</small></label>
           <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(p.slug)}"><small>Share link: <span id="share-url">${esc(location.origin)}/p/${esc(p.slug)}</span>. It shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
         </form>
-        <div class="panel"><h3>Sales page</h3>
-          <p class="muted" style="margin:-8px 0 16px;font-size:13px">Extra sections that turn the product page into a full sales page. Leave any of them empty to hide it.</p>
-          <label class="field"><span>What buyers get</span><textarea class="input" form="pf" name="highlights" rows="5" placeholder="3 hours of step-by-step video&#10;The editable project files&#10;A printable checklist">${esc(sales.highlights.join('\n'))}</textarea><small>One point per line. Shown as a checklist near the top of the page.</small></label>
-          <label class="field"><span>Who it's for</span><textarea class="input" form="pf" name="audience" rows="4" placeholder="Beginners starting from zero&#10;Freelancers who want to charge more">${esc(sales.audience.join('\n'))}</textarea><small>One per line.</small></label>
-          <div class="field"><span>Reviews</span><div id="reviews" style="display:grid;gap:8px"></div><button type="button" class="btn btn-sm" id="add-review" style="margin-top:8px;justify-self:start">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add review</button><small style="display:block;margin-top:6px">Real words from real buyers, with their permission.</small></div>
-          <div class="field" style="margin-bottom:0"><span>Questions about this product</span><div id="pfaq" style="display:grid;gap:8px"></div><button type="button" class="btn btn-sm" id="add-pfaq" style="margin-top:8px;justify-self:start">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add question</button><small style="display:block;margin-top:6px">For example: what software do I need, how long is it, what format are the files.</small></div>
+        <div class="panel"><h3>Reviews</h3>
+          <p class="muted" style="margin:-8px 0 16px;font-size:13px">Shown under the description. Leave empty to hide the section.</p>
+          <div class="field" style="margin-bottom:0"><div id="reviews" style="display:grid;gap:8px"></div><button type="button" class="btn btn-sm" id="add-review" style="margin-top:8px;justify-self:start">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add review</button><small style="display:block;margin-top:6px">Real words from real buyers, with their permission.</small></div>
         </div>
       </div>
       <aside>
@@ -160,7 +154,7 @@
         <div class="panel"><h3>Category</h3>
           <label class="field" style="margin:0"><select class="input" form="pf" name="category_id"><option value="">No category</option>${cats.map(c => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><small><a href="#/admin/categories" style="color:var(--accent-2)">Manage categories</a></small></label>
         </div>
-        <div class="panel"><h3>Cover images <span class="muted" id="cover-count" style="font:13px var(--sans)"></span></h3><p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Up to 4. Buyers swipe through them on the product page. The main one shows on product cards and when the link is shared: 1200×750 px and under 600 KB works best for WhatsApp.</p>
+        <div class="panel"><h3>Cover images <span class="muted" id="cover-count" style="font:13px var(--sans)"></span></h3><p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Up to 4 square images, 1080×1080 px. Buyers swipe through them on the product page. The main one shows on product cards and when the link is shared. Keep it under 600 KB so it shows on WhatsApp.</p>
           <div class="cover-grid" id="covers"></div>
           <input type="file" id="cover-in" accept="image/*" multiple hidden>
         </div>
@@ -176,11 +170,11 @@
     const body = () => {
       const f = Object.fromEntries(new FormData($('#pf')));
       return {
-        title: f.title, subtitle: f.subtitle, description: f.description, slug: f.slug,
+        title: f.title, description: f.description, slug: f.slug,
         price_cents: Math.round(parseFloat(f.price || 0) * 100) || 0, compare_cents: f.compare ? Math.round(parseFloat(f.compare) * 100) : null,
         category_id: f.category_id || null, published, featured: !!f.featured,
         alt_prices: Object.fromEntries(extraCurrencies().map(c => [c, Math.round(parseFloat(f['price_' + c] || 0) * 100) || 0])),
-        sales: { highlights: f.highlights, audience: f.audience, reviews: sales.reviews.filter(x => x.quote.trim()), faq: sales.faq.filter(x => x.q.trim()) },
+        sales: { reviews: sales.reviews.filter(x => x.quote.trim()) },
       };
     };
     const flush = () => {
@@ -200,7 +194,7 @@
       return saving;
     };
     const queueSave = () => { busy.dirty = true; snapshot = body(); setState('Saving…'); clearTimeout(timer); timer = setTimeout(flush, 700); };
-    const onEdit = e => { if (e.target.form?.id === 'pf' || e.target.closest('#reviews, #pfaq')) queueSave(); };
+    const onEdit = e => { if (e.target.form?.id === 'pf' || e.target.closest('#reviews')) queueSave(); };
     $('.editor').addEventListener('input', onEdit);
     $('.editor').addEventListener('change', onEdit);
     $('[name="title"]').addEventListener('input', e => { $('#head-title').textContent = $('#crumb-title').textContent = e.target.value || 'Untitled product'; });
@@ -240,7 +234,6 @@
       return () => { list.push(Object.fromEntries(fields.map(([k]) => [k, '']))); draw(); $(`${box} .mod-edit:last-child [data-k]`)?.focus(); };
     };
     $('#add-review').addEventListener('click', repeater('#reviews', sales.reviews, [['quote', 'What they said', true], ['name', 'Their name'], ['detail', 'Optional, e.g. Video editor, Lagos']], 'No reviews yet, so this section is hidden.'));
-    $('#add-pfaq').addEventListener('click', repeater('#pfaq', sales.faq, [['q', 'Question'], ['a', 'Answer', true]], 'No questions yet, so this section is hidden.'));
 
     // ----- delete, give access -----
     $('#del').addEventListener('click', async () => {
@@ -267,7 +260,7 @@
       $('#cover-count').textContent = `${covers.length} of 4`;
       $('#covers').innerHTML = covers.map((c, i) => `<div class="cover-thumb"><img src="${esc(c)}" alt="">${i === 0 ? '<span class="main-tag">Main</span>' : ''}
           <div class="ct-actions">${i ? `<button type="button" class="btn btn-sm" data-cv-main="${i}">Make main</button>` : ''}<button type="button" class="icon-btn" data-cv-del="${i}" title="Remove">${A.trash}</button></div></div>`).join('')
-        + (covers.length < 4 ? `<button type="button" class="cover-add ${covers.length ? '' : 'wide'}" id="cover-add">${I.plus}<span>${covers.length ? 'Add image' : 'Upload cover images'}</span><small>16:10 works best</small></button>` : '');
+        + (covers.length < 4 ? `<button type="button" class="cover-add ${covers.length ? '' : 'wide'}" id="cover-add">${I.plus}<span>${covers.length ? 'Add image' : 'Upload cover images'}</span><small>Square, 1080×1080</small></button>` : '');
       $('#cover-add')?.addEventListener('click', () => $('#cover-in').click());
     };
     const setCoverOrder = async order => {

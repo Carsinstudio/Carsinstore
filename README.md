@@ -7,7 +7,7 @@ Your own storefront for selling digital downloads: videos, PDFs, ZIPs, documents
 **For visitors**
 - Homepage with featured products, categories, free resources, FAQ
 - Store page with category, format (videos, PDFs, ZIPs, documents, audio) and free/paid filters, plus search and sorting
-- A sales page for every product: short description, full description, "What you get" checklist, "Who it's for", buyer reviews, product questions and a closing buy button, plus the list of included files, free previews (a sample clip or sample pages) and discount codes. Fill it in under Sales page in the product editor; empty sections stay hidden.
+- A sales page for every product: square cover images (1080×1080) buyers swipe through, the full description (headings, bullets, bold, links), buyer reviews, the list of included files, free previews and a closing buy button.
 - **No accounts.** The buy box asks for just a name and email, then goes straight to Paystack checkout (card, bank transfer, USSD, and more, depending on what you enable in Paystack). Free products skip payment.
 - After paying, the buyer lands on a **private download page** where they can download every file, or play videos and open PDFs in the browser. The link is unique to that order. If email is set up (below), it's also emailed to them.
 - **Find my downloads**: a buyer who lost their link enters their email and gets their links sent again (needs email set up).
@@ -15,7 +15,7 @@ Your own storefront for selling digital downloads: videos, PDFs, ZIPs, documents
 
 **For you (`/#/admin`)**
 - Overview: revenue, sales, customers, a 30-day chart, top products, recent activity
-- Products: set price and "compare at" price; one-click Publish or Unpublish; feature on the homepage; up to 4 cover images that buyers swipe through (the first is the main one, used on product cards and link previews). Everything you type saves by itself.
+- Products: set price and "compare at" price; one-click Publish or Unpublish; feature on the homepage; up to 4 square cover images (1080×1080) that buyers swipe through (the first is the main one, used on product cards and link previews). Everything you type saves by itself.
 - Drag-and-drop uploads with a progress bar per file (up to 4 GB each by default). Keep editing, or move to another dashboard page, while they upload. You can rename files and reorder them.
 - **Free preview** for videos, audio, images and PDFs: visitors can view it on the product page but not download it. For a PDF they only get the first few pages (you choose 1 to 10), cut on the server, so the full file never leaves the store until someone buys.
 - Orders show each buyer's name and email, with **Copy link** (to send someone their download link yourself) and **Email link** buttons
