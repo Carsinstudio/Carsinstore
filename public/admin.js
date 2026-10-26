@@ -24,7 +24,7 @@
     const items = [['', 'Overview', A.dash], ['products', 'Products', A.box], ['categories', 'Categories', A.tag], ['orders', 'Orders', A.receipt], ['customers', 'Customers', I.users], ['coupons', 'Discounts', A.pct], ['affiliates', 'Affiliates', A.link], ['settings', 'Store settings', A.gear]];
     app.innerHTML = `<div class="admin">
       <aside class="admin-side">
-        <a class="brand" href="#/" style="border:0">${I.logo}<span>${esc(S.store.settings.store_name)}</span></a>
+        <a class="brand" href="#/" style="border:0"><img class="brand-logo" src="/brand/logo-horizontal.png" alt="${esc(S.store.settings.store_name)}"></a>
         ${items.map(([k, l, ic]) => `<a href="#/admin${k ? '/' + k : ''}" class="${active === k ? 'on' : ''}">${ic}${l}</a>`).join('')}
         <div class="bottom"><a href="#/" target="_blank">${A.store}View store</a></div>
       </aside>

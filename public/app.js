@@ -166,7 +166,7 @@
     return `
     ${s.announcement ? `<div class="announce-wrap"><div class="announce"><span class="tag">NEW</span><span>${esc(s.announcement)}</span><a href="#/shop">Browse the store ${I.arrow}</a></div></div>` : ''}
     <header class="nav" id="nav"><div class="nav-inner">
-      <a class="brand" href="#/">${I.logo}<span>${esc(s.store_name)}</span></a>
+      <a class="brand" href="#/"><img class="brand-logo" src="/brand/logo-horizontal.png" alt="${esc(s.store_name)}"></a>
       <nav class="nav-links" id="nav-links">
         <a href="#/shop" class="${active === 'shop' ? 'active' : ''}">All products</a>
         <div class="dropdown" id="cat-dd"><button>Categories ${I.chev}</button>
@@ -191,7 +191,7 @@
     const social = [['instagram', I.ig], ['x', I.x], ['youtube', I.yt], ['tiktok', I.tt], ['linkedin', I.li]].filter(([k]) => s[k]);
     return `<footer class="site"><div class="foot-card">
       <div class="foot-grid">
-        <div><a class="brand" href="#/">${I.logo}<span>${esc(s.store_name)}</span></a><p class="foot-blurb">${esc(s.footer_blurb)}</p>
+        <div><a class="brand" href="#/"><img class="brand-logo" src="/brand/logo-horizontal.png" alt="${esc(s.store_name)}"></a><p class="foot-blurb">${esc(s.footer_blurb)}</p>
           ${social.length ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Stay connected</div><div class="socials">${social.map(([k, ic]) => `<a href="${esc(s[k])}" target="_blank" rel="noopener" aria-label="${k}">${ic}</a>`).join('')}</div>` : ''}</div>
         <div><h5>Store</h5><a href="#/shop">All products</a><a href="#/shop?kind=video">Videos</a><a href="#/shop?kind=pdf">PDFs & guides</a><a href="#/shop?price=free">Free resources</a></div>
         <div><h5>Categories</h5>${cats.map(c => `<a href="#/shop?cat=${esc(c.slug)}">${esc(c.name)}</a>`).join('') || '<a href="#/shop">Browse all</a>'}</div>
