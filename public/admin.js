@@ -586,7 +586,7 @@
         <div class="cover-edit" id="share-img" style="aspect-ratio:1200/630">${s.share_image ? `<img src="/media/covers/${esc(s.share_image)}">` : '<div style="display:grid;place-items:center;height:100%;font-size:13px" class="muted">No image yet</div>'}<div class="over">Upload image</div></div>
         <input type="file" id="share-in" accept="image/png,image/jpeg,image/webp" hidden>
       </div>
-      <div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}</div></aside></div></form>
+      <div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}${f('linkedin', 'LinkedIn URL')}</div></aside></div></form>
       <div class="panel" style="max-width:860px"><h3>Backup &amp; move</h3>
         <p class="muted" style="margin:-6px 0 18px;font-size:13.5px">Download your whole store (products, files, covers and settings) as one file, then restore it on another computer or host. Also a good safety copy to keep.</p>
         <div class="row" style="align-items:start">

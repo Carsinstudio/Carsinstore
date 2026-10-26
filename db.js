@@ -117,7 +117,7 @@ const DEFAULT_SETTINGS = {
   hero_sub: 'Videos, templates, guides and toolkits, paid and free, ready to download the moment you check out.',
   currency: 'ngn',
   footer_blurb: 'Digital products that keep your work moving.',
-  instagram: '', x: '', youtube: '', tiktok: '',
+  instagram: '', x: '', youtube: '', tiktok: '', linkedin: '',
   support_email: '', business_location: 'Nigeria',
   notify_sales: '1', notify_free: '0', notify_email: '',
   checkout_phone: 'off',          // 'off' | 'optional' | 'required'

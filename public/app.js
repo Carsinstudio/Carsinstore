@@ -88,6 +88,7 @@
     ig: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".8" fill="currentColor"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.8 3h3.1l-6.8 7.8 8 10.2h-6.3l-4.9-6.4L5.3 21H2.2l7.3-8.3L1.8 3h6.4l4.4 5.9zm-1.1 16.2h1.7L7.3 4.7H5.5z"/></svg>',
     yt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 8.2a3 3 0 0 0-2.1-2.1C18 5.6 12 5.6 12 5.6s-6 0-7.9.5A3 3 0 0 0 2 8.2 31 31 0 0 0 1.6 12 31 31 0 0 0 2 15.8a3 3 0 0 0 2.1 2.1c1.9.5 7.9.5 7.9.5s6 0 7.9-.5a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .4-3.8 31 31 0 0 0-.4-3.8zM10 15V9l5.2 3z"/></svg>',
+    li: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.98 3.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM3 9.5h4V21H3V9.5zm6.5 0h3.8v1.6h.1c.5-1 1.8-2 3.8-2 4 0 4.8 2.6 4.8 6V21h-4v-5.1c0-1.2 0-2.8-1.7-2.8s-2 1.3-2 2.7V21h-4V9.5z"/></svg>',
     tt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.6 3c.4 2.2 1.8 3.7 4 3.9v3.1c-1.5.1-2.8-.4-4-1.2v6.4c0 3.8-3.6 6.3-7 5.2-3.7-1.2-4.6-6-1.8-8.5 1.1-1 2.6-1.5 4.2-1.3v3.2c-1.3-.4-2.8.3-3 1.7-.3 1.6 1.2 2.9 2.7 2.4 1-.3 1.6-1.2 1.6-2.3V3z"/></svg>',
   };
   const kindIcon = { video: I.playO, pdf: I.file, archive: I.grid, document: I.file, audio: I.playO, image: I.grid, file: I.file, spreadsheet: I.grid, slides: I.grid };
@@ -187,7 +188,7 @@
   function footer() {
     const s = S.store.settings;
     const cats = S.store.categories.slice(0, 6);
-    const social = [['instagram', I.ig], ['x', I.x], ['youtube', I.yt], ['tiktok', I.tt]].filter(([k]) => s[k]);
+    const social = [['instagram', I.ig], ['x', I.x], ['youtube', I.yt], ['tiktok', I.tt], ['linkedin', I.li]].filter(([k]) => s[k]);
     return `<footer class="site"><div class="foot-card">
       <div class="foot-grid">
         <div><a class="brand" href="#/">${I.logo}<span>${esc(s.store_name)}</span></a><p class="foot-blurb">${esc(s.footer_blurb)}</p>
