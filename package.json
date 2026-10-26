@@ -1,0 +1,19 @@
+{
+  "name": "carsinstore",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Carsinstore — a personal storefront for selling courses and digital products.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node seed.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "express": "4.21.2",
+    "multer": "2.0.2"
+  }
+}
