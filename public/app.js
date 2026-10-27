@@ -732,7 +732,8 @@
     const totals = a.totals.length ? a.totals : [{ currency: S.store.settings.currency || 'ngn', sales: 0, earned: 0, paid: 0, owed: 0 }];
     shell(`<div class="page-top"><div class="aurora"><i></i></div><div class="wrap" style="position:relative;max-width:960px">
         <span class="label">Partner program</span><h1>Hi ${esc(a.name.split(' ')[0])}.</h1>
-        <p>You earn <b style="color:var(--text);font-weight:500">${a.percent}%</b> of every sale made through your link.${a.active ? '' : ' Your link is currently paused.'}</p></div></div>
+        <p>You earn <b style="color:var(--text);font-weight:500">${a.percent}%</b> of every sale made through your link.${a.active ? '' : ' Your link is currently paused.'}</p>
+        <p style="font-size:14px;margin-top:6px">${a.auto ? `Paystack pays your share straight to your ${esc(a.auto.bank)} account ending ${esc(a.auto.last4)}, usually the next business day after each sale.` : 'The store pays you what you are owed directly.'}</p></div></div>
       <div class="wrap page" style="padding-top:10px;max-width:960px">
         <div class="box" style="padding:18px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
           <div style="flex:1;min-width:220px"><div class="muted" style="font-size:12.5px;margin-bottom:4px">Your link. Share it anywhere. Works on any product page too: add <code>?ref=${esc(a.code)}</code></div>

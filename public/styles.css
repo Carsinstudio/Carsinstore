@@ -668,3 +668,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .aff-how li::before { content: counter(step); grid-row: span 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 500 12px var(--mono); color: var(--accent-2); border: 1px solid var(--line-2); }
 .aff-how li b { font-weight: 500; color: var(--text); }
 .aff-how li span { color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+.aff-bank { margin: 6px 0 4px; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg-2); }
+.aff-bank > b { display: block; font-weight: 500; font-size: 14px; margin-bottom: 4px; }
+.aff-bank p { margin: 0 0 12px; font-size: 13px; }
+.aff-bank p b { color: var(--text); font-weight: 500; }

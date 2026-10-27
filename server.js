@@ -348,7 +348,7 @@ function fulfill(orderId, status = 'paid') {
   run('UPDATE orders SET status = ? WHERE id = ?', status, orderId);
   if (o.coupon_code) run('UPDATE coupons SET uses = uses + 1 WHERE code = ?', o.coupon_code);
   // Lock in the affiliate's commission at the rate in force when the sale happened.
-  if (status === 'paid' && o.affiliate_id) {
+  if (status === 'paid' && o.affiliate_id && !o.commission_auto) {
     const a = one('SELECT percent FROM affiliates WHERE id = ?', o.affiliate_id);
     if (a) run('UPDATE orders SET commission_cents = ? WHERE id = ?', Math.round((o.amount_cents * a.percent) / 100), orderId);
   }
@@ -553,7 +553,7 @@ app.get('/api/affiliate/:token', limit({ name: 'affiliate', max: 60, windowMs: 6
   const sum = affiliateSummary(a);
   const recent = all(`SELECT o.created_at, o.amount_cents, o.currency, o.commission_cents, p.title FROM orders o JOIN products p ON p.id = o.product_id
     WHERE o.affiliate_id = ? AND o.status = 'paid' ORDER BY o.id DESC LIMIT 100`, a.id);
-  res.json({ name: a.name, code: a.code, percent: a.percent, active: !!a.active, link: sum.link, totals: sum.totals, recent });
+  res.json({ name: a.name, code: a.code, percent: a.percent, active: !!a.active, link: sum.link, totals: sum.totals, recent, auto: sum.auto && { bank: sum.auto.bank, last4: sum.auto.last4 } });
 });
 
 app.get('/api/legal/:page', (req, res) => {
@@ -654,8 +654,13 @@ app.post('/api/checkout', limit({ name: 'checkout', max: 20, windowMs: 10 * 60 *
   const customer = findOrCreateCustomer(name, email, phone);
   const affiliate = priced.price > 0 ? affiliateFor(req.body?.ref, email) : null;
   const token = newToken();
-  const r = run("INSERT INTO orders (user_id, product_id, amount_cents, currency, status, coupon_code, access_token, affiliate_id) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)",
-    customer.id, p.id, priced.price, currency, priced.coupon?.code || null, token, affiliate?.id || null);
+  // Partners with a bank account on file are paid by Paystack directly: their commission goes to their bank,
+  // the rest to yours, and you cover Paystack's fee. Their banks are in Naira, so only Naira sales split.
+  const commission = affiliate ? Math.round((priced.price * affiliate.percent) / 100) : 0;
+  const split = !!(PAYSTACK_KEY && affiliate?.subaccount && currency === 'ngn' && commission > 0 && commission < priced.price);
+  const r = run(`INSERT INTO orders (user_id, product_id, amount_cents, currency, status, coupon_code, access_token, affiliate_id, commission_cents, commission_auto)
+    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    customer.id, p.id, priced.price, currency, priced.coupon?.code || null, token, affiliate?.id || null, split ? commission : 0, split ? 1 : 0);
   const orderId = Number(r.lastInsertRowid);
 
   if (priced.price === 0) {
@@ -669,6 +674,7 @@ app.post('/api/checkout', limit({ name: 'checkout', max: 20, windowMs: 10 * 60 *
     const t = await paystack('POST', '/transaction/initialize', {
       email, amount: priced.price, currency: currency.toUpperCase(), reference,
       callback_url: `${BASE_URL}/api/paystack/callback`,
+      ...(split ? { subaccount: affiliate.subaccount, transaction_charge: priced.price - commission, bearer: 'account' } : {}),
       metadata: {
         order_id: orderId, product: p.title,
         custom_fields: [
@@ -996,22 +1002,76 @@ const affiliateLink = a => `${BASE_URL}/?ref=${encodeURIComponent(a.code)}`;
 const affiliateStatsUrl = a => `${BASE_URL}/#/affiliate/${a.token}`;
 // Sales, commission earned, paid out and still owed, per currency, since sales can be in more than one.
 function affiliateSummary(a) {
-  const rows = all(`SELECT currency, COUNT(*) AS sales, SUM(amount_cents) AS revenue, SUM(commission_cents) AS earned
+  // Commission Paystack already sent to the partner's bank counts as paid.
+  const rows = all(`SELECT currency, COUNT(*) AS sales, SUM(amount_cents) AS revenue, SUM(commission_cents) AS earned,
+    SUM(CASE WHEN commission_auto = 1 THEN commission_cents ELSE 0 END) AS auto
     FROM orders WHERE affiliate_id = ? AND status = 'paid' GROUP BY currency`, a.id);
   let paid = {};
   try { paid = JSON.parse(a.paid_out || '{}'); } catch {}
   const currencies = [...new Set([...rows.map(r => r.currency), ...Object.keys(paid)])];
   const totals = currencies.map(c => {
-    const r = rows.find(x => x.currency === c) || { sales: 0, revenue: 0, earned: 0 };
-    return { currency: c, sales: r.sales, revenue: r.revenue, earned: r.earned, paid: paid[c] || 0, owed: Math.max(0, r.earned - (paid[c] || 0)) };
+    const r = rows.find(x => x.currency === c) || { sales: 0, revenue: 0, earned: 0, auto: 0 };
+    const total = (paid[c] || 0) + (r.auto || 0);
+    return { currency: c, sales: r.sales, revenue: r.revenue, earned: r.earned, paid: total, paidAuto: r.auto || 0, owed: Math.max(0, r.earned - total) };
   });
   return {
     id: a.id, name: a.name, email: a.email, code: a.code, percent: a.percent, active: !!a.active, created_at: a.created_at,
     link: affiliateLink(a), statsUrl: affiliateStatsUrl(a), sales: totals.reduce((n, t) => n + t.sales, 0), totals,
+    auto: a.subaccount ? { bank: a.bank_name, bankCode: a.bank_code, last4: a.account_last4, accountName: a.account_name } : null,
   };
 }
 admin.get('/affiliates', (_req, res) => res.json(all('SELECT * FROM affiliates ORDER BY id DESC').map(affiliateSummary)));
-admin.post('/affiliates', (req, res) => {
+
+// Nigerian banks, for picking a partner's bank (cached for a day).
+let bankCache = { at: 0, list: [] };
+async function loadBanks() {
+  if (Date.now() - bankCache.at > 864e5 || !bankCache.list.length) {
+    const list = await paystack('GET', '/bank?country=nigeria&currency=NGN&perPage=500');
+    bankCache = { at: Date.now(), list: [...new Map(list.filter(b => b.active !== false && !b.is_deleted).map(b => [b.code, { name: b.name, code: b.code }])).values()].sort((a, b) => a.name.localeCompare(b.name)) };
+  }
+  return bankCache.list;
+}
+admin.get('/banks', wrap(async (_req, res) => res.json(PAYSTACK_KEY ? await loadBanks() : [])));
+// Looks up the name on an account, so you can check it's the right person before saving.
+async function resolveAccount(bankCode, accountNumber) {
+  if (!/^\d{10}$/.test(accountNumber || '')) throw new Error('Account numbers have 10 digits.');
+  try { return (await paystack('GET', `/bank/resolve?account_number=${accountNumber}&bank_code=${encodeURIComponent(bankCode)}`)).account_name; }
+  catch (e) {
+    if (/limit|try again|too many/i.test(e.message)) throw new Error(`Paystack can't check accounts right now: ${e.message}`);
+    throw new Error("Paystack couldn't find that account. Check the bank and number.");
+  }
+}
+admin.post('/banks/resolve', wrap(async (req, res) => {
+  if (!PAYSTACK_KEY) return bad(res, 'Connect Paystack first.');
+  try { res.json({ accountName: await resolveAccount(String(req.body?.bank_code || ''), String(req.body?.account_number || '').trim()) }); }
+  catch (e) { bad(res, e.message); }
+}));
+// Saves a partner's bank account as a Paystack subaccount (or updates it), so their share is paid automatically.
+async function setPartnerBank(a, bankCode, accountNumber) {
+  const accountName = await resolveAccount(bankCode, accountNumber);
+  const bank = ((await loadBanks().catch(() => [])).find(b => b.code === bankCode) || {}).name || bankCode;
+  const body = { business_name: `${a.name} (partner)`.slice(0, 100), settlement_bank: bankCode, account_number: accountNumber, percentage_charge: a.percent,
+    description: `Carsinstore partner ${a.code}`, primary_contact_email: a.email, active: true };
+  const sub = a.subaccount ? await paystack('PUT', `/subaccount/${encodeURIComponent(a.subaccount)}`, body).then(() => ({ subaccount_code: a.subaccount }))
+    : await paystack('POST', '/subaccount', body);
+  run('UPDATE affiliates SET subaccount = ?, bank_code = ?, bank_name = ?, account_name = ?, account_last4 = ? WHERE id = ?',
+    sub.subaccount_code, bankCode, bank, accountName, accountNumber.slice(-4), a.id);
+}
+async function stopPartnerBank(a) {
+  if (a.subaccount) await paystack('PUT', `/subaccount/${encodeURIComponent(a.subaccount)}`, { active: false }).catch(() => {});
+  run('UPDATE affiliates SET subaccount = NULL, bank_code = NULL, bank_name = NULL, account_name = NULL, account_last4 = NULL WHERE id = ?', a.id);
+}
+// Applies the bank part of a partner form: new details, keep as is, or stop automatic payouts.
+async function partnerBankFromForm(a, body) {
+  if (body?.stop_auto) return stopPartnerBank(a);
+  const bankCode = String(body?.bank_code || ''), accountNumber = String(body?.account_number || '').trim();
+  if (!bankCode && !accountNumber) return;
+  if (!PAYSTACK_KEY) throw new Error('Connect Paystack before adding bank accounts.');
+  if (!bankCode || !accountNumber) throw new Error('Choose the bank and enter the account number.');
+  if (a.subaccount && bankCode === a.bank_code && accountNumber.slice(-4) === a.account_last4 && !body.percent_changed) return;
+  await setPartnerBank(a, bankCode, accountNumber);
+}
+admin.post('/affiliates', wrap(async (req, res) => {
   const name = String(req.body?.name || '').trim();
   const email = String(req.body?.email || '').trim().toLowerCase();
   const percent = Math.round(Number(req.body?.percent));
@@ -1023,18 +1083,26 @@ admin.post('/affiliates', (req, res) => {
     if (req.body?.code) return bad(res, 'That code is already taken.');
     let n = 2; while (one('SELECT id FROM affiliates WHERE code = ?', code + n)) n++; code += n;
   }
+  if (req.body?.bank_code || req.body?.account_number) {
+    // check the account before creating the partner, so a typo doesn't leave a half-set-up partner
+    try { await resolveAccount(String(req.body.bank_code || ''), String(req.body.account_number || '').trim()); } catch (e) { return bad(res, e.message); }
+  }
   const id = run('INSERT INTO affiliates (name, email, code, token, percent) VALUES (?, ?, ?, ?, ?)', name, email, code, newToken(), percent).lastInsertRowid;
+  try { await partnerBankFromForm(one('SELECT * FROM affiliates WHERE id = ?', id), req.body); }
+  catch (e) { return res.json({ ...affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', id)), warning: `Partner added, but automatic payouts aren't on: ${e.message}` }); }
   res.json(affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', id)));
-});
-admin.put('/affiliates/:id', (req, res) => {
+}));
+admin.put('/affiliates/:id', wrap(async (req, res) => {
   const a = one('SELECT * FROM affiliates WHERE id = ?', req.params.id);
   if (!a) return bad(res, 'Not found', 404);
   const percent = req.body.percent === undefined ? a.percent : Math.round(Number(req.body.percent));
   if (!(percent >= 1 && percent <= 90)) return bad(res, 'Commission must be between 1% and 90%.');
+  try { await partnerBankFromForm({ ...a, name: req.body.name ?? a.name, percent }, { ...req.body, percent_changed: percent !== a.percent }); }
+  catch (e) { return bad(res, e.message); }
   run('UPDATE affiliates SET name = ?, email = ?, percent = ?, active = ? WHERE id = ?', req.body.name ?? a.name, req.body.email ?? a.email,
     percent, req.body.active === undefined ? a.active : req.body.active ? 1 : 0, a.id);
   res.json(affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', a.id)));
-});
+}));
 // Records commission you've paid an affiliate (you pay them yourself, e.g. by bank transfer).
 admin.post('/affiliates/:id/payout', (req, res) => {
   const a = one('SELECT * FROM affiliates WHERE id = ?', req.params.id);

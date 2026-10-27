@@ -650,52 +650,94 @@
     const main = (S.store.settings.currency || 'ngn').toLowerCase();
     return String(S.store.settings.extra_currencies || '').toLowerCase().split(',').map(c => c.trim()).filter(c => c && c !== main);
   }
-  const copy = async (text, msg) => { try { await navigator.clipboard.writeText(text); toast(msg); } catch { prompt('Copy:', text); } };
 
   // ---------- affiliates ----------
   async function affiliates() {
     const list = await api('/api/admin/affiliates');
     const owedText = a => a.totals.filter(t => t.owed).map(t => money(t.owed, t.currency)).join(' + ') || 'Nothing owed';
+    const payHow = a => a.auto ? `<span class="status live">automatic</span><br><small class="dim">${esc(a.auto.bank)} ••${esc(a.auto.last4)}</small>` : '<span class="status">manual</span>';
     layout('affiliates', head('Affiliates', `<button class="btn btn-primary" id="new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New affiliate</button>`) + `
-      <p class="muted" style="margin:-12px 0 22px;font-size:13.5px;max-width:680px">Partners share their link, and earn a commission on every paid order from buyers who arrive through it (within 30 days). You pay them yourself, then record it here. Each partner has a private stats page you can send them.</p>` + (list.length ? `
-      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Partner</th><th>Code</th><th>Commission</th><th>Sales</th><th>Owed</th><th>Status</th><th></th></tr>
+      <p class="muted" style="margin:-12px 0 22px;font-size:13.5px;max-width:700px">Partners share their link and earn a commission on every paid order from buyers who arrive through it (within 30 days). Partners with a bank account on file are paid by Paystack automatically on each sale. Anyone else, you pay yourself and record it here. Each partner has a private stats page you can send them.</p>` + (list.length ? `
+      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Partner</th><th>Code</th><th>Commission</th><th>Sales</th><th>Payouts</th><th>Owed</th><th>Status</th><th></th></tr>
       ${list.map(a => `<tr><td><div>${esc(a.name)}</div><small class="dim">${esc(a.email)}</small></td><td style="font-family:var(--mono)">${esc(a.code)}</td>
-        <td>${a.percent}%</td><td>${a.sales}</td><td style="color:var(--amber)">${owedText(a)}</td><td>${a.active ? '<span class="status live">active</span>' : '<span class="status">paused</span>'}</td>
+        <td>${a.percent}%</td><td>${a.sales}</td><td>${payHow(a)}</td><td style="color:${a.totals.some(t => t.owed) ? 'var(--amber)' : 'var(--muted)'}">${owedText(a)}</td><td>${a.active ? '<span class="status live">active</span>' : '<span class="status">paused</span>'}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn-sm btn-ghost" data-link="${a.id}">Copy link</button><button class="btn btn-sm btn-ghost" data-stats="${a.id}" title="Their private stats page">Stats page</button>
-          <button class="btn btn-sm btn-ghost" data-pay="${a.id}">Record payout</button><button class="icon-btn" data-edit="${a.id}" title="Edit">${A.edit}</button></td></tr>`).join('')}</table></div>`
+          ${a.totals.some(t => t.owed) ? `<button class="btn btn-sm btn-ghost" data-pay="${a.id}">Record payout</button>` : ''}<button class="icon-btn" data-edit="${a.id}" title="Edit">${A.edit}</button></td></tr>`).join('')}</table></div>`
       : `<div class="panel aff-how"><h3>How affiliates work</h3><ol>
-          <li><b>Add a partner</b><span>Their name, email and commission (for example 20%). Nobody needs an account, not them and not the buyers.</span></li>
-          <li><b>Send them two links</b><span>Their referral link to share, and a private stats page where they see their sales and what they're owed.</span></li>
+          <li><b>Add a partner</b><span>Their name, email, commission (for example 20%) and bank account. Nobody needs an account on the store, not them and not the buyers.</span></li>
+          <li><b>Send them two links</b><span>Their referral link to share, and a private stats page where they see their sales and earnings.</span></li>
           <li><b>Buyers buy as usual</b><span>Anyone who opens their link and pays within 30 days counts as their sale. The commission is worked out on the price actually paid.</span></li>
-          <li><b>You pay them</b><span>All money reaches your bank through Paystack. Pay partners what they're owed (by bank transfer, for example), then click Record payout so their stats page stays up to date.</span></li>
+          <li><b>Paystack pays them</b><span>On each of their sales, Paystack sends their commission straight to their bank and the rest to yours. You cover Paystack's fee. No bank account on file? Then you pay them yourself and click Record payout.</span></li>
         </ol><button class="btn btn-primary" id="new2">${I.plus.replace('<svg', '<svg width="14" height="14"')} Add your first partner</button></div>`));
     $('#new2')?.addEventListener('click', () => form());
     const find = id => list.find(a => a.id === Number(id));
-    $$('[data-link]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.link).link, 'Referral link copied')));
-    $$('[data-stats]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.stats).statsUrl, 'Stats page link copied. Send it to your partner.')));
-    const form = (a = {}) => modal(`<h3>${a.id ? 'Edit' : 'New'} affiliate</h3><form id="af" style="margin-top:16px">
+    const copyText = async (text, ok) => { try { await navigator.clipboard.writeText(text); toast(ok); } catch { prompt('Copy:', text); } };
+    $$('[data-link]').forEach(b => b.addEventListener('click', () => copyText(find(b.dataset.link).link, 'Referral link copied')));
+    $$('[data-stats]').forEach(b => b.addEventListener('click', () => copyText(find(b.dataset.stats).statsUrl, 'Stats page link copied. Send it to your partner.')));
+
+    let banks = null;
+    const loadBanks = async () => (banks = banks || await api('/api/admin/banks').catch(() => []));
+    const form = async (a = {}) => {
+      const bankList = S.store.payments === 'paystack' ? await loadBanks() : [];
+      modal(`<h3>${a.id ? 'Edit' : 'New'} affiliate</h3><form id="af" style="margin-top:16px">
       <label class="field"><span>Name</span><input class="input" name="name" value="${esc(a.name || '')}" required></label>
-      <label class="field"><span>Email</span><input class="input" name="email" type="email" value="${esc(a.email || '')}" required><small>Where you'll reach them about payouts. Their own purchases don't earn commission.</small></label>
+      <label class="field"><span>Email</span><input class="input" name="email" type="email" value="${esc(a.email || '')}" required><small>Their own purchases don't earn commission.</small></label>
       <div class="row"><label class="field"><span>Commission %</span><input class="input" name="percent" type="number" min="1" max="90" value="${a.percent ?? 20}" required></label>
       ${a.id ? `<label class="field"><span>Status</span><select class="input" name="active"><option value="1" ${a.active ? 'selected' : ''}>Active</option><option value="0" ${a.active ? '' : 'selected'}>Paused</option></select></label>`
         : `<label class="field"><span>Code (optional)</span><input class="input" name="code" placeholder="e.g. ADA" style="text-transform:uppercase"><small>Used in their link. Made from their name if empty.</small></label>`}</div>
-      ${a.id ? '<small class="dim" style="display:block;margin:-6px 0 6px;font-size:12px">A new commission rate applies to future sales only.</small>' : ''}
-      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Save</button></div></form>`, (m, close) => {
-      $('#af', m).addEventListener('submit', async e => {
-        e.preventDefault();
-        const body = Object.fromEntries(new FormData(e.target));
-        if (a.id) body.active = body.active === '1';
-        try {
-          const r = await api(`/api/admin/affiliates${a.id ? '/' + a.id : ''}`, { method: a.id ? 'PUT' : 'POST', body });
-          close(); affiliates();
-          if (!a.id) modal(`<h3>${esc(r.name)} is set up</h3><p class="muted" style="margin:0 0 14px">Send them both links:</p>
-            <label class="field"><span>Referral link (to share)</span><input class="input" readonly value="${esc(r.link)}" onclick="this.select()"></label>
-            <label class="field"><span>Private stats page (just for them)</span><input class="input" readonly value="${esc(r.statsUrl)}" onclick="this.select()"></label>
-            <div class="actions"><button class="btn btn-primary" data-close>Done</button></div>`);
-        } catch (err) { toast(err.message, true); }
+      ${a.id ? '<small class="dim" style="display:block;margin:-6px 0 12px;font-size:12px">A new commission rate applies to future sales only.</small>' : ''}
+      <div class="aff-bank">
+        <b>Pay them automatically</b>
+        ${S.store.payments !== 'paystack' ? '<p class="muted">Available once Paystack is connected. Until then you pay partners yourself.</p>' : a.auto ? `
+          <p class="muted" id="bank-current">Paystack sends their commission to <b>${esc(a.auto.bank)} ••${esc(a.auto.last4)}</b> (${esc(a.auto.accountName)}) on each Naira sale.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-sm" id="bank-change">Change bank account</button><label class="check" style="font-size:13px"><input type="checkbox" name="stop_auto"> Stop automatic payouts</label></div>` : `
+          <p class="muted">Paystack sends their commission straight to this account on each sale they bring in (Naira sales). Leave empty to pay them yourself.</p>`}
+        <div id="bank-fields" ${a.auto ? 'hidden' : ''} ${S.store.payments !== 'paystack' ? 'hidden' : ''}>
+          <div class="row"><label class="field"><span>Bank</span><input class="input" name="bank" list="bank-list" placeholder="Start typing, e.g. GTBank" autocomplete="off">
+            <datalist id="bank-list">${bankList.map(b => `<option value="${esc(b.name)}">`).join('')}</datalist></label>
+          <label class="field"><span>Account number</span><input class="input" name="account_number" inputmode="numeric" maxlength="10" placeholder="10 digits" autocomplete="off"></label></div>
+          <small id="acct-name" class="dim" style="display:block;margin:-6px 0 4px;font-size:12.5px"></small>
+        </div>
+      </div>
+      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary" id="af-save">Save</button></div></form>`, (m, close) => {
+        const f = $('#af', m);
+        const bankCode = () => (bankList.find(b => b.name.toLowerCase() === f.bank?.value.trim().toLowerCase()) || {}).code;
+        $('#bank-change', m)?.addEventListener('click', () => { $('#bank-fields', m).hidden = false; f.bank.focus(); });
+        // Show the account holder's name as soon as the bank and 10 digits are in, to catch typos.
+        let lookup = 0;
+        const check = async () => {
+          const out = $('#acct-name', m), code = bankCode(), num = f.account_number?.value.trim();
+          if (!out) return;
+          if (!code || !/^\d{10}$/.test(num || '')) { out.textContent = ''; return; }
+          const mine = ++lookup; out.textContent = 'Checking account…'; out.style.color = '';
+          try { const r = await api('/api/admin/banks/resolve', { method: 'POST', body: { bank_code: code, account_number: num } }); if (mine === lookup) { out.textContent = `Account name: ${r.accountName}`; out.style.color = 'var(--green)'; } }
+          catch (err) { if (mine === lookup) { out.textContent = err.message; out.style.color = '#ff8b7a'; } }
+        };
+        f.bank?.addEventListener('change', check); f.account_number?.addEventListener('input', check);
+        f.addEventListener('submit', async e => {
+          e.preventDefault();
+          const body = Object.fromEntries(new FormData(f));
+          if (a.id) body.active = body.active === '1';
+          body.stop_auto = !!body.stop_auto;
+          if (body.bank || body.account_number) {
+            body.bank_code = bankCode();
+            if (!body.bank_code) return toast('Pick the bank from the list.', true);
+          }
+          delete body.bank;
+          const save = $('#af-save', m); save.disabled = true; save.textContent = 'Saving…';
+          try {
+            const r = await api(`/api/admin/affiliates${a.id ? '/' + a.id : ''}`, { method: a.id ? 'PUT' : 'POST', body });
+            close(); affiliates();
+            if (r.warning) toast(r.warning, true);
+            if (!a.id) modal(`<h3>${esc(r.name)} is set up</h3><p class="muted" style="margin:0 0 14px">${r.auto ? `Paystack will pay their commission to ${esc(r.auto.bank)} ••${esc(r.auto.last4)}. ` : ''}Send them both links:</p>
+              <label class="field"><span>Referral link (to share)</span><input class="input" readonly value="${esc(r.link)}" onclick="this.select()"></label>
+              <label class="field"><span>Private stats page (just for them)</span><input class="input" readonly value="${esc(r.statsUrl)}" onclick="this.select()"></label>
+              <div class="actions"><button class="btn btn-primary" data-close>Done</button></div>`);
+          } catch (err) { toast(err.message, true); save.disabled = false; save.textContent = 'Save'; }
+        });
       });
-    });
+    };
     $('#new').addEventListener('click', () => form());
     $$('[data-edit]').forEach(b => b.addEventListener('click', () => form(find(b.dataset.edit))));
     $$('[data-pay]').forEach(b => b.addEventListener('click', () => {

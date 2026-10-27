@@ -179,6 +179,11 @@ function migrate(db) {
   if (!hasColumn(db, 'orders', 'reminded_at')) db.exec('ALTER TABLE orders ADD COLUMN reminded_at TEXT');
   if (!hasColumn(db, 'orders', 'affiliate_id')) db.exec('ALTER TABLE orders ADD COLUMN affiliate_id INTEGER REFERENCES affiliates(id) ON DELETE SET NULL');
   if (!hasColumn(db, 'orders', 'commission_cents')) db.exec('ALTER TABLE orders ADD COLUMN commission_cents INTEGER NOT NULL DEFAULT 0');
+  // Automatic partner payouts: the partner's bank account as a Paystack subaccount, and which sales Paystack split.
+  if (!hasColumn(db, 'affiliates', 'subaccount')) {
+    for (const col of ['subaccount', 'bank_code', 'bank_name', 'account_name', 'account_last4']) db.exec(`ALTER TABLE affiliates ADD COLUMN ${col} TEXT`);
+  }
+  if (!hasColumn(db, 'orders', 'commission_auto')) db.exec('ALTER TABLE orders ADD COLUMN commission_auto INTEGER NOT NULL DEFAULT 0'); // 1 = Paystack paid the partner directly
   if (!hasColumn(db, 'files', 'preview_pages')) db.exec('ALTER TABLE files ADD COLUMN preview_pages INTEGER NOT NULL DEFAULT 3'); // PDF previews show only this many pages
   if (!hasColumn(db, 'products', 'covers')) {
     db.exec("ALTER TABLE products ADD COLUMN covers TEXT NOT NULL DEFAULT '[]'"); // up to 4 cover images; cover_path mirrors the first
