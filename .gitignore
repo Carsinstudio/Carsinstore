@@ -4,3 +4,5 @@ storage/
 .claude/
 *.tar.gz
 *.tgz
+
+emails/dist/

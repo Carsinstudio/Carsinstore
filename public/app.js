@@ -602,7 +602,7 @@
   }
 
   // The private page a buyer lands on after paying (and that their email links to).
-  async function downloadPage(token, attempt = 0) {
+  async function downloadPage(token, attempt = 0, q = new URLSearchParams()) {
     let p;
     try { p = await api('/api/order/' + encodeURIComponent(token)); }
     catch (e) {
@@ -612,7 +612,7 @@
     if (p.pending) {
       // Payment just finished and Paystack is still confirming (bank transfers can take a moment), so check again shortly.
       if (attempt === 0) shell(`<div class="wrap page" style="text-align:center;padding-top:120px"><div class="spinner" style="margin:0 auto 24px"></div><h1 style="font-size:40px">Confirming your payment…</h1><p class="muted">This usually takes a few seconds.</p></div>`);
-      if (attempt < 20) return setTimeout(() => location.hash === `#/download/${token}` && downloadPage(token, attempt + 1), 2000);
+      if (attempt < 20) return setTimeout(() => location.hash.startsWith(`#/download/${token}`) && downloadPage(token, attempt + 1, q), 2000);
       return shell(`<div class="wrap page" style="text-align:center;padding-top:120px"><h1 style="font-size:40px">Still waiting on payment.</h1><p class="muted">If you completed checkout, refresh this page in a minute. Your link will also be emailed to you.</p></div>`);
     }
     document.title = `${p.title} | ${S.store.settings.store_name}`;
@@ -648,7 +648,8 @@
         box.innerHTML = `<div class="rate-done"><div><span class="muted" style="font-size:13px">Your review</span><div style="margin-top:4px">${starsHtml(mine.rating)}</div>${mine.body ? `<p style="margin:8px 0 0;font-size:14px">${esc(mine.body)}</p>` : ''}</div><button class="btn btn-sm" id="rate-edit">Edit</button></div>`;
         return $('#rate-edit').addEventListener('click', () => drawRate(true));
       }
-      let rating = mine?.rating || 0;
+      const asked = Number(q.get('rate'));
+      let rating = asked >= 1 && asked <= 5 ? asked : mine?.rating || 0;
       box.innerHTML = `<h3 style="margin:0 0 4px">How was ${esc(p.title)}?</h3><p class="muted" style="margin:0 0 14px;font-size:13.5px">Rate it to help other buyers. Your first name shows with your review.</p>
         <div class="star-pick" role="radiogroup" aria-label="Rating">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-star="${n}" aria-label="${plural(n, 'star')}">★</button>`).join('')}</div>
         <textarea class="input" id="rate-body" rows="3" placeholder="What did you like? What could be better? (optional)" style="margin-top:12px">${esc(mine?.body || '')}</textarea>
@@ -669,7 +670,9 @@
         } catch (e) { toast(e.message, true); }
       });
     };
-    drawRate();
+    const fromEmail = q.has('rate');
+    drawRate(fromEmail || !mine);
+    if (fromEmail) setTimeout(() => { $('#rate')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#rate-body')?.focus({ preventScroll: true }); }, 300);
 
     const o = p.order || {};
     if (o.status === 'paid') window.Analytics?.trackOnce(o.ref, 'purchase', { ref: o.ref, slug: p.slug, title: p.title, amount: o.amount, currency: o.currency });
@@ -787,7 +790,7 @@
         case 'shop': return await shop(q);
         case 'p': return await product(parts[1], q);
         case 'login': return authPage(q);
-        case 'download': return await downloadPage(parts[1]);
+        case 'download': return await downloadPage(parts[1], 0, q);
         case 'find': return findDownloads();
         case 'terms': case 'privacy': case 'refunds': return await legalPage(parts[0]);
         case 'affiliate': return await affiliatePage(parts[1]);

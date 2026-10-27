@@ -6,6 +6,7 @@ const KEY = process.env.RESEND_API_KEY;
 const FROM = process.env.EMAIL_FROM;
 const TEMPLATE = process.env.RESEND_TEMPLATE || 'download-ready';
 const enabled = !!(KEY && FROM);
+const API = process.env.RESEND_API_URL || 'https://api.resend.com'; // overridable for tests
 
 // Template variables are inserted unescaped ({{{VAR}}}), so anything a buyer typed must be escaped here.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,7 +17,7 @@ async function post(body, idempotencyKey) {
   for (let attempt = 0; ; attempt++) {
     let res;
     try {
-      res = await fetch('https://api.resend.com/emails', {
+      res = await fetch(`${API}/emails`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
         body: JSON.stringify(body),
@@ -82,4 +83,14 @@ function sendCheckoutReminder({ to, store, name, title, amount, ref, url, siteUr
   });
 }
 
-module.exports = { enabled, sendDownload, sendSaleAlert, sendCheckoutReminder };
+// "How was it?": to a buyer a few days after they got a product. Uses the "review-request" template.
+// RATE_URL ends in "?rate=" so each star in the email can add its number.
+function sendReviewRequest({ to, store, name, title, rateUrl, url, siteUrl, support, key, replyTo }) {
+  return sendTemplate({
+    template: process.env.RESEND_REVIEW_TEMPLATE || 'review-request', to, key, replyTo,
+    subject: `How was ${title}?`,
+    variables: { STORE_NAME: store, BUYER_NAME: firstName(name), PRODUCT_TITLE: title, RATE_URL: rateUrl, DOWNLOAD_URL: url, SITE_URL: siteUrl, SUPPORT_EMAIL: support },
+  });
+}
+
+module.exports = { enabled, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest };

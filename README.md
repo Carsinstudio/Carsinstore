@@ -78,9 +78,12 @@ Buyers then get a "Your files are ready" email after every purchase or free down
 | Welcome + free download (free-welcome) | someone claims a free product |
 | Download ready (download-ready) | you gift a product, or a buyer uses Find my downloads / you click Email link |
 | Checkout reminder (checkout-reminder) | a Paystack checkout is left unpaid (once) |
+| Review request (review-request) | a few days after a purchase or free download (once per order; skipped if they already reviewed; at most one a day per person). Each star opens their download page with that rating picked. Turn it off or change the delay in Store settings → Checkout |
 | Sale alert (sale-alert) | to you, for each sale |
 
 Keep each template's {{{VARIABLES}}} when editing. Each order sends its first email exactly once. Buyer emails never contain referral or affiliate links.
+
+The designs are built by `emails/build.js` (open `emails/dist/preview-*.html` to check them). To change one and push it to Resend, edit `build.js`, then run `node emails/build.js` and `node emails/publish.js <alias>`. Publishing needs the Resend CLI signed in with a full-access key (`npx resend-cli@latest login`), because the store's own key can only send.
 
 **Sale alerts:** the owner gets a "New sale" email (Resend template "Sale alert (to owner)", alias sale-alert) for every paid order, and optionally for free downloads. Turn them on or off and choose the address in Store settings → Notifications. Replying to an alert emails the buyer, and buyers replying to their download email reach the support email.
 

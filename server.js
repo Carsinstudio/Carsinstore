@@ -417,7 +417,33 @@ async function remindAbandoned() {
     }).catch(e => console.error('Reminder failed:', e.message));
   }
 }
-setInterval(() => remindAbandoned().catch(e => console.error('Reminders:', e.message)), Number(process.env.REMINDER_CHECK_SECONDS || 600) * 1000).unref();
+// A few days after someone buys or downloads, one email asking them to rate it. Never twice for an order,
+// never if they already reviewed it, at most one a day per person, and only for orders from the last two weeks.
+async function askForReviews() {
+  const s = getSettings();
+  if (s.review_requests === '0' || !mailer.enabled) return;
+  const days = Math.min(Math.max(Number(s.review_after_days) || 3, 1), 30);
+  const due = all(`SELECT o.* FROM orders o WHERE o.status IN ('paid', 'free') AND o.review_asked_at IS NULL
+    AND o.created_at <= datetime('now', ?) AND o.created_at >= datetime('now', ?)
+    AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.order_id = o.id) ORDER BY o.id LIMIT 50`, `-${days} days`, `-${days + 14} days`);
+  const mailed = new Set();
+  for (const o of due) {
+    if (mailed.has(o.user_id) || one("SELECT 1 FROM orders WHERE user_id = ? AND review_asked_at >= datetime('now', '-1 day') AND id != ?", o.user_id, o.id)) continue;
+    run("UPDATE orders SET review_asked_at = datetime('now') WHERE id = ?", o.id); // mark first: never email twice, even if sending fails
+    const u = one('SELECT * FROM users WHERE id = ?', o.user_id);
+    const p = one('SELECT * FROM products WHERE id = ? AND published = 1', o.product_id);
+    if (!u || !p) continue;
+    mailed.add(o.user_id);
+    await mailer.sendReviewRequest({
+      to: u.email, store: s.store_name, name: u.name, title: p.title, rateUrl: `${downloadUrl(o.access_token)}?rate=`, url: downloadUrl(o.access_token),
+      siteUrl: BASE_URL, support: supportEmail(s), key: `${emailKey(o)}-review`, replyTo: supportEmail(s),
+    }).catch(e => console.error('Review request failed:', e.message));
+  }
+}
+setInterval(() => {
+  remindAbandoned().catch(e => console.error('Reminders:', e.message));
+  askForReviews().catch(e => console.error('Review requests:', e.message));
+}, Number(process.env.REMINDER_CHECK_SECONDS || 600) * 1000).unref();
 
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });

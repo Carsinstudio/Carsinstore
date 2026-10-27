@@ -122,6 +122,8 @@ const DEFAULT_SETTINGS = {
   notify_sales: '1', notify_free: '0', notify_email: '',
   checkout_phone: 'off',          // 'off' | 'optional' | 'required'
   abandoned_reminders: '1',       // email buyers once if they start paying but don't finish
+  review_requests: '1',           // email buyers once, a few days after they get a product, asking for a rating
+  review_after_days: '3',
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '',   // analytics, all optional
   legal_terms: '', legal_privacy: '', legal_refunds: '', legal_updated: new Date().toISOString().slice(0, 10),
@@ -211,6 +213,11 @@ function migrate(db) {
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id, hidden)');
+  // When the "how was it?" email went out. Orders from before this existed count as asked, so nobody gets a late one.
+  if (!hasColumn(db, 'orders', 'review_asked_at')) {
+    db.exec('ALTER TABLE orders ADD COLUMN review_asked_at TEXT');
+    db.exec("UPDATE orders SET review_asked_at = created_at WHERE status IN ('paid', 'free', 'granted')");
+  }
 }
 
 let db;
