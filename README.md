@@ -149,3 +149,9 @@ If you upload very large videos, raise your reverse proxy's body size limit too 
 | `public/app.js` | Storefront, buy box and download pages |
 | `public/admin.js` | Owner dashboard |
 | `public/styles.css` | The design |
+
+## Hosting on Render
+
+The store is set up for Render with `render.yaml` (a Render Blueprint): one web service on the Starter plan ($7/month) in Frankfurt, with a 10 GB disk at /var/data for the database and files. In Render: **New > Blueprint**, pick this repository, then fill in the live Paystack secret key and the Resend key when asked. Every push to GitHub redeploys the store; the disk keeps your products and orders between deploys.
+
+To move hosts later (for example to Railway), download a backup from Store settings > Backup & move, restore it on the new host, and point the domain there.

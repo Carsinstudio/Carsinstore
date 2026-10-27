@@ -1,0 +1,33 @@
+# Render Blueprint: in Render choose New > Blueprint, pick this repository, and it sets up the store.
+# You'll be asked for the values marked sync: false (your live keys). They are never stored in the code.
+services:
+  - type: web
+    name: carsinstore
+    runtime: node
+    plan: starter            # $7/month. The free plan sleeps and can't keep files, so don't use it.
+    region: frankfurt
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/store
+    autoDeploy: true         # every push to GitHub updates the live store
+    disk:
+      name: store-data       # database, uploaded files and covers live here and survive deploys
+      mountPath: /var/data
+      sizeGB: 10             # $0.25 per GB a month; can be made bigger later, never smaller
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: DATA_DIR
+        value: /var/data
+      - key: BASE_URL
+        value: https://carsin.store
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DEMO_CHECKOUT
+        value: "false"
+      - key: EMAIL_FROM
+        value: Carsinstore <downloads@mail.carsin.store>
+      - key: PAYSTACK_SECRET_KEY   # live key: sk_live_...
+        sync: false
+      - key: RESEND_API_KEY        # the store's send-only key
+        sync: false
