@@ -536,6 +536,14 @@
       <div class="actions"><button class="btn" data-close>Close</button></div>`, m => { m.style.maxWidth = '820px'; });
   }
 
+  // The partner code from a referral link (?ref=CODE), remembered for 30 days on this device.
+  function referral() {
+    try {
+      const r = JSON.parse(localStorage.getItem('cs_ref') || 'null');
+      return r && Date.now() - r.at < 30 * 864e5 ? r.code : '';
+    } catch { return ''; }
+  }
+
   async function checkout(p, state) {
     const form = $('#buy-form'), err = $('#buy-err');
     const name = form.name.value.trim(), email = form.email.value.trim(), phone = form.phone ? form.phone.value.trim() : '';
@@ -549,7 +557,7 @@
     btn.disabled = true; btn.textContent = paid ? 'Opening secure checkout…' : 'Getting your files…';
     try {
       if (paid) window.Analytics?.track('begin_checkout', { slug: p.slug, title: p.title, amount: state.discounted ?? p.prices[state.currency], currency: state.currency });
-      const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon: state.coupon, currency: state.currency, name, email, phone } });
+      const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon: state.coupon, currency: state.currency, name, email, phone, ref: referral() } });
       if (r.url) return void (location.href = r.url);
       if (r.demo) {
         modal(`<span class="label">Test checkout</span><h3 style="margin-top:14px">${esc(p.title)}</h3>
@@ -716,6 +724,38 @@
     });
   }
 
+  // A partner's private stats page: their link, sales and commission. Never shows buyer details.
+  async function affiliatePage(token) {
+    let a;
+    try { a = await api('/api/affiliate/' + encodeURIComponent(token)); } catch { return notFound(); }
+    document.title = `Partner stats | ${S.store.settings.store_name}`;
+    const totals = a.totals.length ? a.totals : [{ currency: S.store.settings.currency || 'ngn', sales: 0, earned: 0, paid: 0, owed: 0 }];
+    shell(`<div class="page-top"><div class="aurora"><i></i></div><div class="wrap" style="position:relative;max-width:960px">
+        <span class="label">Partner program</span><h1>Hi ${esc(a.name.split(' ')[0])}.</h1>
+        <p>You earn <b style="color:var(--text);font-weight:500">${a.percent}%</b> of every sale made through your link.${a.active ? '' : ' Your link is currently paused.'}</p></div></div>
+      <div class="wrap page" style="padding-top:10px;max-width:960px">
+        <div class="box" style="padding:18px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px"><div class="muted" style="font-size:12.5px;margin-bottom:4px">Your link. Share it anywhere. Works on any product page too: add <code>?ref=${esc(a.code)}</code></div>
+            <code style="font-size:14px;word-break:break-all">${esc(a.link)}</code></div>
+          <button class="btn btn-primary btn-sm" id="aff-copy">Copy link</button>
+        </div>
+        <div class="stats" style="margin-top:18px">${totals.map(t => `
+          <div class="stat"><small>Sales${totals.length > 1 ? ' · ' + t.currency.toUpperCase() : ''}</small><b>${t.sales}</b></div>
+          <div class="stat"><small>Earned</small><b>${money(t.earned, t.currency)}</b></div>
+          <div class="stat"><small>Paid to you</small><b>${money(t.paid, t.currency)}</b></div>
+          <div class="stat"><small>Owed to you</small><b style="color:var(--amber)">${money(t.owed, t.currency)}</b></div>`).join('')}</div>
+        <div class="box" style="margin-top:8px"><div class="box-head"><h3>Your sales</h3></div>
+          ${a.recent.length ? a.recent.map(r => `<div class="file-row"><div class="grow"><div class="nm">${esc(r.title)}</div><small>${date(r.created_at)}</small></div>
+            <span class="muted" style="font-size:13px">${money(r.amount_cents, r.currency)}</span><b style="font-weight:500;min-width:90px;text-align:right">+${money(r.commission_cents, r.currency)}</b></div>`).join('')
+            : '<p class="muted" style="padding:20px;margin:0">No sales yet. Share your link to start earning.</p>'}
+        </div>
+        <p class="muted" style="font-size:13px;margin-top:18px">Sales count when a buyer opens your link and buys within 30 days. Refunded orders don't earn commission. Payouts are sent by ${esc(S.store.settings.store_name)} directly.</p>
+      </div>`);
+    $('#aff-copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(a.link); toast('Link copied'); } catch { prompt('Copy your link:', a.link); }
+    });
+  }
+
   async function legalPage(page) {
     let doc;
     try { doc = await api('/api/legal/' + page); } catch { return notFound(); }
@@ -743,7 +783,7 @@
     document.title = S.store.settings.store_name;
     scrollTo(0, 0);
     // Count visitors' pages, not the owner's own dashboard visits or partners checking their stats.
-    if (!['admin', 'login', 'account'].includes(parts[0]) && !S.store.user?.isAdmin) setTimeout(() => window.Analytics?.page(), 0);
+    if (!['admin', 'login', 'account', 'affiliate'].includes(parts[0]) && !S.store.user?.isAdmin) setTimeout(() => window.Analytics?.page(), 0);
     try {
       switch (parts[0]) {
         case undefined: return await home();
@@ -753,6 +793,7 @@
         case 'download': return await downloadPage(parts[1], 0, q);
         case 'find': return findDownloads();
         case 'terms': case 'privacy': case 'refunds': return await legalPage(parts[0]);
+        case 'affiliate': return await affiliatePage(parts[1]);
         case 'account': return account();
         case 'admin': return await window.Admin.render(parts.slice(1), q);
         default: return notFound();
@@ -766,7 +807,8 @@
     try { await loadStore(); } catch { app.innerHTML = '<div class="wrap page"><h1>Store is offline.</h1></div>'; return; }
     if (!S.store.user?.isAdmin) window.Analytics?.init(S.store.settings);
     // Share links are plain paths (/p/<slug>, /terms …) so link previews work; turn them into app routes.
-    try { localStorage.removeItem('cs_ref'); } catch {} // left by the old referral links
+    const ref = new URLSearchParams(location.search).get('ref');
+    if (ref) try { localStorage.setItem('cs_ref', JSON.stringify({ code: ref.slice(0, 40), at: Date.now() })); } catch {}
     const m = location.pathname.match(/^\/(p\/[^/]+|shop|terms|privacy|refunds|find)\/?$/);
     if (m && !location.hash) history.replaceState(null, '', '/' + location.search + '#/' + m[1]);
     route();

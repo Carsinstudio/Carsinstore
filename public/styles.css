@@ -660,3 +660,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .star-pick button { border: 0; background: none; padding: 0 2px; font-size: 30px; line-height: 1; color: rgba(255,255,255,.18); cursor: pointer; transition: color .15s, transform .15s; }
 .star-pick button.on { color: var(--amber); }
 .star-pick button:hover { transform: scale(1.12); }
+
+/* affiliates: how it works (shown before the first partner) */
+.aff-how { max-width: 720px; }
+.aff-how ol { list-style: none; counter-reset: step; padding: 0; margin: 6px 0 22px; display: grid; gap: 14px; }
+.aff-how li { counter-increment: step; display: grid; grid-template-columns: 30px 1fr; column-gap: 12px; font-size: 14px; }
+.aff-how li::before { content: counter(step); grid-row: span 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 500 12px var(--mono); color: var(--accent-2); border: 1px solid var(--line-2); }
+.aff-how li b { font-weight: 500; color: var(--text); }
+.aff-how li span { color: var(--muted); font-size: 13.5px; line-height: 1.55; }

@@ -146,6 +146,13 @@ function productPrices(p, s = getSettings()) {
   return prices;
 }
 
+// The affiliate whose ?ref= code brought this buyer, unless they're buying through their own link.
+function affiliateFor(code, buyerEmail) {
+  if (!code) return null;
+  const a = one('SELECT * FROM affiliates WHERE code = ? AND active = 1', String(code).trim());
+  return a && a.email.toLowerCase() !== buyerEmail ? a : null;
+}
+
 function publicUser(u) { return u && { id: u.id, email: u.email, name: u.name, isAdmin: !!u.is_admin }; }
 
 // Where buyers can reach the store: the support email from settings, else the owner's email.
@@ -340,6 +347,11 @@ function fulfill(orderId, status = 'paid') {
   if (!o || ['paid', 'free', 'granted'].includes(o.status)) return o;
   run('UPDATE orders SET status = ? WHERE id = ?', status, orderId);
   if (o.coupon_code) run('UPDATE coupons SET uses = uses + 1 WHERE code = ?', o.coupon_code);
+  // Lock in the affiliate's commission at the rate in force when the sale happened.
+  if (status === 'paid' && o.affiliate_id) {
+    const a = one('SELECT percent FROM affiliates WHERE id = ?', o.affiliate_id);
+    if (a) run('UPDATE orders SET commission_cents = ? WHERE id = ?', Math.round((o.amount_cents * a.percent) / 100), orderId);
+  }
   const done = one('SELECT * FROM orders WHERE id = ?', orderId);
   sendLinks([done]).catch(e => console.error('Email failed:', e.message));
   notifyOwner(done).catch(e => console.error('Sale alert failed:', e.message));
@@ -534,6 +546,16 @@ app.get('/api/products/:slug', (req, res) => {
     draft: !!draft, owner: req.user?.is_admin ? { id: live.id, published: !!live.published, changes: hasChanges(live) } : undefined });
 });
 
+// An affiliate's own stats page (private link, no account): their sales and earnings, never buyer details.
+app.get('/api/affiliate/:token', limit({ name: 'affiliate', max: 60, windowMs: 60 * 1000 }), (req, res) => {
+  const a = one('SELECT * FROM affiliates WHERE token = ?', req.params.token);
+  if (!a) return bad(res, 'This link is not valid.', 404);
+  const sum = affiliateSummary(a);
+  const recent = all(`SELECT o.created_at, o.amount_cents, o.currency, o.commission_cents, p.title FROM orders o JOIN products p ON p.id = o.product_id
+    WHERE o.affiliate_id = ? AND o.status = 'paid' ORDER BY o.id DESC LIMIT 100`, a.id);
+  res.json({ name: a.name, code: a.code, percent: a.percent, active: !!a.active, link: sum.link, totals: sum.totals, recent });
+});
+
 app.get('/api/legal/:page', (req, res) => {
   const p = LEGAL_PAGES[req.params.page];
   if (!p) return bad(res, 'Page not found.', 404);
@@ -630,9 +652,10 @@ app.post('/api/checkout', limit({ name: 'checkout', max: 20, windowMs: 10 * 60 *
   if (priced.error) return bad(res, priced.error);
   const currency = cur.currency;
   const customer = findOrCreateCustomer(name, email, phone);
+  const affiliate = priced.price > 0 ? affiliateFor(req.body?.ref, email) : null;
   const token = newToken();
-  const r = run("INSERT INTO orders (user_id, product_id, amount_cents, currency, status, coupon_code, access_token) VALUES (?, ?, ?, ?, 'pending', ?, ?)",
-    customer.id, p.id, priced.price, currency, priced.coupon?.code || null, token);
+  const r = run("INSERT INTO orders (user_id, product_id, amount_cents, currency, status, coupon_code, access_token, affiliate_id) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)",
+    customer.id, p.id, priced.price, currency, priced.coupon?.code || null, token, affiliate?.id || null);
   const orderId = Number(r.lastInsertRowid);
 
   if (priced.price === 0) {
@@ -651,6 +674,7 @@ app.post('/api/checkout', limit({ name: 'checkout', max: 20, windowMs: 10 * 60 *
         custom_fields: [
           { display_name: 'Name', variable_name: 'name', value: name },
           ...(phone ? [{ display_name: 'Phone', variable_name: 'phone', value: phone }] : []),
+          ...(affiliate ? [{ display_name: 'Referred by', variable_name: 'affiliate', value: affiliate.code }] : []),
         ],
       },
     });
@@ -941,8 +965,8 @@ admin.delete('/categories/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-admin.get('/orders', (_req, res) => res.json(all(`SELECT o.*, u.email, u.name, u.phone, p.title, p.slug FROM orders o
-  JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id ORDER BY o.id DESC LIMIT 500`)
+admin.get('/orders', (_req, res) => res.json(all(`SELECT o.*, u.email, u.name, u.phone, p.title, p.slug, a.code AS affiliate_code FROM orders o
+  JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id LEFT JOIN affiliates a ON a.id = o.affiliate_id ORDER BY o.id DESC LIMIT 500`)
   .map(o => ({ ...o, ref: orderRef(o), link: downloadUrl(o.access_token) }))));
 admin.get('/customers', (_req, res) => res.json(all(`SELECT u.id, u.email, u.name, u.phone, u.created_at, u.is_admin,
   (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES}) AS products,
@@ -966,6 +990,63 @@ admin.post('/orders/:id/resend', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 admin.post('/orders/:id/revoke', (req, res) => { run("UPDATE orders SET status = 'refunded' WHERE id = ?", req.params.id); res.json({ ok: true }); });
+
+// ----- affiliates -----
+const affiliateLink = a => `${BASE_URL}/?ref=${encodeURIComponent(a.code)}`;
+const affiliateStatsUrl = a => `${BASE_URL}/#/affiliate/${a.token}`;
+// Sales, commission earned, paid out and still owed, per currency, since sales can be in more than one.
+function affiliateSummary(a) {
+  const rows = all(`SELECT currency, COUNT(*) AS sales, SUM(amount_cents) AS revenue, SUM(commission_cents) AS earned
+    FROM orders WHERE affiliate_id = ? AND status = 'paid' GROUP BY currency`, a.id);
+  let paid = {};
+  try { paid = JSON.parse(a.paid_out || '{}'); } catch {}
+  const currencies = [...new Set([...rows.map(r => r.currency), ...Object.keys(paid)])];
+  const totals = currencies.map(c => {
+    const r = rows.find(x => x.currency === c) || { sales: 0, revenue: 0, earned: 0 };
+    return { currency: c, sales: r.sales, revenue: r.revenue, earned: r.earned, paid: paid[c] || 0, owed: Math.max(0, r.earned - (paid[c] || 0)) };
+  });
+  return {
+    id: a.id, name: a.name, email: a.email, code: a.code, percent: a.percent, active: !!a.active, created_at: a.created_at,
+    link: affiliateLink(a), statsUrl: affiliateStatsUrl(a), sales: totals.reduce((n, t) => n + t.sales, 0), totals,
+  };
+}
+admin.get('/affiliates', (_req, res) => res.json(all('SELECT * FROM affiliates ORDER BY id DESC').map(affiliateSummary)));
+admin.post('/affiliates', (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const percent = Math.round(Number(req.body?.percent));
+  if (!name) return bad(res, 'Enter a name.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 'Enter a valid email address.');
+  if (!(percent >= 1 && percent <= 90)) return bad(res, 'Commission must be between 1% and 90%.');
+  let code = String(req.body?.code || name).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20) || 'PARTNER';
+  if (one('SELECT id FROM affiliates WHERE code = ?', code)) {
+    if (req.body?.code) return bad(res, 'That code is already taken.');
+    let n = 2; while (one('SELECT id FROM affiliates WHERE code = ?', code + n)) n++; code += n;
+  }
+  const id = run('INSERT INTO affiliates (name, email, code, token, percent) VALUES (?, ?, ?, ?, ?)', name, email, code, newToken(), percent).lastInsertRowid;
+  res.json(affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', id)));
+});
+admin.put('/affiliates/:id', (req, res) => {
+  const a = one('SELECT * FROM affiliates WHERE id = ?', req.params.id);
+  if (!a) return bad(res, 'Not found', 404);
+  const percent = req.body.percent === undefined ? a.percent : Math.round(Number(req.body.percent));
+  if (!(percent >= 1 && percent <= 90)) return bad(res, 'Commission must be between 1% and 90%.');
+  run('UPDATE affiliates SET name = ?, email = ?, percent = ?, active = ? WHERE id = ?', req.body.name ?? a.name, req.body.email ?? a.email,
+    percent, req.body.active === undefined ? a.active : req.body.active ? 1 : 0, a.id);
+  res.json(affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', a.id)));
+});
+// Records commission you've paid an affiliate (you pay them yourself, e.g. by bank transfer).
+admin.post('/affiliates/:id/payout', (req, res) => {
+  const a = one('SELECT * FROM affiliates WHERE id = ?', req.params.id);
+  if (!a) return bad(res, 'Not found', 404);
+  const currency = String(req.body?.currency || '').toLowerCase();
+  const cents = Math.round(Number(req.body?.amount_cents));
+  if (!/^[a-z]{3}$/.test(currency) || !(cents > 0)) return bad(res, 'Enter the amount you paid.');
+  const paid = JSON.parse(a.paid_out || '{}');
+  paid[currency] = (paid[currency] || 0) + cents;
+  run('UPDATE affiliates SET paid_out = ? WHERE id = ?', JSON.stringify(paid), a.id);
+  res.json(affiliateSummary(one('SELECT * FROM affiliates WHERE id = ?', a.id)));
+});
 
 admin.get('/coupons', (_req, res) => res.json(all('SELECT * FROM coupons ORDER BY id DESC')));
 admin.post('/coupons', (req, res) => {

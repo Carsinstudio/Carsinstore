@@ -22,7 +22,7 @@
   };
 
   function layout(active, content) {
-    const items = [['', 'Overview', A.dash], ['products', 'Products', A.box], ['categories', 'Categories', A.tag], ['orders', 'Orders', A.receipt], ['payouts', 'Payouts', A.bank], ['customers', 'Customers', I.users], ['coupons', 'Discounts', A.pct], ['settings', 'Store settings', A.gear]];
+    const items = [['', 'Overview', A.dash], ['products', 'Products', A.box], ['categories', 'Categories', A.tag], ['orders', 'Orders', A.receipt], ['payouts', 'Payouts', A.bank], ['customers', 'Customers', I.users], ['coupons', 'Discounts', A.pct], ['affiliates', 'Affiliates', A.link], ['settings', 'Store settings', A.gear]];
     app.innerHTML = `<div class="admin">
       <aside class="admin-side">
         <a class="brand" href="#/" style="border:0"><img class="brand-logo" src="/brand/logo-horizontal.svg" alt="${esc(S.store.settings.store_name)}"></a>
@@ -611,13 +611,13 @@
     const list = await api('/api/admin/orders');
     const shown = list.filter(o => o.status !== 'pending');
     const csv = () => {
-      const rows = [['ref', 'date', 'name', 'email', 'phone', 'product', 'amount', 'currency', 'status', 'coupon', 'download_link'], ...shown.map(o => [o.ref, o.created_at, o.name || '', o.email, o.phone || '', o.title, (o.amount_cents / 100).toFixed(2), o.currency, o.status, o.coupon_code || '', o.link])];
+      const rows = [['ref', 'date', 'name', 'email', 'phone', 'product', 'amount', 'currency', 'status', 'coupon', 'referred_by', 'commission', 'download_link'], ...shown.map(o => [o.ref, o.created_at, o.name || '', o.email, o.phone || '', o.title, (o.amount_cents / 100).toFixed(2), o.currency, o.status, o.coupon_code || '', o.affiliate_code || '', (o.commission_cents / 100).toFixed(2), o.link])];
       const blob = new Blob([rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' });
       Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'orders.csv' }).click();
     };
     layout('orders', head('Orders', `<button class="btn" id="csv">Export CSV</button>`) + (shown.length ? `
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Ref</th><th>Date</th><th>Buyer</th><th>Product</th><th>Amount</th><th>Status</th><th></th></tr>
-      ${shown.map(o => `<tr><td class="dim" style="font-family:var(--mono);font-size:12px">${esc(o.ref)}</td><td class="muted">${date(o.created_at)}</td><td><div>${esc(o.name || 'No name')}</div><small class="dim">${esc(o.email)}${o.phone ? ' · ' + esc(o.phone) : ''}</small></td><td>${esc(o.title)}</td>
+      ${shown.map(o => `<tr><td class="dim" style="font-family:var(--mono);font-size:12px">${esc(o.ref)}</td><td class="muted">${date(o.created_at)}</td><td><div>${esc(o.name || 'No name')}</div><small class="dim">${esc(o.email)}${o.phone ? ' · ' + esc(o.phone) : ''}</small>${o.affiliate_code ? `<div><span class="status free" title="Referred by an affiliate">via ${esc(o.affiliate_code)}</span></div>` : ''}</td><td>${esc(o.title)}</td>
         <td>${o.amount_cents ? money(o.amount_cents, o.currency) : 'Free'}${o.coupon_code ? ` <small class="dim">${esc(o.coupon_code)}</small>` : ''}</td><td>${statusPill(o.status)}</td>
         <td style="text-align:right;white-space:nowrap">${o.status !== 'refunded' ? `<button class="btn btn-sm btn-ghost" data-copy="${esc(o.link)}" title="Copy this buyer's private download link">Copy link</button>${S.store.emails ? `<button class="btn btn-sm btn-ghost" data-resend="${o.id}">Email link</button>` : ''}<button class="btn btn-sm btn-ghost" data-revoke="${o.id}">Revoke</button>` : ''}</td></tr>`).join('')}</table></div>`
       : '<div class="empty"><h3>No orders yet</h3><p>Purchases and free claims will show up here.</p></div>'));
@@ -649,6 +649,73 @@
   function extraCurrencies() {
     const main = (S.store.settings.currency || 'ngn').toLowerCase();
     return String(S.store.settings.extra_currencies || '').toLowerCase().split(',').map(c => c.trim()).filter(c => c && c !== main);
+  }
+  const copy = async (text, msg) => { try { await navigator.clipboard.writeText(text); toast(msg); } catch { prompt('Copy:', text); } };
+
+  // ---------- affiliates ----------
+  async function affiliates() {
+    const list = await api('/api/admin/affiliates');
+    const owedText = a => a.totals.filter(t => t.owed).map(t => money(t.owed, t.currency)).join(' + ') || 'Nothing owed';
+    layout('affiliates', head('Affiliates', `<button class="btn btn-primary" id="new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New affiliate</button>`) + `
+      <p class="muted" style="margin:-12px 0 22px;font-size:13.5px;max-width:680px">Partners share their link, and earn a commission on every paid order from buyers who arrive through it (within 30 days). You pay them yourself, then record it here. Each partner has a private stats page you can send them.</p>` + (list.length ? `
+      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Partner</th><th>Code</th><th>Commission</th><th>Sales</th><th>Owed</th><th>Status</th><th></th></tr>
+      ${list.map(a => `<tr><td><div>${esc(a.name)}</div><small class="dim">${esc(a.email)}</small></td><td style="font-family:var(--mono)">${esc(a.code)}</td>
+        <td>${a.percent}%</td><td>${a.sales}</td><td style="color:var(--amber)">${owedText(a)}</td><td>${a.active ? '<span class="status live">active</span>' : '<span class="status">paused</span>'}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" data-link="${a.id}">Copy link</button><button class="btn btn-sm btn-ghost" data-stats="${a.id}" title="Their private stats page">Stats page</button>
+          <button class="btn btn-sm btn-ghost" data-pay="${a.id}">Record payout</button><button class="icon-btn" data-edit="${a.id}" title="Edit">${A.edit}</button></td></tr>`).join('')}</table></div>`
+      : `<div class="panel aff-how"><h3>How affiliates work</h3><ol>
+          <li><b>Add a partner</b><span>Their name, email and commission (for example 20%). Nobody needs an account, not them and not the buyers.</span></li>
+          <li><b>Send them two links</b><span>Their referral link to share, and a private stats page where they see their sales and what they're owed.</span></li>
+          <li><b>Buyers buy as usual</b><span>Anyone who opens their link and pays within 30 days counts as their sale. The commission is worked out on the price actually paid.</span></li>
+          <li><b>You pay them</b><span>All money reaches your bank through Paystack. Pay partners what they're owed (by bank transfer, for example), then click Record payout so their stats page stays up to date.</span></li>
+        </ol><button class="btn btn-primary" id="new2">${I.plus.replace('<svg', '<svg width="14" height="14"')} Add your first partner</button></div>`));
+    $('#new2')?.addEventListener('click', () => form());
+    const find = id => list.find(a => a.id === Number(id));
+    $$('[data-link]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.link).link, 'Referral link copied')));
+    $$('[data-stats]').forEach(b => b.addEventListener('click', () => copy(find(b.dataset.stats).statsUrl, 'Stats page link copied. Send it to your partner.')));
+    const form = (a = {}) => modal(`<h3>${a.id ? 'Edit' : 'New'} affiliate</h3><form id="af" style="margin-top:16px">
+      <label class="field"><span>Name</span><input class="input" name="name" value="${esc(a.name || '')}" required></label>
+      <label class="field"><span>Email</span><input class="input" name="email" type="email" value="${esc(a.email || '')}" required><small>Where you'll reach them about payouts. Their own purchases don't earn commission.</small></label>
+      <div class="row"><label class="field"><span>Commission %</span><input class="input" name="percent" type="number" min="1" max="90" value="${a.percent ?? 20}" required></label>
+      ${a.id ? `<label class="field"><span>Status</span><select class="input" name="active"><option value="1" ${a.active ? 'selected' : ''}>Active</option><option value="0" ${a.active ? '' : 'selected'}>Paused</option></select></label>`
+        : `<label class="field"><span>Code (optional)</span><input class="input" name="code" placeholder="e.g. ADA" style="text-transform:uppercase"><small>Used in their link. Made from their name if empty.</small></label>`}</div>
+      ${a.id ? '<small class="dim" style="display:block;margin:-6px 0 6px;font-size:12px">A new commission rate applies to future sales only.</small>' : ''}
+      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Save</button></div></form>`, (m, close) => {
+      $('#af', m).addEventListener('submit', async e => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(e.target));
+        if (a.id) body.active = body.active === '1';
+        try {
+          const r = await api(`/api/admin/affiliates${a.id ? '/' + a.id : ''}`, { method: a.id ? 'PUT' : 'POST', body });
+          close(); affiliates();
+          if (!a.id) modal(`<h3>${esc(r.name)} is set up</h3><p class="muted" style="margin:0 0 14px">Send them both links:</p>
+            <label class="field"><span>Referral link (to share)</span><input class="input" readonly value="${esc(r.link)}" onclick="this.select()"></label>
+            <label class="field"><span>Private stats page (just for them)</span><input class="input" readonly value="${esc(r.statsUrl)}" onclick="this.select()"></label>
+            <div class="actions"><button class="btn btn-primary" data-close>Done</button></div>`);
+        } catch (err) { toast(err.message, true); }
+      });
+    });
+    $('#new').addEventListener('click', () => form());
+    $$('[data-edit]').forEach(b => b.addEventListener('click', () => form(find(b.dataset.edit))));
+    $$('[data-pay]').forEach(b => b.addEventListener('click', () => {
+      const a = find(b.dataset.pay);
+      const owed = a.totals.filter(t => t.owed);
+      const cur = (owed[0] || a.totals[0] || { currency: S.store.settings.currency || 'ngn' }).currency;
+      const curs = [...new Set([cur, ...a.totals.map(t => t.currency)])];
+      modal(`<h3>Record a payout to ${esc(a.name)}</h3><p class="muted" style="margin:0 0 16px">Owed: ${owedText(a)}. Record what you've sent them (e.g. by bank transfer).</p>
+        <form id="pf2"><div class="row"><label class="field"><span>Amount</span><input class="input" name="amount" inputmode="decimal" required value="${owed[0] ? (owed[0].owed / 100) : ''}"></label>
+        <label class="field"><span>Currency</span><select class="input" name="currency">${curs.map(c => `<option value="${c}">${c.toUpperCase()}</option>`).join('')}</select></label></div>
+        <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Record payout</button></div></form>`, (m, close) => {
+        $('#pf2', m).addEventListener('submit', async e => {
+          e.preventDefault();
+          try {
+            await api(`/api/admin/affiliates/${a.id}/payout`, { method: 'POST', body: { currency: e.target.currency.value, amount_cents: Math.round(parseFloat(e.target.amount.value) * 100) } });
+            close(); toast('Payout recorded'); affiliates();
+          } catch (err) { toast(err.message, true); }
+        });
+      });
+    }));
   }
 
   // ---------- coupons ----------
@@ -810,7 +877,7 @@
       app.innerHTML = spinner();
       const [section, id] = parts;
       if (section === 'products' && id) return editor(id);
-      return ({ products, categories, orders, payouts, customers, coupons, settings }[section] || overview)();
+      return ({ products, categories, orders, payouts, customers, coupons, affiliates, settings }[section] || overview)();
     },
   };
 })();
