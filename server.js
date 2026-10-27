@@ -461,8 +461,16 @@ app.use((_req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   if (BASE_URL.startsWith('https')) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  // No plugins, no <base> tricks, and no embedding in other sites. Scripts aren't restricted further because the
+  // optional analytics tools load from their own domains.
+  res.setHeader('Content-Security-Policy', "object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   next();
 });
+// Files that a browser would run as a web page (HTML, SVG, XML) are never opened as part of the store:
+// they always download, and even then can't run scripts on this site.
+const ACTIVE_TYPES = /^(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml)/i;
+const ACTIVE_EXT = /\.(html?|xhtml|svgz?|xml|xsl)$/i;
+const SANDBOX = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
 
 // Paystack webhook needs the raw body to check its signature, so it is registered before the JSON parser.
 app.post('/api/paystack/webhook', express.raw({ type: '*/*' }), wrap(async (req, res) => {
@@ -771,7 +779,14 @@ app.get('/api/files/:id', wrap(async (req, res) => {
     try { file = await samplePdf(f); name = name.replace(/\.pdf$/i, '') + ' (sample).pdf'; }
     catch (e) { console.error('PDF sample failed:', e.message); return bad(res, 'The preview for this file is not available.', 404); }
   }
-  const disp = req.query.inline || !full ? 'inline' : 'attachment';
+  const active = ACTIVE_TYPES.test(f.mime || '') || ACTIVE_EXT.test(f.original_name);
+  const disp = (req.query.inline || !full) && !active ? 'inline' : 'attachment';
+  if (active) res.setHeader('Content-Security-Policy', SANDBOX);
+  else {
+    // PDFs and media are shown inside the store's own pages (previews, the buyer's viewer), never in other sites.
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Content-Security-Policy', "object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
+  }
   res.setHeader('Content-Disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(name)}`);
   res.setHeader('Cache-Control', 'private, max-age=0');
   res.sendFile(file, { headers: { 'Content-Type': f.mime || 'application/octet-stream' } });
@@ -1245,7 +1260,8 @@ app.get('/p/:slug', (req, res) => {
 app.get('/', (_req, res) => sendHome(res));
 for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find']) app.get(`/${page}`, (_req, res) => sendHome(res));
 
-app.use('/media/covers', express.static(COVERS_DIR, { maxAge: '7d' }));
+// Covers are only ever pictures or videos: opened directly, they can't run anything.
+app.use('/media/covers', express.static(COVERS_DIR, { maxAge: '7d', setHeaders: res => res.setHeader('Content-Security-Policy', SANDBOX + "; media-src 'self'") }));
 app.use(['/media', '/api'], (_req, res) => res.status(404).json({ error: 'Not found.' })); // never fall through to the store page
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], index: false }));
 app.get('*', (_req, res) => sendHome(res));
