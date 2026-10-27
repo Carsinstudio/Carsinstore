@@ -178,7 +178,7 @@
     return `
     ${s.announcement ? `<div class="announce-wrap"><div class="announce"><span class="tag">NEW</span><span>${esc(s.announcement)}</span><a href="#/shop">Browse the store ${I.arrow}</a></div></div>` : ''}
     <header class="nav" id="nav"><div class="nav-inner">
-      <a class="brand" href="#/"><img class="brand-logo" src="/brand/logo-horizontal.png" alt="${esc(s.store_name)}"></a>
+      <a class="brand" href="#/"><img class="brand-logo" src="/brand/logo-horizontal.svg" alt="${esc(s.store_name)}"></a>
       <nav class="nav-links" id="nav-links">
         <a href="#/shop" class="${active === 'shop' ? 'active' : ''}">All products</a>
         <div class="dropdown" id="cat-dd"><button>Categories ${I.chev}</button>
@@ -203,7 +203,7 @@
     const social = [['instagram', I.ig], ['x', I.x], ['youtube', I.yt], ['tiktok', I.tt], ['linkedin', I.li]].filter(([k]) => s[k]);
     return `<footer class="site"><div class="foot-card">
       <div class="foot-grid">
-        <div><a class="brand" href="#/"><img class="brand-logo" src="/brand/logo-horizontal.png" alt="${esc(s.store_name)}"></a><p class="foot-blurb">${esc(s.footer_blurb)}</p>
+        <div><a class="brand" href="#/"><img class="brand-logo" src="/brand/logo-horizontal.svg" alt="${esc(s.store_name)}"></a><p class="foot-blurb">${esc(s.footer_blurb)}</p>
           ${social.length ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Stay connected</div><div class="socials">${social.map(([k, ic]) => `<a href="${esc(s[k])}" target="_blank" rel="noopener" aria-label="${k}">${ic}</a>`).join('')}</div>` : ''}</div>
         <div><h5>Store</h5><a href="#/shop">All products</a><a href="#/shop?kind=video">Videos</a><a href="#/shop?kind=pdf">PDFs & guides</a><a href="#/shop?price=free">Free resources</a></div>
         <div><h5>Categories</h5>${cats.map(c => `<a href="#/shop?cat=${esc(c.slug)}">${esc(c.name)}</a>`).join('') || '<a href="#/shop">Browse all</a>'}</div>
@@ -387,7 +387,7 @@
 
     shell(`<div class="page-top" style="padding-bottom:20px"><div class="aurora"><i></i></div><div class="wrap" style="position:relative">
         <div class="crumbs"><a href="#/shop">Store</a>${p.category ? `<span>/</span><a href="#/shop?cat=${esc(p.category.slug)}">${esc(p.category.name)}</a>` : ''}</div>
-        ${p.draft ? '<div class="draft-note">Preview of your unpublished edits. Visitors still see the published version.</div>' : ''}
+        ${p.owner ? `<div class="owner-bar"><span>${!p.owner.published ? 'Draft: only you can see this page. Publish it from the editor.' : p.draft && p.owner.changes ? 'Showing your edits that are not live yet. Buyers still see the published version.' : 'This is what buyers see.'}</span><a href="#/admin/products/${p.owner.id}">Edit</a><a href="#/admin/products">All products</a></div>` : ''}
         <h1>${esc(p.title)}</h1><p style="font-size:17px">${esc(p.subtitle)}</p>
         ${p.rating ? `<a class="rating-line" href="#reviews" data-to-reviews>${starsHtml(p.rating.avg)}<b>${p.rating.avg.toFixed(1)}</b><span>${plural(p.rating.count, 'review')}</span></a>` : ''}</div></div>
       <div class="wrap page" style="padding-top:20px"><div class="product-layout">

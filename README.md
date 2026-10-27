@@ -83,6 +83,8 @@ Buyers then get a "Your files are ready" email after every purchase or free down
 
 Keep each template's {{{VARIABLES}}} when editing. Each order sends its first email exactly once. Buyer emails never contain referral or affiliate links.
 
+**Logo files** live in `public/brand`: `logo-horizontal.svg` (navbar, footer, dashboard), `logo-mark.svg`, and `public/favicon.svg` (a square version of the mark). PNG copies for places that can't use SVG (iPhone home-screen icon, the default link-preview image `share.png`, and the email header logo) are made from the SVGs with `node emails/render-brand.js`. The email logo loads from the live site, so it shows in emails once carsin.store is up.
+
 The designs are built by `emails/build.js` (open `emails/dist/preview-*.html` to check them). To change one and push it to Resend, edit `build.js`, then run `node emails/build.js` and `node emails/publish.js <alias>`. Publishing needs the Resend CLI signed in with a full-access key (`npx resend-cli@latest login`), because the store's own key can only send.
 
 **Sale alerts:** the owner gets a "New sale" email (Resend template "Sale alert (to owner)", alias sale-alert) for every paid order, and optionally for free downloads. Turn them on or off and choose the address in Store settings → Notifications. Replying to an alert emails the buyer, and buyers replying to their download email reach the support email.

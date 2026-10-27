@@ -540,7 +540,9 @@ app.get('/api/products/:slug', (req, res) => {
   });
   const reviews = all('SELECT name, rating, body, created_at FROM reviews WHERE product_id = ? AND hidden = 0 ORDER BY updated_at DESC LIMIT 30', p.id);
   res.json({ ...productCard(p, cats), covers: coverUrls(p), description: p.description, sales: cleanSales(p.sales), fileList: files,
-    reviews, crossSells: crossSellsFor(p, draft ? draftState(live).cross_sells : undefined), draft: !!draft });
+    reviews, crossSells: crossSellsFor(p, draft ? draftState(live).cross_sells : undefined),
+    // For the owner: whether this is unpublished, and whether it differs from what visitors see.
+    draft: !!draft, owner: req.user?.is_admin ? { id: live.id, published: !!live.published, changes: hasChanges(live) } : undefined });
 });
 
 // An affiliate's own stats page (private link, no account): their sales and earnings, never buyer details.
@@ -1118,7 +1120,7 @@ function sendPage(res, m) {
   res.setHeader('Cache-Control', 'no-cache');
   res.type('html').send(INDEX_HTML.replace(/<!--META-->[\s\S]*?<!--\/META-->/, tags));
 }
-const shareImage = s => (s.share_image ? `${BASE_URL}/media/covers/${s.share_image}` : null);
+const shareImage = s => (s.share_image ? `${BASE_URL}/media/covers/${s.share_image}` : `${BASE_URL}/brand/share.png`);
 function sendHome(res) {
   const s = getSettings();
   sendPage(res, { title: `${s.store_name} | ${plain(s.tagline)}`, ogTitle: s.store_name, description: shortText(plain(s.hero_sub || s.tagline)), url: `${BASE_URL}/`, site: s.store_name, image: shareImage(s) });

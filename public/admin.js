@@ -24,7 +24,7 @@
     const items = [['', 'Overview', A.dash], ['products', 'Products', A.box], ['categories', 'Categories', A.tag], ['orders', 'Orders', A.receipt], ['customers', 'Customers', I.users], ['coupons', 'Discounts', A.pct], ['affiliates', 'Affiliates', A.link], ['settings', 'Store settings', A.gear]];
     app.innerHTML = `<div class="admin">
       <aside class="admin-side">
-        <a class="brand" href="#/" style="border:0"><img class="brand-logo" src="/brand/logo-horizontal.png" alt="${esc(S.store.settings.store_name)}"></a>
+        <a class="brand" href="#/" style="border:0"><img class="brand-logo" src="/brand/logo-horizontal.svg" alt="${esc(S.store.settings.store_name)}"></a>
         ${items.map(([k, l, ic]) => `<a href="#/admin${k ? '/' + k : ''}" class="${active === k ? 'on' : ''}">${ic}${l}</a>`).join('')}
         <div class="bottom"><a href="#/" target="_blank">${A.store}View store</a></div>
       </aside>
@@ -111,7 +111,7 @@
         <td>${statusOf(p)}${p.featured ? ' <span class="status free">featured</span>' : ''}</td>
         <td style="text-align:right;width:1%"><button class="icon-btn" data-menu="${p.id}" title="Actions">${dots}</button></td></tr>`).join('')}</table></div>`
       : `<div class="empty"><h3>No products yet</h3><p>Create your first digital product, then upload its files.</p></div>`));
-    // Clicking a product opens its actions; editing is one of them.
+    // The ⋯ button opens a product's actions; clicking anywhere else on the row shows its sales page as buyers see it.
     const openMenu = (id, anchor) => {
       const p = list.find(x => x.id === Number(id));
       document.querySelector('.menu-pop')?.remove();
@@ -147,7 +147,9 @@
     };
     $$('tr[data-id]').forEach(r => r.addEventListener('click', e => {
       if (e.target.closest('a')) return;
-      openMenu(r.dataset.id, r.querySelector('[data-menu]'));
+      const menu = e.target.closest('[data-menu]');
+      if (menu) return openMenu(r.dataset.id, menu);
+      location.hash = `#/p/${list.find(x => x.id === Number(r.dataset.id)).slug}?draft=1`;
     }));
     $('#new').addEventListener('click', newProduct);
   }

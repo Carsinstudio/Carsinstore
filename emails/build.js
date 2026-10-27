@@ -62,7 +62,7 @@ function layout({ preheader, label, heading, sub, details = [], cta, note, secon
     <tr><td bgcolor="${C.card}" class="px" style="padding:30px 40px 44px 40px;border-radius:18px 18px 0 0;background-color:${C.card};background-image:radial-gradient(ellipse 85% 72% at 24% 44%,rgba(236,98,48,0.95) 0%,rgba(206,68,38,0.6) 28%,rgba(120,38,24,0.2) 52%,rgba(17,17,17,0) 70%);">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr>
-          <td style="font-family:${SANS};font-size:13px;font-weight:500;color:${C.text};letter-spacing:0.2px;">{{{STORE_NAME}}}.</td>
+          <td style="font-family:${SANS};font-size:13px;font-weight:500;color:${C.text};"><img src="{{{SITE_URL}}}/brand/logo-email.png" width="170" height="25" alt="{{{STORE_NAME}}}" style="display:block;border:0;outline:none;text-decoration:none;width:170px;height:25px;"></td>
           <td align="right">${minimal ? '' : `<a href="{{{SITE_URL}}}" target="_blank" style="font-family:${SANS};font-size:12px;color:${C.soft};text-decoration:none;">Visit store</a>`}</td>
         </tr>
         <tr><td colspan="2" style="padding-top:78px;font-family:${SANS};font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:#f6c9a8;">${label}</td></tr>
