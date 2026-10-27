@@ -207,10 +207,90 @@ function cleanSales(v) {
 }
 
 const MAX_COVERS = 4;
-const coversOf = p => { try { const c = JSON.parse(p.covers || '[]'); return Array.isArray(c) ? c.slice(0, MAX_COVERS) : []; } catch { return []; } };
+const RATIOS = ['1:1', '4:3', '3:4', '16:9'];
+const parseJson = (v, fallback) => { try { const x = JSON.parse(v); return x ?? fallback; } catch { return fallback; } };
+const coversOf = p => { const c = parseJson(p.covers || '[]', []); return Array.isArray(c) ? c.slice(0, MAX_COVERS) : []; };
 const coverUrls = p => coversOf(p).map(c => `/media/covers/${c}`);
-function setCovers(p, list) {
-  run('UPDATE products SET covers = ?, cover_path = ? WHERE id = ?', JSON.stringify(list), list[0] || null, p.id);
+const isVideoCover = name => /\.(mp4|webm|mov|m4v)$/i.test(name || '');
+const categoryIds = productId => all('SELECT category_id FROM product_categories WHERE product_id = ? ORDER BY sort, category_id', productId).map(r => r.category_id);
+
+// ----- drafts: every edit is saved as a draft, and only goes live when you press Publish -----
+// The products columns hold what visitors see; products.draft holds pending edits (JSON) on top of that.
+function cleanState(s, productId) {
+  const int = v => Math.max(0, Math.round(Number(v) || 0));
+  const ids = (v, max) => [...new Set((Array.isArray(v) ? v : []).map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, max);
+  const alt = {};
+  for (const [c, v] of Object.entries(typeof s.alt_prices === 'string' ? parseJson(s.alt_prices, {}) : s.alt_prices || {}).sort()) {
+    if (/^[a-z]{3}$/.test(c) && int(v) > 0) alt[c] = int(v);
+  }
+  return {
+    title: String(s.title ?? '').trim().slice(0, 200),
+    subtitle: String(s.subtitle ?? '').trim().slice(0, 300),
+    description: String(s.description ?? '').replace(/\r\n/g, '\n'),
+    slug: slugify(String(s.slug ?? '')) || slugify(String(s.title ?? '')) || 'product',
+    price_cents: int(s.price_cents),
+    compare_cents: s.compare_cents ? int(s.compare_cents) || null : null,
+    category_ids: ids(s.category_ids, 10).filter(id => one('SELECT 1 FROM categories WHERE id = ?', id)),
+    featured: !!s.featured,
+    alt_prices: alt,
+    sales: cleanSales(s.sales),
+    covers: [...new Set((Array.isArray(s.covers) ? s.covers : []).map(c => path.basename(String(c))))].slice(0, MAX_COVERS),
+    cover_ratio: RATIOS.includes(s.cover_ratio) ? s.cover_ratio : '1:1',
+    cross_sells: ids(s.cross_sells, 4).filter(id => id !== Number(productId)),
+  };
+}
+const liveState = p => cleanState({
+  ...p, featured: p.featured, alt_prices: parseJson(p.alt_prices || '{}', {}), sales: p.sales,
+  covers: coversOf(p), cross_sells: parseJson(p.cross_sells || '[]', []), category_ids: categoryIds(p.id),
+}, p.id);
+const draftState = p => p.draft ? cleanState({ ...liveState(p), ...parseJson(p.draft, {}) }, p.id) : liveState(p);
+const hasChanges = p => !!p.draft && JSON.stringify(draftState(p)) !== JSON.stringify(liveState(p));
+// A products row as it would look with the draft applied (for the owner's preview).
+const rowWithDraft = p => {
+  const d = draftState(p);
+  return { ...p, ...d, featured: d.featured ? 1 : 0, alt_prices: JSON.stringify(d.alt_prices), sales: JSON.stringify(d.sales), covers: JSON.stringify(d.covers),
+    cover_path: d.covers[0] || null, cross_sells: JSON.stringify(d.cross_sells), category_id: d.category_ids[0] || null, slug: p.slug };
+};
+function saveDraft(p, changes) {
+  const next = cleanState({ ...draftState(p), ...changes }, p.id);
+  run('UPDATE products SET draft = ? WHERE id = ?', JSON.stringify(next), p.id);
+  return one('SELECT * FROM products WHERE id = ?', p.id);
+}
+// Deletes cover files that neither the live product nor its draft use any more.
+function dropUnusedCovers(p, candidates) {
+  const keep = new Set([...coversOf(p), ...draftState(p).covers]);
+  for (const c of candidates) if (c && !keep.has(c)) fs.rm(path.join(COVERS_DIR, c), { force: true }, () => {});
+}
+function publishProduct(p) {
+  const d = draftState(p);
+  const before = coversOf(p);
+  const slug = uniqueSlug('products', d.slug, p.id);
+  run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, featured=?, alt_prices=?, sales=?,
+    covers=?, cover_path=?, cover_ratio=?, cross_sells=?, published=1, draft=NULL WHERE id=?`,
+    slug, d.title || 'Untitled product', d.subtitle, d.description, d.price_cents, d.compare_cents, d.category_ids[0] || null, d.featured ? 1 : 0,
+    JSON.stringify(d.alt_prices), JSON.stringify(d.sales), JSON.stringify(d.covers), d.covers[0] || null, d.cover_ratio, JSON.stringify(d.cross_sells), p.id);
+  run('DELETE FROM product_categories WHERE product_id = ?', p.id);
+  d.category_ids.forEach((c, i) => run('INSERT INTO product_categories (product_id, category_id, sort) VALUES (?, ?, ?)', p.id, c, i));
+  const fresh = one('SELECT * FROM products WHERE id = ?', p.id);
+  dropUnusedCovers(fresh, before);
+  return fresh;
+}
+
+// Buyer ratings: average and count of visible reviews.
+const ratingOf = productId => {
+  const r = one('SELECT COUNT(*) AS n, AVG(rating) AS avg FROM reviews WHERE product_id = ? AND hidden = 0', productId);
+  return r.n ? { count: r.n, avg: Math.round(r.avg * 10) / 10 } : null;
+};
+// "You might also like": the products picked for this one, or else popular ones from the same categories.
+function crossSellsFor(p, picked) {
+  const ids = picked ?? parseJson(p.cross_sells || '[]', []);
+  let list = ids.map(id => one('SELECT * FROM products WHERE id = ? AND published = 1', id)).filter(Boolean);
+  if (!list.length) {
+    list = all(`SELECT p.*, (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id AND o.status IN ${ACCESS_STATUSES}) AS n FROM products p
+      WHERE p.published = 1 AND p.id != ? AND EXISTS (SELECT 1 FROM product_categories a JOIN product_categories b ON a.category_id = b.category_id
+        WHERE a.product_id = p.id AND b.product_id = ?) ORDER BY n DESC, p.created_at DESC LIMIT 3`, p.id, p.id);
+  }
+  return list.slice(0, 4).map(x => productCard(x));
 }
 
 // File types a visitor can view in the browser. Only these can be free previews.
@@ -232,13 +312,15 @@ async function samplePdf(f) {
 const dropSamples = f => fs.promises.readdir(path.join(FILES_DIR, '.previews')).then(names => names
   .filter(n => n.startsWith(f.stored_name + '-')).forEach(n => fs.rm(path.join(FILES_DIR, '.previews', n), { force: true }, () => {}))).catch(() => {});
 
-function productCard(p) {
+function productCard(p, catIds = categoryIds(p.id)) {
   const files = productFiles(p.id);
   const students = one(`SELECT COUNT(*) AS n FROM orders WHERE product_id = ? AND status IN ${ACCESS_STATUSES}`, p.id).n;
+  const categories = catIds.map(id => one('SELECT name, slug FROM categories WHERE id = ?', id)).filter(Boolean);
   return {
     id: p.id, slug: p.slug, title: p.title, subtitle: p.subtitle,
     price: p.price_cents, compare: p.compare_cents, prices: productPrices(p), cover: p.cover_path ? `/media/covers/${p.cover_path}` : null,
-    category: p.category_id ? one('SELECT name, slug FROM categories WHERE id = ?', p.category_id) : null,
+    coverVideo: isVideoCover(p.cover_path), ratio: p.cover_ratio || '1:1', rating: ratingOf(p.id),
+    category: categories[0] || null, categories,
     featured: !!p.featured, published: !!p.published, createdAt: p.created_at,
     files: files.length, totalSize: files.reduce((n, f) => n + f.size, 0), students,
     kinds: [...new Set(files.map(f => f.kind))],
@@ -383,8 +465,8 @@ const requireAdmin = (req, res, next) => (req.user?.is_admin ? next() : bad(res,
 
 // ----- store -----
 app.get('/api/store', (req, res) => {
-  const categories = all(`SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.published = 1) AS count
-    FROM categories c ORDER BY c.sort, c.name`);
+  const categories = all(`SELECT c.*, (SELECT COUNT(*) FROM product_categories pc JOIN products p ON p.id = pc.product_id
+    WHERE pc.category_id = c.id AND p.published = 1) AS count FROM categories c ORDER BY c.sort, c.name`);
   const settings = getSettings();
   for (const k of Object.keys(settings)) if (k.startsWith('legal_')) delete settings[k];
   settings.support_email = supportEmail();
@@ -398,7 +480,7 @@ app.get('/api/store', (req, res) => {
 app.get('/api/products', (req, res) => {
   const { cat, q, price, sort, featured, limit } = req.query;
   const where = ['p.published = 1'], params = [];
-  if (cat) { where.push('c.slug = ?'); params.push(cat); }
+  if (cat) { where.push('EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON c.id = pc.category_id WHERE pc.product_id = p.id AND c.slug = ?)'); params.push(cat); }
   if (q) { where.push('(p.title LIKE ? OR p.subtitle LIKE ? OR p.description LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   if (price === 'free') where.push('p.price_cents = 0');
   if (price === 'paid') where.push('p.price_cents > 0');
@@ -413,20 +495,26 @@ app.get('/api/products', (req, res) => {
   if (featured) where.push('p.featured = 1');
   const order = { 'price-asc': 'p.price_cents ASC', 'price-desc': 'p.price_cents DESC', popular: 'students DESC' }[sort] || 'p.featured DESC, p.created_at DESC';
   const rows = all(`SELECT p.*, (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id AND o.status IN ${ACCESS_STATUSES}) AS students
-    FROM products p LEFT JOIN categories c ON c.id = p.category_id
+    FROM products p
     WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?`, ...params, Math.min(Number(limit) || 200, 200));
-  res.json(rows.map(productCard));
+  res.json(rows.map(p => productCard(p)));
 });
 
+// The owner can add ?draft=1 to preview unpublished edits.
 app.get('/api/products/:slug', (req, res) => {
-  const p = one('SELECT * FROM products WHERE slug = ?', req.params.slug);
-  if (!p || (!p.published && !req.user?.is_admin)) return bad(res, 'Product not found.', 404);
+  const live = one('SELECT * FROM products WHERE slug = ?', req.params.slug);
+  if (!live || (!live.published && !req.user?.is_admin)) return bad(res, 'Product not found.', 404);
+  const draft = req.user?.is_admin && req.query.draft;
+  const p = draft ? rowWithDraft(live) : live;
+  const cats = draft ? draftState(live).category_ids : categoryIds(p.id);
   // File ids are only exposed for free previews; everything else stays locked until purchase.
   const files = productFiles(p.id).map(f => {
     const preview = f.preview && PREVIEWABLE.includes(f.kind);
     return { name: f.name, size: f.size, kind: f.kind, preview, ...(preview ? { id: f.id } : {}), ...(preview && f.kind === 'pdf' ? { previewPages: f.previewPages } : {}) };
   });
-  res.json({ ...productCard(p), covers: coverUrls(p), description: p.description, sales: cleanSales(p.sales), fileList: files });
+  const reviews = all('SELECT name, rating, body, created_at FROM reviews WHERE product_id = ? AND hidden = 0 ORDER BY updated_at DESC LIMIT 30', p.id);
+  res.json({ ...productCard(p, cats), covers: coverUrls(p), description: p.description, sales: cleanSales(p.sales), fileList: files,
+    reviews, crossSells: crossSellsFor(p, draft ? draftState(live).cross_sells : undefined), draft: !!draft });
 });
 
 // An affiliate's own stats page (private link, no account): their sales and earnings, never buyer details.
@@ -596,13 +684,29 @@ app.get('/api/order/:token', limit({ name: 'order', max: 120, windowMs: 60 * 100
   if (o.status === 'pending') return res.json({ pending: true });
   if (!['paid', 'free', 'granted'].includes(o.status)) return bad(res, 'Access to this order has been removed.', 403);
   const p = one('SELECT * FROM products WHERE id = ?', o.product_id);
+  const mine = one('SELECT rating, body, name FROM reviews WHERE order_id = ?', o.id);
   res.json({
     ...productCard(p), description: p.description, downloads: productFiles(p.id),
+    myReview: mine || null, crossSells: crossSellsFor(p),
     buyer: { name: o.name, email: o.email }, purchasedAt: o.created_at, emailed: mailer.enabled,
     // For analytics "purchase" events: what was actually paid, and an id that isn't the secret link.
     order: { ref: emailKey(o), status: o.status, amount: o.amount_cents, currency: o.currency },
   });
 }));
+
+// A buyer rates the product (1 to 5 stars) and can add a review. One per order; sending again updates it.
+app.post('/api/reviews', limit({ name: 'reviews', max: 20, windowMs: 60 * 60 * 1000 }), (req, res) => {
+  const o = one(`SELECT o.*, u.name AS buyer FROM orders o JOIN users u ON u.id = o.user_id WHERE o.access_token = ? AND o.status IN ${ACCESS_STATUSES}`, String(req.body?.token || ''));
+  if (!o) return bad(res, 'This link is not valid.', 404);
+  const rating = Math.round(Number(req.body?.rating));
+  if (!(rating >= 1 && rating <= 5)) return bad(res, 'Choose from 1 to 5 stars.');
+  const body = String(req.body?.body || '').trim().slice(0, 1500);
+  const parts = String(req.body?.name || o.buyer || '').trim().split(/\s+/).filter(Boolean);
+  const name = parts.length ? parts[0].slice(0, 40) + (parts[1] ? ` ${parts[1][0].toUpperCase()}.` : '') : 'Buyer';
+  run(`INSERT INTO reviews (product_id, order_id, name, rating, body) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(order_id) DO UPDATE SET rating = excluded.rating, body = excluded.body, name = excluded.name, updated_at = datetime('now')`, o.product_id, o.id, name, rating, body);
+  res.json({ ok: true, review: { rating, body, name } });
+});
 
 // Emails every download link for an address. Same reply either way, so it can't be used to probe who bought what.
 // Limited per address and per visitor so the form can't be used to flood someone's inbox.
@@ -665,7 +769,14 @@ admin.get('/stats', (_req, res) => {
   res.json({ currency: main, revenue: money.revenue, sales: money.sales, otherCurrencies, free, customers, products: products.n, live: products.live || 0, days, top, recent });
 });
 
-admin.get('/products', (_req, res) => res.json(all('SELECT * FROM products ORDER BY created_at DESC').map(productCard)));
+const productLink = p => `${BASE_URL}/p/${p.slug}`;
+// What the dashboard needs about a product: the live card, plus the draft the owner is editing.
+const adminCard = p => {
+  const d = draftState(p);
+  return { ...productCard(p), name: d.title || p.title, changes: hasChanges(p), link: productLink(p),
+    draftCover: d.covers[0] ? `/media/covers/${d.covers[0]}` : null, draftCoverVideo: isVideoCover(d.covers[0]) };
+};
+admin.get('/products', (_req, res) => res.json(all('SELECT * FROM products ORDER BY created_at DESC').map(adminCard)));
 admin.post('/products', (req, res) => {
   const title = (req.body?.title || 'Untitled product').trim();
   const r = run('INSERT INTO products (slug, title, subtitle, description, price_cents) VALUES (?, ?, ?, ?, 0)', uniqueSlug('products', title), title,
@@ -675,56 +786,74 @@ admin.post('/products', (req, res) => {
 admin.get('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
-  res.json({ ...p, sales: cleanSales(p.sales), covers: coverUrls(p), files: productFiles(p.id) });
+  const d = draftState(p);
+  res.json({ id: p.id, slug: p.slug, published: !!p.published, changes: hasChanges(p), link: productLink(p),
+    edit: { ...d, covers: d.covers.map(c => `/media/covers/${c}`) }, files: productFiles(p.id),
+    reviews: all('SELECT r.*, u.email FROM reviews r JOIN orders o ON o.id = r.order_id JOIN users u ON u.id = o.user_id WHERE r.product_id = ? ORDER BY r.updated_at DESC', p.id),
+    others: all('SELECT id, title FROM products WHERE id != ? ORDER BY title', p.id) });
 });
+// Saves edits to the draft. Nothing changes for visitors until Publish.
 admin.put('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
-  const b = { ...p, ...req.body };
-  const slug = req.body.slug ? uniqueSlug('products', req.body.slug, p.id) : p.slug;
-  // Prices in extra currencies, in cents: {"usd": 1500}. Empty or zero removes that currency for this product.
-  const alt = {};
-  for (const [c, v] of Object.entries(typeof b.alt_prices === 'string' ? JSON.parse(b.alt_prices || '{}') : b.alt_prices || {})) {
-    const cents = Math.round(Number(v) || 0);
-    if (/^[a-z]{3}$/.test(c) && cents > 0) alt[c] = cents;
-  }
-  run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, published=?, featured=?, alt_prices=?, sales=? WHERE id=?`,
-    slug, b.title, b.subtitle || '', b.description || '',
-    Math.max(0, Math.round(Number(b.price_cents) || 0)), b.compare_cents ? Math.round(Number(b.compare_cents)) : null,
-    b.category_id ? Number(b.category_id) : null, b.published ? 1 : 0, b.featured ? 1 : 0, JSON.stringify(alt), JSON.stringify(cleanSales(b.sales)), p.id);
-  res.json({ ok: true, slug });
+  const changes = { ...req.body };
+  delete changes.covers; delete changes.published; // covers have their own routes; publishing is its own action
+  if (changes.slug !== undefined) changes.slug = uniqueSlug('products', changes.slug || changes.title || p.title, p.id);
+  const fresh = saveDraft(p, changes);
+  res.json({ ok: true, slug: draftState(fresh).slug, changes: hasChanges(fresh), published: !!fresh.published });
 });
+admin.post('/products/:id/publish', (req, res) => {
+  const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
+  if (!p) return bad(res, 'Not found', 404);
+  if (!draftState(p).title) return bad(res, 'Add a title before publishing.');
+  const fresh = publishProduct(p);
+  res.json({ ok: true, slug: fresh.slug, link: productLink(fresh) });
+});
+admin.post('/products/:id/unpublish', (req, res) => {
+  const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
+  if (!p) return bad(res, 'Not found', 404);
+  run('UPDATE products SET published = 0 WHERE id = ?', p.id);
+  res.json({ ok: true });
+});
+admin.put('/reviews/:id', (req, res) => {
+  run('UPDATE reviews SET hidden = ? WHERE id = ?', req.body?.hidden ? 1 : 0, req.params.id);
+  res.json({ ok: true });
+});
+admin.delete('/reviews/:id', (req, res) => { run('DELETE FROM reviews WHERE id = ?', req.params.id); res.json({ ok: true }); });
 admin.delete('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
   for (const f of all('SELECT stored_name FROM files WHERE product_id = ?', p.id)) fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
-  for (const c of new Set([...coversOf(p), p.cover_path].filter(Boolean))) fs.rm(path.join(COVERS_DIR, c), { force: true }, () => {});
+  for (const c of new Set([...coversOf(p), ...draftState(p).covers, p.cover_path].filter(Boolean))) fs.rm(path.join(COVERS_DIR, c), { force: true }, () => {});
   for (const f of all('SELECT stored_name FROM files WHERE product_id = ?', p.id)) dropSamples(f);
   run('DELETE FROM products WHERE id = ?', p.id);
   res.json({ ok: true });
 });
-// Cover images: up to 4, shown as a slider on the product page. The first is the main one
-// (product cards and link previews).
+// Covers: up to 4 images or short videos, swiped through on the product page. The first is the main one
+// (product cards and link previews). Like other edits, they go live on Publish.
+const MAX_COVER_VIDEO_MB = 60;
 admin.post('/products/:id/cover', upload.single('cover'), (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p || !req.file) return bad(res, 'Upload failed.');
-  const list = coversOf(p);
-  if (list.length >= MAX_COVERS) {
-    fs.rm(req.file.path, { force: true }, () => {});
-    return bad(res, `You can have up to ${MAX_COVERS} cover images. Remove one first.`);
-  }
-  setCovers(p, [...list, req.file.filename]);
-  res.json({ covers: coverUrls(one('SELECT * FROM products WHERE id = ?', p.id)) });
+  const drop = msg => { fs.rm(req.file.path, { force: true }, () => {}); return bad(res, msg); };
+  const video = /^video\//.test(req.file.mimetype) || isVideoCover(req.file.filename);
+  if (!video && !/^image\//.test(req.file.mimetype)) return drop('Covers can be images or short videos.');
+  if (video && !isVideoCover(req.file.filename)) return drop('Use an MP4, WebM or MOV video.');
+  if (video && req.file.size > MAX_COVER_VIDEO_MB * 1024 * 1024) return drop(`Cover videos must be under ${MAX_COVER_VIDEO_MB} MB. Keep them short.`);
+  const list = draftState(p).covers;
+  if (list.length >= MAX_COVERS) return drop(`You can have up to ${MAX_COVERS} covers. Remove one first.`);
+  const fresh = saveDraft(p, { covers: [...list, req.file.filename] });
+  res.json({ covers: draftState(fresh).covers.map(c => `/media/covers/${c}`), changes: hasChanges(fresh) });
 });
-// New order of the cover images (as their URLs); any left out are deleted.
+// New order of the covers (as their URLs); any left out are removed.
 admin.put('/products/:id/covers', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
-  const list = coversOf(p);
+  const list = draftState(p).covers;
   const order = [...new Set((Array.isArray(req.body?.order) ? req.body.order : []).map(u => path.basename(String(u))).filter(c => list.includes(c)))];
-  for (const c of list) if (!order.includes(c)) fs.rm(path.join(COVERS_DIR, c), { force: true }, () => {});
-  setCovers(p, order);
-  res.json({ covers: coverUrls(one('SELECT * FROM products WHERE id = ?', p.id)) });
+  const fresh = saveDraft(p, { covers: order });
+  dropUnusedCovers(fresh, list.filter(c => !order.includes(c)));
+  res.json({ covers: draftState(fresh).covers.map(c => `/media/covers/${c}`), changes: hasChanges(fresh) });
 });
 admin.post('/products/:id/files', upload.array('files', 50), (req, res) => {
   const p = one('SELECT id FROM products WHERE id = ?', req.params.id);
@@ -752,7 +881,7 @@ admin.delete('/files/:id', (req, res) => {
   run('DELETE FROM files WHERE id = ?', f.id);
   res.json({ ok: true });
 });
-admin.get('/categories', (_req, res) => res.json(all(`SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS count FROM categories c ORDER BY sort, name`)));
+admin.get('/categories', (_req, res) => res.json(all(`SELECT c.*, (SELECT COUNT(*) FROM product_categories pc WHERE pc.category_id = c.id) AS count FROM categories c ORDER BY sort, name`)));
 admin.post('/categories', (req, res) => {
   const name = (req.body?.name || '').trim();
   if (!name) return bad(res, 'Name required.');
@@ -765,7 +894,13 @@ admin.put('/categories/:id', (req, res) => {
   run('UPDATE categories SET name = ?, description = ?, sort = ? WHERE id = ?', req.body.name ?? c.name, req.body.description ?? c.description, Number(req.body.sort ?? c.sort), c.id);
   res.json({ ok: true });
 });
-admin.delete('/categories/:id', (req, res) => { run('DELETE FROM categories WHERE id = ?', req.params.id); res.json({ ok: true }); });
+admin.delete('/categories/:id', (req, res) => {
+  run('DELETE FROM categories WHERE id = ?', req.params.id);
+  // Products whose first category was this one move to their next one.
+  run(`UPDATE products SET category_id = (SELECT category_id FROM product_categories pc WHERE pc.product_id = products.id ORDER BY sort, category_id LIMIT 1)
+    WHERE category_id IS NULL`);
+  res.json({ ok: true });
+});
 
 admin.get('/orders', (_req, res) => res.json(all(`SELECT o.*, u.email, u.name, u.phone, p.title, p.slug, a.code AS affiliate_code FROM orders o
   JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id LEFT JOIN affiliates a ON a.id = o.affiliate_id ORDER BY o.id DESC LIMIT 500`)
@@ -972,7 +1107,7 @@ app.get('/p/:slug', (req, res) => {
     title: `${p.title} | ${s.store_name}`, ogTitle: `${p.title} · ${price}`,
     description: shortText(plain(p.subtitle) || plain(p.description) || s.tagline),
     url: `${BASE_URL}/p/${p.slug}`, site: s.store_name, type: 'product',
-    image: p.cover_path ? `${BASE_URL}/media/covers/${p.cover_path}` : shareImage(s),
+    image: (c => (c ? `${BASE_URL}/media/covers/${c}` : shareImage(s)))(coversOf(p).find(c => !isVideoCover(c))),
     price: p.price_cents ? { cents: p.price_cents, currency: s.currency || 'ngn' } : null,
   });
 });

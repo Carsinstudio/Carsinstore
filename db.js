@@ -185,6 +185,32 @@ function migrate(db) {
   if (!hasColumn(db, 'products', 'sales')) db.exec("ALTER TABLE products ADD COLUMN sales TEXT NOT NULL DEFAULT '{}'"); // sales page sections, see cleanSales in server.js
   if (!hasColumn(db, 'products', 'alt_prices')) db.exec("ALTER TABLE products ADD COLUMN alt_prices TEXT NOT NULL DEFAULT '{}'"); // {"usd": 1500} in cents
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_pending ON orders(status, created_at)');
+
+  // Edits wait in a draft until Publish; covers can be any of four shapes; hand-picked "you might also like".
+  if (!hasColumn(db, 'products', 'draft')) db.exec('ALTER TABLE products ADD COLUMN draft TEXT');
+  if (!hasColumn(db, 'products', 'cover_ratio')) db.exec("ALTER TABLE products ADD COLUMN cover_ratio TEXT NOT NULL DEFAULT '1:1'");
+  if (!hasColumn(db, 'products', 'cross_sells')) db.exec("ALTER TABLE products ADD COLUMN cross_sells TEXT NOT NULL DEFAULT '[]'");
+  // A product can be in several categories; products.category_id stays as the first one.
+  db.exec(`CREATE TABLE IF NOT EXISTS product_categories (
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    sort INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (product_id, category_id)
+  )`);
+  db.exec('INSERT OR IGNORE INTO product_categories (product_id, category_id) SELECT id, category_id FROM products WHERE category_id IS NOT NULL');
+  // Star ratings and reviews from buyers, one per order, left from their download page.
+  db.exec(`CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    order_id INTEGER NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',
+    rating INTEGER NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    hidden INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id, hidden)');
 }
 
 let db;

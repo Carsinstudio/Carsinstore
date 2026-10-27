@@ -79,23 +79,84 @@
   }
 
   // ---------- products ----------
+  const dots = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+  const coverThumb = (url, isVideo) => isVideo
+    ? `<video src="${esc(url)}" muted loop autoplay playsinline preload="metadata"></video>`
+    : `<img src="${esc(url)}" alt="" loading="lazy">`;
+  const statusOf = p => p.published ? (p.changes ? `${statusPill('live')} <span class="status pending">edits not live</span>` : statusPill('live')) : statusPill('draft');
+  const copyText = async (text, ok) => { try { await navigator.clipboard.writeText(text); toast(ok); } catch { prompt('Copy this link:', text); } };
+
+  // After publishing: the link to share, then back to the product list.
+  function publishedModal(link) {
+    modal(`<span class="status live">live</span><h3 style="margin-top:12px">Published</h3><p class="muted" style="margin:0 0 14px">It's live in the store. Here's the link to share:</p>
+      <input class="input" readonly value="${esc(link)}" onclick="this.select()">
+      <div class="actions"><a class="btn" href="${esc(link)}" target="_blank" rel="noopener">View</a><button class="btn" id="pm-copy">Copy link</button><button class="btn btn-primary" data-close>Back to products</button></div>`,
+      m => { $('#pm-copy', m).onclick = () => copyText(link, 'Link copied'); },
+      () => { if (location.hash === '#/admin/products') products(); else location.hash = '#/admin/products'; });
+  }
+  async function publish(id, hasFiles) {
+    if (!hasFiles && !(await confirmDialog('Publish without files?', busy.uploads ? 'Your files are still uploading. Buyers who check out before they finish would get nothing to download.' : 'This product has no files yet, so buyers would get nothing to download.', 'Publish anyway'))) return null;
+    const r = await api(`/api/admin/products/${id}/publish`, { method: 'POST' });
+    publishedModal(r.link);
+    return r;
+  }
+
   async function products() {
     const list = await api('/api/admin/products');
     layout('products', head('Products', `<button class="btn btn-primary" id="new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New product</button>`) + (list.length ? `
-      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Product</th><th>Price</th><th>Files</th><th>Sales</th><th>Status</th></tr>
-      ${list.map(p => `<tr class="click" data-id="${p.id}"><td><div style="display:flex;gap:12px;align-items:center"><div class="thumb">${coverHtml(p)}</div><div><div>${esc(p.title)}</div><small class="dim">${esc(p.category?.name || 'No category')}</small></div></div></td>
+      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Product</th><th>Price</th><th>Files</th><th>Sales</th><th>Status</th><th></th></tr>
+      ${list.map(p => `<tr class="click" data-id="${p.id}"><td><div style="display:flex;gap:12px;align-items:center"><div class="thumb">${p.draftCover ? coverThumb(p.draftCover, p.draftCoverVideo) : coverHtml(p)}</div><div><div>${esc(p.name)}</div><small class="dim">${p.categories.length ? esc(p.categories.map(c => c.name).join(', ')) : 'No category'}${p.rating ? ` · ★ ${p.rating.avg} (${p.rating.count})` : ''}</small></div></div></td>
         <td>${p.price ? money(p.price) : '<span style="color:var(--amber)">Free</span>'}</td>
         <td class="muted">${p.files ? `${plural(p.files, 'file')} · ${size(p.totalSize)}` : '<span style="color:#ff8b7a">No files yet</span>'}</td><td>${p.students}</td>
-        <td>${p.published ? statusPill('live') : statusPill('draft')}${p.featured ? ' <span class="status free">featured</span>' : ''}</td></tr>`).join('')}</table></div>`
+        <td>${statusOf(p)}${p.featured ? ' <span class="status free">featured</span>' : ''}</td>
+        <td style="text-align:right;width:1%"><button class="icon-btn" data-menu="${p.id}" title="Actions">${dots}</button></td></tr>`).join('')}</table></div>`
       : `<div class="empty"><h3>No products yet</h3><p>Create your first digital product, then upload its files.</p></div>`));
-    $$('tr[data-id]').forEach(r => r.addEventListener('click', () => (location.hash = `#/admin/products/${r.dataset.id}`)));
+    // Clicking a product opens its actions; editing is one of them.
+    const openMenu = (id, anchor) => {
+      const p = list.find(x => x.id === Number(id));
+      document.querySelector('.menu-pop')?.remove();
+      const pop = document.createElement('div');
+      pop.className = 'menu-pop';
+      pop.innerHTML = `<button data-act="edit">${A.edit} Edit</button>
+        ${p.published ? `<a href="${esc(p.link)}" target="_blank" rel="noopener" data-act="view">${A.eye} View in store</a><button data-act="copy">${A.link} Copy link</button>` : ''}
+        ${!p.published || p.changes ? `<button data-act="publish">${A.up} ${p.published ? 'Publish changes' : 'Publish'}</button>` : ''}
+        ${p.published ? `<button data-act="unpublish">${A.dn} Unpublish</button>` : ''}
+        <hr><button data-act="delete" class="danger">${A.trash} Delete</button>`;
+      document.body.append(pop);
+      const r = anchor.getBoundingClientRect();
+      pop.style.top = `${Math.min(r.bottom + 6, innerHeight - pop.offsetHeight - 8) + scrollY}px`;
+      pop.style.left = `${Math.max(8, Math.min(r.right, innerWidth - 8) - pop.offsetWidth) + scrollX}px`;
+      const close = () => { pop.remove(); document.removeEventListener('click', outside, true); document.removeEventListener('keydown', esc_); };
+      const outside = e => { if (!pop.contains(e.target)) close(); };
+      const esc_ = e => { if (e.key === 'Escape') close(); };
+      setTimeout(() => { document.addEventListener('click', outside, true); document.addEventListener('keydown', esc_); });
+      pop.addEventListener('click', async e => {
+        const act = e.target.closest('[data-act]')?.dataset.act; if (!act) return;
+        close();
+        try {
+          if (act === 'edit') location.hash = `#/admin/products/${p.id}`;
+          if (act === 'copy') copyText(p.link, 'Link copied');
+          if (act === 'publish') await publish(p.id, p.files > 0);
+          if (act === 'unpublish') { await api(`/api/admin/products/${p.id}/unpublish`, { method: 'POST' }); toast('Unpublished. Only you can see it now.'); products(); }
+          if (act === 'delete') {
+            if (!(await confirmDialog(`Delete "${p.name}"?`, 'Its files, covers and customer access will be removed permanently. This cannot be undone.', 'Delete', true))) return;
+            await api(`/api/admin/products/${p.id}`, { method: 'DELETE' }); toast('Product deleted'); products();
+          }
+        } catch (err) { toast(err.message, true); }
+      });
+    };
+    $$('tr[data-id]').forEach(r => r.addEventListener('click', e => {
+      if (e.target.closest('a')) return;
+      openMenu(r.dataset.id, r.querySelector('[data-menu]'));
+    }));
     $('#new').addEventListener('click', newProduct);
   }
+
   function newProduct() {
     modal(`<h3>New product</h3><p class="muted" style="margin:0 0 20px">Everything can be changed later.</p>
       <form id="np"><label class="field"><span>Title</span><input class="input" name="title" required placeholder="e.g. Cinematic LUT Pack + Tutorial"></label>
       <label class="field"><span>Short description</span><input class="input" name="subtitle" placeholder="One line that sells it"><small>Shown under the title, on product cards and as the text in link previews on WhatsApp, Instagram and X.</small></label>
-      <label class="field"><span>Description</span><textarea class="input" name="description" rows="6" placeholder="What it is, what's inside, who it's for, questions buyers ask"></textarea><small>Next you'll upload the files and cover images.</small></label>
+      <label class="field"><span>Description</span><textarea class="input" name="description" rows="6" placeholder="What it is, what's inside, who it's for, questions buyers ask"></textarea><small>Next you'll upload the files and covers.</small></label>
       <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Create product</button></div></form>`,
       (m, close) => {
         $('#np', m).addEventListener('submit', async e => {
@@ -110,71 +171,102 @@
   const busy = { dirty: false, uploads: 0 };
   window.addEventListener('beforeunload', e => { if (busy.dirty || busy.uploads) { e.preventDefault(); e.returnValue = ''; } });
 
-  // Everything typed here saves by itself. Uploads run in the background, so you can keep editing
-  // (or move to another dashboard page) while files upload.
+  const RATIOS = ['1:1', '4:3', '3:4', '16:9'];
+  const isVideoUrl = u => /\.(mp4|webm|mov|m4v)$/i.test(u || '');
+
+  // Everything typed here saves by itself as a draft. Visitors only see it after Publish.
+  // Files are the exception: they update for buyers straight away.
   async function editor(id) {
     if (id === 'new') { location.hash = '#/admin/products'; return setTimeout(newProduct, 50); }
     const [p, cats] = await Promise.all([api(`/api/admin/products/${id}`), api('/api/admin/categories')]);
+    const e0 = p.edit;
     const dollars = c => (c ? (c / 100).toFixed(2).replace(/\.00$/, '') : '');
-    let alt = {}; try { alt = JSON.parse(p.alt_prices || '{}'); } catch {}
-    const sales = p.sales;
-    let files = p.files, covers = p.covers, published = !!p.published;
+    const alt = e0.alt_prices || {};
+    const sales = e0.sales;
+    let files = p.files, covers = e0.covers, published = p.published, changes = p.changes, reviews = p.reviews;
     const here = () => location.hash.startsWith(`#/admin/products/${id}`) && $('#file-list');
 
-    layout('products', `<div class="crumbs" style="margin-bottom:12px"><a href="#/admin/products">Products</a><span>/</span><span id="crumb-title">${esc(p.title)}</span></div>` +
-      head(`<span id="head-title">${esc(p.title)}</span>`, `<span class="save-state" id="save-state">All changes saved</span><a class="btn" id="preview-link" href="#/p/${esc(p.slug)}" target="_blank">${A.eye.replace('<svg', '<svg width="15" height="15"')} Preview</a><button class="btn" id="publish"></button>`) + `
+    layout('products', `<div class="crumbs" style="margin-bottom:12px"><a href="#/admin/products">Products</a><span>/</span><span id="crumb-title">${esc(e0.title)}</span></div>` +
+      head(`<span id="head-title">${esc(e0.title)}</span>`, `<span class="save-state" id="save-state">Draft saved</span><a class="btn" id="preview-link" href="#/p/${esc(p.slug)}?draft=1" target="_blank">${A.eye.replace('<svg', '<svg width="15" height="15"')} Preview</a><button class="btn" id="unpublish">Unpublish</button><button class="btn btn-primary" id="publish">Publish</button>`) + `
       <div class="editor"><div>
         <div class="panel"><h3>Files <span class="muted" id="file-count" style="font:13px var(--sans)"></span></h3>
-          <p class="muted" style="margin:-8px 0 14px;font-size:13px">These are what buyers download. Switch on <b style="color:var(--text);font-weight:500">Free preview</b> to let visitors view a video, audio, image or the first pages of a PDF on the product page. They can view it there but not download it.</p>
+          <p class="muted" style="margin:-8px 0 14px;font-size:13px">These are what buyers download, and they update for buyers straight away. Switch on <b style="color:var(--text);font-weight:500">Free preview</b> to let visitors view a video, audio, image or the first pages of a PDF on the product page. They can view it there but not download it.</p>
           <div class="mini-files" id="file-list"></div>
           <div id="up-list"></div>
           <div class="dropzone" data-drop>${A.upload}<div><b style="font-weight:500;color:var(--text)">Drop files here</b> or click to upload</div><small class="dim">Videos, PDFs, ZIPs, documents, audio, anything. Max 4 GB each. You can keep editing while they upload.</small></div>
         </div>
         <form class="panel" id="pf"><h3>Details</h3>
-          <label class="field"><span>Title</span><input class="input" name="title" value="${esc(p.title)}" required></label>
-          <label class="field"><span>Short description</span><input class="input" name="subtitle" value="${esc(p.subtitle)}" placeholder="One line that sells it"><small>Shown under the title, on product cards and as the text in link previews on WhatsApp, Instagram and X.</small></label>
-          <label class="field"><span>Description</span><textarea class="input" name="description" rows="16" placeholder="Everything about the product: what it is, what's inside, who it's for, questions buyers ask">${esc(p.description)}</textarea>
-            <small>This is the whole sales page text. Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code>. </small></label>
-          <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(p.slug)}"><small>Share link: <span id="share-url">${esc(location.origin)}/p/${esc(p.slug)}</span>. It shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
+          <label class="field"><span>Title</span><input class="input" name="title" value="${esc(e0.title)}" required></label>
+          <label class="field"><span>Short description</span><input class="input" name="subtitle" value="${esc(e0.subtitle)}" placeholder="One line that sells it"><small>Shown under the title, on product cards and as the text in link previews on WhatsApp, Instagram and X.</small></label>
+          <label class="field"><span>Description</span><textarea class="input" name="description" rows="16" placeholder="Everything about the product: what it is, what's inside, who it's for, questions buyers ask">${esc(e0.description)}</textarea>
+            <small>This is the whole sales page text. Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code>.</small></label>
+          <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(e0.slug)}"><small>Share link: <span id="share-url">${esc(location.origin)}/p/${esc(e0.slug)}</span>. It shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
         </form>
-        <div class="panel"><h3>Reviews</h3>
-          <p class="muted" style="margin:-8px 0 16px;font-size:13px">Shown under the description. Leave empty to hide the section.</p>
-          <div class="field" style="margin-bottom:0"><div id="reviews" style="display:grid;gap:8px"></div><button type="button" class="btn btn-sm" id="add-review" style="margin-top:8px;justify-self:start">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add review</button><small style="display:block;margin-top:6px">Real words from real buyers, with their permission.</small></div>
+        <div class="panel"><h3>Buyer reviews <span class="muted" id="rv-count" style="font:13px var(--sans)"></span></h3>
+          <p class="muted" style="margin:-8px 0 14px;font-size:13px">Buyers can rate this product and write a review from their download page. They show on the product page straight away. Hide any you don't want shown.</p>
+          <div id="buyer-reviews" style="display:grid;gap:8px"></div>
+        </div>
+        <div class="panel"><h3>Reviews you add</h3>
+          <p class="muted" style="margin:-8px 0 16px;font-size:13px">For praise you got elsewhere, like a DM or an email. Shown with the buyer reviews.</p>
+          <div class="field" style="margin-bottom:0"><div id="reviews" style="display:grid;gap:8px"></div><button type="button" class="btn btn-sm" id="add-review" style="margin-top:8px;justify-self:start">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add review</button><small style="display:block;margin-top:6px">Real words from real people, with their permission.</small></div>
         </div>
       </div>
       <aside>
         <div class="panel"><h3>Status</h3>
-          <p id="status-line" style="margin:-4px 0 14px;font-size:13px"></p>
-          <label class="check"><span class="switch"><input type="checkbox" form="pf" name="featured" ${p.featured ? 'checked' : ''}><i></i></span>Featured on the homepage</label>
+          <p id="status-line" style="margin:-4px 0 14px;font-size:13px;line-height:1.6"></p>
+          <label class="check"><span class="switch"><input type="checkbox" form="pf" name="featured" ${e0.featured ? 'checked' : ''}><i></i></span>Featured on the homepage</label>
         </div>
         <div class="panel"><h3>Pricing</h3>
-          <div class="row"><label class="field"><span>Price</span><input class="input" form="pf" name="price" inputmode="decimal" value="${dollars(p.price_cents)}" placeholder="0 = free"></label>
-          <label class="field"><span>Compare at</span><input class="input" form="pf" name="compare" inputmode="decimal" value="${dollars(p.compare_cents)}" placeholder="optional"></label></div>
+          <div class="row"><label class="field"><span>Price</span><input class="input" form="pf" name="price" inputmode="decimal" value="${dollars(e0.price_cents)}" placeholder="0 = free"></label>
+          <label class="field"><span>Compare at</span><input class="input" form="pf" name="compare" inputmode="decimal" value="${dollars(e0.compare_cents)}" placeholder="optional"></label></div>
           ${extraCurrencies().length ? `<div class="row" style="margin-top:4px">${extraCurrencies().map(c => `<label class="field"><span>Price in ${c.toUpperCase()}</span><input class="input" form="pf" name="price_${c}" inputmode="decimal" value="${dollars(alt[c])}" placeholder="not sold in ${c.toUpperCase()}"></label>`).join('')}</div>` : ''}
           <small class="dim" style="font-size:12px">Leave price at 0 to make it a free product (buyers just enter their name and email).${extraCurrencies().length ? ' Leave an extra currency empty to sell only in ' + (S.store.settings.currency || 'ngn').toUpperCase() + '.' : ''}</small>
         </div>
-        <div class="panel"><h3>Category</h3>
-          <label class="field" style="margin:0"><select class="input" form="pf" name="category_id"><option value="">No category</option>${cats.map(c => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><small><a href="#/admin/categories" style="color:var(--accent-2)">Manage categories</a></small></label>
+        <div class="panel"><h3>Categories</h3>
+          <div class="check-list">${cats.map(c => `<label class="check"><input type="checkbox" form="pf" name="category_ids" value="${c.id}" ${e0.category_ids.includes(c.id) ? 'checked' : ''}>${esc(c.name)}</label>`).join('') || '<p class="muted" style="margin:0;font-size:13px">No categories yet.</p>'}</div>
+          <small class="dim" style="display:block;margin-top:10px;font-size:12px">Pick as many as fit. <a href="#/admin/categories" style="color:var(--accent-2)">Manage categories</a></small>
         </div>
-        <div class="panel"><h3>Cover images <span class="muted" id="cover-count" style="font:13px var(--sans)"></span></h3><p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Up to 4 square images, 1080×1080 px. Buyers swipe through them on the product page. The main one shows on product cards and when the link is shared. Keep it under 600 KB so it shows on WhatsApp.</p>
+        <div class="panel" id="cover-panel"><h3>Covers <span class="muted" id="cover-count" style="font:13px var(--sans)"></span></h3>
+          <p class="muted" style="margin:-8px 0 10px;font-size:12.5px">Up to 4 images or short videos. Drag to reorder. The first is the main one, used on product cards and when the link is shared (a video's link preview uses the first image instead).</p>
+          <div class="seg ratio-seg" id="ratio">${RATIOS.map(r => `<label><input type="radio" form="pf" name="cover_ratio" value="${r}" ${r === e0.cover_ratio ? 'checked' : ''}><span>${r}</span></label>`).join('')}</div>
+          <small class="dim" id="ratio-hint" style="display:block;margin:6px 0 12px;font-size:12px"></small>
           <div class="cover-grid" id="covers"></div>
-          <input type="file" id="cover-in" accept="image/*" multiple hidden>
+          <input type="file" id="cover-in" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden>
+        </div>
+        <div class="panel"><h3>You might also like</h3>
+          <p class="muted" style="margin:-8px 0 10px;font-size:12.5px">Up to 4 products shown on this product's page and on the buyer's download page. Pick none to show others from the same categories.</p>
+          <div class="check-list" id="xsell">${p.others.map(o => `<label class="check"><input type="checkbox" form="pf" name="cross_sells" value="${o.id}" ${e0.cross_sells.includes(o.id) ? 'checked' : ''}>${esc(o.title)}</label>`).join('') || '<p class="muted" style="margin:0;font-size:13px">Add more products first.</p>'}</div>
         </div>
         <div class="panel"><h3>Give access</h3><p class="muted" style="font-size:13px;margin:-6px 0 12px">Give someone this product for free. You get a download link to send them.</p>
           <form id="grant" style="display:grid;gap:8px"><input class="input" name="name" placeholder="Their name" style="height:36px"><div style="display:flex;gap:8px"><input class="input" name="email" type="email" placeholder="their@email.com" required style="height:36px"><button class="btn btn-sm">Grant</button></div></form></div>
         <button class="btn btn-danger btn-block" id="del">${A.trash.replace('<svg', '<svg width="15" height="15"')} Delete product</button>
       </aside></div>`);
 
-    // ----- autosave -----
+    // ----- publish state -----
+    const drawPublish = () => {
+      $('#unpublish').hidden = !published;
+      const b = $('#publish');
+      b.disabled = published && !changes;
+      b.textContent = !published ? 'Publish' : changes ? 'Publish changes' : 'Published';
+      $('#status-line').innerHTML = !published
+        ? `${statusPill('draft')} <span class="muted" style="margin-left:6px">Only you can see it. Publish to put it in the store.</span>`
+        : changes
+          ? `${statusPill('live')} <span class="status pending">edits not live</span><br><span class="muted">Visitors see the last published version. Publish changes to update it.</span>`
+          : `${statusPill('live')} <span class="muted" style="margin-left:6px">Visible in the store</span>`;
+    };
+    drawPublish();
+
+    // ----- autosave to the draft -----
     const stateEl = $('#save-state');
     const setState = (text, cls = '') => { stateEl.textContent = text; stateEl.className = 'save-state ' + cls; };
     let timer, saving = Promise.resolve(), snapshot = null;
     const body = () => {
-      const f = Object.fromEntries(new FormData($('#pf')));
+      const fd = new FormData($('#pf')), f = Object.fromEntries(fd);
       return {
         title: f.title, subtitle: f.subtitle, description: f.description, slug: f.slug,
         price_cents: Math.round(parseFloat(f.price || 0) * 100) || 0, compare_cents: f.compare ? Math.round(parseFloat(f.compare) * 100) : null,
-        category_id: f.category_id || null, published, featured: !!f.featured,
+        featured: !!f.featured, category_ids: fd.getAll('category_ids').map(Number), cross_sells: fd.getAll('cross_sells').map(Number),
+        cover_ratio: f.cover_ratio || '1:1',
         alt_prices: Object.fromEntries(extraCurrencies().map(c => [c, Math.round(parseFloat(f['price_' + c] || 0) * 100) || 0])),
         sales: { reviews: sales.reviews.filter(x => x.quote.trim()) },
       };
@@ -190,8 +282,10 @@
       setState('Saving…');
       saving = saving.then(() => api(`/api/admin/products/${id}`, { method: 'PUT', body: data })).then(r => {
         if (r.slug !== data.slug) { const s = $('[name="slug"]'); if (s && document.activeElement !== s) s.value = r.slug; }
-        if ($('#share-url')) { $('#share-url').textContent = `${location.origin}/p/${r.slug}`; $('#preview-link').href = `#/p/${r.slug}`; }
-        if (!busy.dirty) setState('All changes saved', 'ok');
+        if ($('#share-url')) $('#share-url').textContent = `${location.origin}/p/${r.slug}`;
+        changes = r.changes; published = r.published;
+        if ($('#publish')) drawPublish();
+        if (!busy.dirty) setState(published && changes ? 'Draft saved. Publish to make it live.' : 'Draft saved', 'ok');
       }).catch(e => { busy.dirty = true; snapshot = snapshot || data; setState('Not saved yet. Retrying…', 'err'); console.error(e); timer = setTimeout(flush, 4000); });
       return saving;
     };
@@ -204,25 +298,26 @@
     // Save straight away when leaving this page.
     const leave = () => { if (!location.hash.startsWith(`#/admin/products/${id}`)) { flush(); window.removeEventListener('hashchange', leave); } };
     window.addEventListener('hashchange', leave);
+    setState(published && changes ? 'Draft saved. Publish to make it live.' : 'Draft saved', 'ok');
 
-    // ----- publish -----
-    const drawPublish = () => {
-      const b = $('#publish');
-      b.className = published ? 'btn' : 'btn btn-primary';
-      b.textContent = published ? 'Unpublish' : 'Publish';
-      $('#status-line').innerHTML = published
-        ? `${statusPill('live')} <span class="muted" style="margin-left:6px">Visible in the store</span>`
-        : `${statusPill('draft')} <span class="muted" style="margin-left:6px">Only you can see it</span>`;
-    };
-    drawPublish();
     $('#publish').addEventListener('click', async () => {
-      if (!published && !files.length && !(await confirmDialog('Publish without files?', busy.uploads ? 'Your files are still uploading. Buyers who check out before they finish would get nothing to download.' : 'This product has no files yet, so buyers would get nothing to download.', 'Publish anyway'))) return;
-      published = !published; busy.dirty = true; drawPublish();
-      await flush();
-      toast(published ? 'Published. It is live in the store.' : 'Unpublished. Only you can see it now.');
+      try {
+        busy.dirty = busy.dirty || !!snapshot; await flush();
+        const r = await publish(id, files.length > 0);
+        if (r) { published = true; changes = false; drawPublish(); setState('Published', 'ok'); }
+      } catch (err) { toast(err.message, true); }
+    });
+    $('#unpublish').addEventListener('click', async () => {
+      if (!(await confirmDialog('Unpublish this product?', 'It disappears from the store and its link stops working until you publish it again. Buyers keep their downloads.', 'Unpublish'))) return;
+      await api(`/api/admin/products/${id}/unpublish`, { method: 'POST' });
+      published = false; drawPublish(); toast('Unpublished. Only you can see it now.');
     });
 
-    // ----- reviews and product questions, edited as lists of small cards -----
+    // At most 4 picks for "You might also like".
+    const limitXsell = () => { const boxes = $$('#xsell input'), n = boxes.filter(b => b.checked).length; boxes.forEach(b => (b.disabled = !b.checked && n >= 4)); };
+    $('#xsell').addEventListener('change', limitXsell); limitXsell();
+
+    // ----- reviews you add, edited as small cards -----
     const repeater = (box, list, fields, empty) => {
       const draw = () => {
         $(box).innerHTML = list.map((x, i) => `<div class="mod-edit" style="padding:12px">${fields.map(([k, ph, area], j) => {
@@ -235,12 +330,41 @@
       draw();
       return () => { list.push(Object.fromEntries(fields.map(([k]) => [k, '']))); draw(); $(`${box} .mod-edit:last-child [data-k]`)?.focus(); };
     };
-    $('#add-review').addEventListener('click', repeater('#reviews', sales.reviews, [['quote', 'What they said', true], ['name', 'Their name'], ['detail', 'Optional, e.g. Video editor, Lagos']], 'No reviews yet, so this section is hidden.'));
+    $('#add-review').addEventListener('click', repeater('#reviews', sales.reviews, [['quote', 'What they said', true], ['name', 'Their name'], ['detail', 'Optional, e.g. Video editor, Lagos']], 'None added.'));
+
+    // ----- buyer reviews -----
+    const stars = n => '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
+    const drawReviews = () => {
+      const shown = reviews.filter(r => !r.hidden);
+      $('#rv-count').textContent = reviews.length ? `${shown.length ? (shown.reduce((s, r) => s + r.rating, 0) / shown.length).toFixed(1) + ' ★ · ' : ''}${plural(reviews.length, 'review')}` : '';
+      $('#buyer-reviews').innerHTML = reviews.map(r => `<div class="mod-edit buyer-review ${r.hidden ? 'is-hidden' : ''}" style="padding:12px">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><span class="stars">${stars(r.rating)}</span>
+            <span style="display:flex;gap:6px"><button type="button" class="btn btn-sm" data-rv-hide="${r.id}">${r.hidden ? 'Show' : 'Hide'}</button><button type="button" class="icon-btn" data-rv-del="${r.id}" title="Delete">${A.trash}</button></span></div>
+          ${r.body ? `<p style="margin:8px 0 6px;font-size:13.5px">${esc(r.body)}</p>` : ''}
+          <small class="dim">${esc(r.name)} · ${esc(r.email)} · ${date(r.updated_at)}${r.hidden ? ' · hidden' : ''}</small></div>`).join('')
+        || '<p class="muted" style="margin:0;font-size:13px">No buyer reviews yet.</p>';
+    };
+    drawReviews();
+    $('#buyer-reviews').addEventListener('click', async e => {
+      const hide = e.target.closest('[data-rv-hide]'), del = e.target.closest('[data-rv-del]');
+      try {
+        if (hide) {
+          const r = reviews.find(x => x.id === Number(hide.dataset.rvHide));
+          await api(`/api/admin/reviews/${r.id}`, { method: 'PUT', body: { hidden: !r.hidden } });
+          r.hidden = r.hidden ? 0 : 1; drawReviews(); toast(r.hidden ? 'Review hidden' : 'Review shown');
+        }
+        if (del) {
+          if (!(await confirmDialog('Delete this review?', 'The buyer can still leave a new one from their download page.', 'Delete', true))) return;
+          await api(`/api/admin/reviews/${del.dataset.rvDel}`, { method: 'DELETE' });
+          reviews = reviews.filter(x => x.id !== Number(del.dataset.rvDel)); drawReviews(); toast('Review deleted');
+        }
+      } catch (err) { toast(err.message, true); }
+    });
 
     // ----- delete, give access -----
     $('#del').addEventListener('click', async () => {
       if (busy.uploads) return toast('Wait for the uploads to finish first.', true);
-      if (!(await confirmDialog('Delete this product?', 'Its files and customer access will be removed permanently.', 'Delete', true))) return;
+      if (!(await confirmDialog('Delete this product?', 'Its files, covers and customer access will be removed permanently. This cannot be undone.', 'Delete', true))) return;
       clearTimeout(timer); busy.dirty = false;
       await api(`/api/admin/products/${id}`, { method: 'DELETE' }); toast('Product deleted'); location.hash = '#/admin/products';
     });
@@ -252,38 +376,71 @@
         modal(`<h3>Access granted</h3><p class="muted" style="margin:0 0 14px">${r.emailed ? 'We emailed them their download link. Here it is too:' : 'Send them this private download link:'}</p>
           <input class="input" readonly value="${esc(r.link)}" onclick="this.select()">
           <div class="actions"><button class="btn" data-close>Done</button><button class="btn btn-primary" id="cp">Copy link</button></div>`, (m) => {
-          $('#cp', m).onclick = async () => { try { await navigator.clipboard.writeText(r.link); toast('Link copied'); } catch { m.querySelector('input').select(); } };
+          $('#cp', m).onclick = () => copyText(r.link, 'Link copied');
         });
       } catch (err) { toast(err.message, true); }
     });
 
-    // ----- cover images (up to 4) -----
+    // ----- covers: up to 4 images or short videos, dragged to reorder, dropped in to upload -----
+    const ratioHint = { '1:1': 'Square: 1080×1080 px', '4:3': 'Landscape: 1440×1080 px', '3:4': 'Portrait: 1080×1440 px', '16:9': 'Wide: 1920×1080 px' };
+    const drawRatio = () => {
+      const r = $('#pf').elements.cover_ratio.value || '1:1';
+      $('#covers').style.setProperty('--ratio', r.replace(':', '/'));
+      $('#ratio-hint').textContent = `${ratioHint[r]}. Applies to every cover of this product, on its page and its card.`;
+      $$('#ratio label').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+    };
+    $('#ratio').addEventListener('change', drawRatio);
+    drawRatio();
+    let uploadingCovers = 0;
     const drawCovers = () => {
       $('#cover-count').textContent = `${covers.length} of 4`;
-      $('#covers').innerHTML = covers.map((c, i) => `<div class="cover-thumb"><img src="${esc(c)}" alt="">${i === 0 ? '<span class="main-tag">Main</span>' : ''}
+      $('#covers').innerHTML = covers.map((c, i) => `<div class="cover-thumb" draggable="true" data-i="${i}">${coverThumb(c, isVideoUrl(c))}${i === 0 ? '<span class="main-tag">Main</span>' : ''}${isVideoUrl(c) ? '<span class="vid-tag">Video</span>' : ''}
           <div class="ct-actions">${i ? `<button type="button" class="btn btn-sm" data-cv-main="${i}">Make main</button>` : ''}<button type="button" class="icon-btn" data-cv-del="${i}" title="Remove">${A.trash}</button></div></div>`).join('')
-        + (covers.length < 4 ? `<button type="button" class="cover-add ${covers.length ? '' : 'wide'}" id="cover-add">${I.plus}<span>${covers.length ? 'Add image' : 'Upload cover images'}</span><small>Square, 1080×1080</small></button>` : '');
+        + (covers.length + uploadingCovers < 4 ? `<button type="button" class="cover-add ${covers.length ? '' : 'wide'}" id="cover-add">${I.plus}<span>${uploadingCovers ? 'Uploading…' : covers.length ? 'Add or drop' : 'Drop images or short videos here'}</span><small>or click to choose</small></button>` : '');
       $('#cover-add')?.addEventListener('click', () => $('#cover-in').click());
     };
+    const coversChanged = r => { covers = r.covers; changes = r.changes; if (here()) { drawCovers(); drawPublish(); setState(published && changes ? 'Draft saved. Publish to make it live.' : 'Draft saved', 'ok'); } };
     const setCoverOrder = async order => {
-      try { covers = (await api(`/api/admin/products/${id}/covers`, { method: 'PUT', body: { order } })).covers; drawCovers(); }
+      try { coversChanged(await api(`/api/admin/products/${id}/covers`, { method: 'PUT', body: { order } })); }
       catch (err) { toast(err.message, true); }
+    };
+    const uploadCovers = async list => {
+      const ok = list.filter(f => /^(image|video)\//.test(f.type));
+      if (ok.length < list.length) toast('Covers can be images or short videos.', true);
+      const room = 4 - covers.length - uploadingCovers;
+      const picked = ok.slice(0, Math.max(0, room));
+      if (ok.length > picked.length) toast(`Only ${plural(Math.max(0, room), 'more cover')} fit. You can have 4 in total.`, true);
+      for (const file of picked) {
+        uploadingCovers++; if (here()) drawCovers();
+        const fd = new FormData(); fd.append('cover', file);
+        try { const r = await upload(`/api/admin/products/${id}/cover`, fd); uploadingCovers--; coversChanged(r); }
+        catch (err) { uploadingCovers--; toast(err.message, true); if (here()) drawCovers(); }
+      }
     };
     $('#covers').addEventListener('click', e => {
       const main = e.target.closest('[data-cv-main]'), del = e.target.closest('[data-cv-del]');
       if (main) { const i = Number(main.dataset.cvMain); setCoverOrder([covers[i], ...covers.filter((_, j) => j !== i)]); }
       if (del) setCoverOrder(covers.filter((_, j) => j !== Number(del.dataset.cvDel)));
     });
-    $('#cover-in').addEventListener('change', async e => {
-      const picked = [...e.target.files].slice(0, 4 - covers.length);
-      if (e.target.files.length > picked.length) toast(`Only ${plural(4 - covers.length, 'more image')} fit. You can have 4 in total.`, true);
-      e.target.value = '';
-      for (const file of picked) {
-        const add = $('#cover-add'); if (add) add.querySelector('span').textContent = 'Uploading…';
-        const fd = new FormData(); fd.append('cover', file);
-        try { covers = (await upload(`/api/admin/products/${id}/cover`, fd)).covers; if (here()) drawCovers(); }
-        catch (err) { toast(err.message, true); if (here()) drawCovers(); break; }
-      }
+    $('#cover-in').addEventListener('change', e => { const list = [...e.target.files]; e.target.value = ''; uploadCovers(list); });
+    // Dragging a cover onto another moves it there; dropping files from the computer uploads them.
+    let dragFrom = null;
+    const panel = $('#cover-panel');
+    $('#covers').addEventListener('dragstart', e => { const t = e.target.closest('.cover-thumb'); if (!t) return; dragFrom = Number(t.dataset.i); t.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'cover'); });
+    $('#covers').addEventListener('dragend', () => { dragFrom = null; $$('.cover-thumb').forEach(t => t.classList.remove('dragging', 'drop-here')); });
+    panel.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (dragFrom === null) { panel.classList.add('over'); return; }
+      $$('.cover-thumb').forEach(t => t.classList.toggle('drop-here', t === e.target.closest('.cover-thumb') && Number(t.dataset.i) !== dragFrom));
+    });
+    panel.addEventListener('dragleave', e => { if (!panel.contains(e.relatedTarget)) panel.classList.remove('over'); });
+    panel.addEventListener('drop', e => {
+      e.preventDefault(); panel.classList.remove('over');
+      if (dragFrom === null) return uploadCovers([...e.dataTransfer.files]);
+      const t = e.target.closest('.cover-thumb'); const to = t ? Number(t.dataset.i) : covers.length - 1;
+      if (to === dragFrom) return;
+      const next = [...covers]; const [moved] = next.splice(dragFrom, 1); next.splice(to, 0, moved);
+      dragFrom = null; setCoverOrder(next);
     });
     drawCovers();
 
@@ -347,7 +504,7 @@
             await upload(`/api/admin/products/${id}/files`, fd, x => { bar.style.width = x * 100 + '%'; pct.textContent = `${Math.round(x * 100)}%`; });
             row.remove();
             await refreshFiles().catch(() => {});
-            if (!here()) toast(`${file.name} uploaded to ${p.title}`);
+            if (!here()) toast(`${file.name} uploaded to ${e0.title}`);
           } catch (err) {
             pct.textContent = 'Failed'; row.classList.add('failed');
             toast(`${file.name}: ${err.message}`, true);

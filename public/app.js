@@ -101,10 +101,16 @@
     $('#toasts').append(t);
     setTimeout(() => { t.style.transition = '.3s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3200);
   }
-  function modal(html, onMount) {
+  function modal(html, onMount, onClose) {
     const root = $('#modal-root');
     root.innerHTML = `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
-    const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey); };
+    const box = $('.modal', root);
+    const close = () => {
+      document.removeEventListener('keydown', onKey);
+      if (!root.contains(box)) return; // already closed, or replaced by another dialog
+      root.innerHTML = '';
+      onClose && onClose();
+    };
     const onKey = e => e.key === 'Escape' && close();
     document.addEventListener('keydown', onKey);
     $('.modal-back', root).addEventListener('mousedown', e => e.target.classList.contains('modal-back') && close());
@@ -125,8 +131,14 @@
   }
   const spinner = () => '<div class="spinner"></div>';
 
+  const isVideoUrl = u => /\.(mp4|webm|mov|m4v)$/i.test(u || '');
+  const coverMedia = (url, lazy = true) => isVideoUrl(url)
+    ? `<video src="${esc(url)}" muted loop autoplay playsinline preload="metadata"></video>`
+    : `<img src="${esc(url)}" alt=""${lazy ? ' loading="lazy"' : ''}>`;
+  const ratioCss = r => (r || '1:1').replace(':', '/');
+  const starsHtml = (n, cls = '') => `<span class="stars ${cls}" aria-label="${n} out of 5">${'★'.repeat(Math.round(n))}<i>${'★'.repeat(5 - Math.round(n))}</i></span>`;
   function coverHtml(p, opts = {}) {
-    if (p.cover) return `<img src="${esc(p.cover)}" alt="" loading="lazy">`;
+    if (p.cover) return coverMedia(p.cover);
     const hues = [[229, 87, 61, 243, 178, 108], [200, 70, 60, 90, 100, 150], [240, 120, 70, 120, 60, 50], [180, 60, 50, 243, 150, 90]];
     const h = hues[(p.id || 0) % hues.length];
     const g = `radial-gradient(circle at 25% 35%, rgba(${h[0]},${h[1]},${h[2]},.75), transparent 55%), radial-gradient(circle at 78% 72%, rgba(${h[3]},${h[4]},${h[5]},.55), transparent 55%)`;
@@ -148,7 +160,7 @@
   }
   function productCard(p) {
     return `<a class="card reveal" href="#/p/${esc(p.slug)}">
-      <div class="cover">${coverHtml(p)}
+      <div class="cover" style="aspect-ratio:${ratioCss(p.ratio)}">${coverHtml(p)}
         <div class="badge-row"><span class="badge">${formatOf(p)}</span>${!p.price ? '<span class="badge free">Free</span>' : p.featured ? '<span class="badge hot">Featured</span>' : ''}</div>
       </div>
       <div class="card-body">
@@ -362,9 +374,9 @@
     observeReveal();
   }
 
-  async function product(slug) {
+  async function product(slug, q = new URLSearchParams()) {
     let p;
-    try { p = await api('/api/products/' + encodeURIComponent(slug)); }
+    try { p = await api('/api/products/' + encodeURIComponent(slug) + (q.get('draft') ? '?draft=1' : '')); }
     catch { return notFound(); }
     const kinds = [...new Set(p.fileList.map(f => f.kind))];
     const previews = p.fileList.filter(f => f.preview);
@@ -375,20 +387,25 @@
 
     shell(`<div class="page-top" style="padding-bottom:20px"><div class="aurora"><i></i></div><div class="wrap" style="position:relative">
         <div class="crumbs"><a href="#/shop">Store</a>${p.category ? `<span>/</span><a href="#/shop?cat=${esc(p.category.slug)}">${esc(p.category.name)}</a>` : ''}</div>
-        <h1>${esc(p.title)}</h1><p style="font-size:17px">${esc(p.subtitle)}</p></div></div>
+        ${p.draft ? '<div class="draft-note">Preview of your unpublished edits. Visitors still see the published version.</div>' : ''}
+        <h1>${esc(p.title)}</h1><p style="font-size:17px">${esc(p.subtitle)}</p>
+        ${p.rating ? `<a class="rating-line" href="#reviews" data-to-reviews>${starsHtml(p.rating.avg)}<b>${p.rating.avg.toFixed(1)}</b><span>${plural(p.rating.count, 'review')}</span></a>` : ''}</div></div>
       <div class="wrap page" style="padding-top:20px"><div class="product-layout">
         <div>
-          <div class="product-hero-cover">${p.covers?.length > 1 ? `<div class="slides" id="slides">${p.covers.map((c, i) => `<img src="${esc(c)}" alt="" ${i ? 'loading="lazy"' : ''}>`).join('')}</div>
+          <div class="product-hero-cover r-${(p.ratio || '1:1').replace(':', '-')}" style="aspect-ratio:${ratioCss(p.ratio)}">${p.covers?.length > 1 ? `<div class="slides" id="slides">${p.covers.map((c, i) => coverMedia(c, i > 0)).join('')}</div>
             <button class="slide-nav prev" data-slide="-1" aria-label="Previous image">${I.arrow}</button><button class="slide-nav next" data-slide="1" aria-label="Next image">${I.arrow}</button>
-            <div class="slide-dots">${p.covers.map((_, i) => `<button data-dot="${i}" aria-label="Image ${i + 1}"></button>`).join('')}</div>` : coverHtml(p, { title: false })}
+            <div class="slide-dots">${p.covers.map((_, i) => `<button data-dot="${i}" aria-label="Image ${i + 1}"></button>`).join('')}</div>` : p.covers?.length ? coverMedia(p.covers[0], false) : coverHtml(p, { title: false })}
             ${previews.length ? `<button class="btn btn-sm" data-preview="${previews[0].id}" style="position:absolute;left:16px;bottom:16px;z-index:3;background:rgba(10,10,10,.7);backdrop-filter:blur(8px)">${I.play.replace('<svg', '<svg width="13" height="13"')} ${previews[0].kind === 'video' ? 'Watch preview' : 'View sample'}</button>` : ''}</div>
           ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
           ${p.fileList.length ? `<div class="box" style="margin-top:36px"><div class="box-head"><h3>What's included</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')} · ${size(p.totalSize)}</span></div>
             ${p.fileList.map(f => `<div class="file-row"><div class="file-ico ${f.kind}">${esc(extOf(f.name))}</div><div class="grow"><div class="nm">${esc(f.name)}</div><small>${size(f.size)}</small></div>
               ${f.preview ? `<button class="tag-preview" style="background:none;cursor:pointer" data-preview="${f.id}">Preview</button>` : `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`}</div>`).join('')}
           </div>` : ''}
-          ${sales.reviews.length ? sec('What buyers say', `<div class="reviews">${sales.reviews.map(r => `<figure class="review"><blockquote>${esc(r.quote)}</blockquote>${r.name ? `<figcaption><b>${esc(r.name)}</b>${r.detail ? `<span>${esc(r.detail)}</span>` : ''}</figcaption>` : ''}</figure>`).join('')}</div>`) : ''}
-          ${p.description || sales.reviews.length ? `<div class="end-cta"><div><b>${esc(p.title)}</b><span id="end-price">${p.price ? money(p.price) : 'Free'}</span></div><button class="btn btn-primary" id="end-buy">${p.price ? 'Buy now' : 'Get it free'} ${I.arrow}</button></div>` : ''}
+          ${p.reviews.length || sales.reviews.length ? `<section class="sales-sec" id="reviews"><h3>Reviews${p.rating ? ` <span class="rating-sum">${starsHtml(p.rating.avg)} ${p.rating.avg.toFixed(1)} · ${plural(p.rating.count, 'rating')}</span>` : ''}</h3><div class="reviews">
+            ${p.reviews.map(r => `<figure class="review">${starsHtml(r.rating)}${r.body ? `<blockquote class="no-quote">${esc(r.body)}</blockquote>` : ''}<figcaption><b>${esc(r.name)}</b><span>Verified buyer · ${date(r.created_at)}</span></figcaption></figure>`).join('')}
+            ${sales.reviews.map(r => `<figure class="review"><blockquote>${esc(r.quote)}</blockquote>${r.name ? `<figcaption><b>${esc(r.name)}</b>${r.detail ? `<span>${esc(r.detail)}</span>` : ''}</figcaption>` : ''}</figure>`).join('')}
+          </div></section>` : ''}
+          ${p.description || sales.reviews.length || p.reviews.length ? `<div class="end-cta"><div><b>${esc(p.title)}</b><span id="end-price">${p.price ? money(p.price) : 'Free'}</span></div><button class="btn btn-primary" id="end-buy">${p.price ? 'Buy now' : 'Get it free'} ${I.arrow}</button></div>` : ''}
         </div>
         <aside><div class="buy-card">
           <span class="label">${formatOf(p) === 'Download' ? 'Digital download' : formatOf(p) + ' download'}</span>
@@ -418,7 +435,11 @@
           ${S.store.payments === 'demo' && p.price ? '<div class="demo-note">Test mode: checkout is simulated and no real payment is taken.</div>' : ''}
         </div></aside>
         <div class="mobile-buy"><div><b>${esc(p.title)}</b><span>${p.price ? money(p.price) : 'Free'}</span></div><button class="btn btn-primary" id="mobile-buy">${p.price ? 'Buy now' : 'Get it free'}</button></div>
-      </div></div>`, { active: 'shop' });
+      </div>
+      ${p.crossSells?.length ? `<section class="xsell"><h3>You might also like</h3><div class="grid">${p.crossSells.map(productCard).join('')}</div></section>` : ''}
+      </div>`, { active: 'shop' });
+    observeReveal();
+    $('[data-to-reviews]')?.addEventListener('click', e => { e.preventDefault(); $('#reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 
     window.Analytics?.track('view_product', { slug: p.slug, title: p.title, amount: p.price, currency: S.store.settings.currency });
     $$('[data-preview]').forEach(b => b.addEventListener('click', () => previewFile(p.fileList.find(f => f.id === Number(b.dataset.preview)))));
@@ -613,8 +634,42 @@
           <span class="muted" style="font-size:13.5px">This private link is your access. Keep it safe and don't share it.</span>
           <button class="btn btn-sm" id="copy-link">Copy link</button>
         </div>
+        <div class="box rate-box" id="rate"></div>
+        ${p.crossSells?.length ? `<section class="xsell" style="padding:0"><h3>You might also like</h3><div class="grid">${p.crossSells.map(productCard).join('')}</div></section>` : ''}
         ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
       </div>`);
+    observeReveal();
+
+    // Rating and review: one per order, can be changed later from this same page.
+    let mine = p.myReview;
+    const drawRate = (editing = !mine) => {
+      const box = $('#rate'); if (!box) return;
+      if (!editing) {
+        box.innerHTML = `<div class="rate-done"><div><span class="muted" style="font-size:13px">Your review</span><div style="margin-top:4px">${starsHtml(mine.rating)}</div>${mine.body ? `<p style="margin:8px 0 0;font-size:14px">${esc(mine.body)}</p>` : ''}</div><button class="btn btn-sm" id="rate-edit">Edit</button></div>`;
+        return $('#rate-edit').addEventListener('click', () => drawRate(true));
+      }
+      let rating = mine?.rating || 0;
+      box.innerHTML = `<h3 style="margin:0 0 4px">How was ${esc(p.title)}?</h3><p class="muted" style="margin:0 0 14px;font-size:13.5px">Rate it to help other buyers. Your first name shows with your review.</p>
+        <div class="star-pick" role="radiogroup" aria-label="Rating">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-star="${n}" aria-label="${plural(n, 'star')}">★</button>`).join('')}</div>
+        <textarea class="input" id="rate-body" rows="3" placeholder="What did you like? What could be better? (optional)" style="margin-top:12px">${esc(mine?.body || '')}</textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">${mine ? '<button class="btn btn-sm" id="rate-cancel">Cancel</button>' : ''}<button class="btn btn-sm btn-primary" id="rate-send">Post review</button></div>`;
+      const paint = (n = rating) => $$('[data-star]').forEach(b => b.classList.toggle('on', Number(b.dataset.star) <= n));
+      $$('[data-star]').forEach(b => {
+        b.addEventListener('click', () => { rating = Number(b.dataset.star); paint(); });
+        b.addEventListener('mouseenter', () => paint(Number(b.dataset.star)));
+      });
+      $('.star-pick').addEventListener('mouseleave', () => paint());
+      paint();
+      $('#rate-cancel')?.addEventListener('click', () => drawRate(false));
+      $('#rate-send').addEventListener('click', async () => {
+        if (!rating) return toast('Tap a star to rate it first.', true);
+        try {
+          const r = await api('/api/reviews', { method: 'POST', body: { token, rating, body: $('#rate-body').value } });
+          mine = r.review; drawRate(false); toast('Thanks for your review!');
+        } catch (e) { toast(e.message, true); }
+      });
+    };
+    drawRate();
 
     const o = p.order || {};
     if (o.status === 'paid') window.Analytics?.trackOnce(o.ref, 'purchase', { ref: o.ref, slug: p.slug, title: p.title, amount: o.amount, currency: o.currency });
@@ -730,7 +785,7 @@
       switch (parts[0]) {
         case undefined: return await home();
         case 'shop': return await shop(q);
-        case 'p': return await product(parts[1]);
+        case 'p': return await product(parts[1], q);
         case 'login': return authPage(q);
         case 'download': return await downloadPage(parts[1]);
         case 'find': return findDownloads();
