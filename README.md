@@ -18,6 +18,7 @@ Your own storefront for selling digital downloads: videos, PDFs, ZIPs, documents
 - Products: set price and "compare at" price; put a product in several categories; feature on the homepage. Every edit saves as a draft, and visitors only see it after you press **Publish** (you get the link to share). Product list actions: Edit, View, Copy link, Publish, Unpublish, Delete (with confirmation).
 - Covers: up to 4 images or short videos (under 60 MB) per product, in 1:1 (square, 1080×1080) or 4:3 (1440×1080). Drag them to reorder, or drop files straight onto the panel. The first is the main one for cards and link previews.
 - Buyer ratings and reviews: buyers rate 1 to 5 stars and can write a review from their download page; you can hide or delete any. "You might also like" shows up to 4 products you pick (or others from the same categories) on the product page and the download page.
+- **Payouts** tab: what Paystack has paid into your bank, what is on the way, and the sales in each payout. Paystack pays out automatically (usually the next business day), so there is nothing to withdraw from the store.
 - Drag-and-drop uploads with a progress bar per file (up to 4 GB each by default). Keep editing, or move to another dashboard page, while they upload. You can rename files and reorder them.
 - **Free preview** for videos, audio, images and PDFs: visitors can view it on the product page but not download it. For a PDF they only get the first few pages (you choose 1 to 10), cut on the server, so the full file never leaves the store until someone buys.
 - Orders show each buyer's name and email, with **Copy link** (to send someone their download link yourself) and **Email link** buttons
@@ -81,7 +82,7 @@ Buyers then get a "Your files are ready" email after every purchase or free down
 | Review request (review-request) | a few days after a purchase or free download (once per order; skipped if they already reviewed; at most one a day per person). Each star opens their download page with that rating picked. Turn it off or change the delay in Store settings → Checkout |
 | Sale alert (sale-alert) | to you, for each sale |
 
-Keep each template's {{{VARIABLES}}} when editing. Each order sends its first email exactly once. Buyer emails never contain referral or affiliate links.
+Keep each template's {{{VARIABLES}}} when editing. Each order sends its first email exactly once.
 
 **Logo files** live in `public/brand`: `logo-horizontal.svg` (navbar, footer, dashboard), `logo-mark.svg`, and `public/favicon.svg` (a square version of the mark). PNG copies for places that can't use SVG (iPhone home-screen icon, the default link-preview image `share.png`, and the email header logo) are made from the SVGs with `node emails/render-brand.js`. The email logo loads from the live site, so it shows in emails once carsin.store is up.
 
@@ -89,11 +90,10 @@ The designs are built by `emails/build.js` (open `emails/dist/preview-*.html` to
 
 **Sale alerts:** the owner gets a "New sale" email (Resend template "Sale alert (to owner)", alias sale-alert) for every paid order, and optionally for free downloads. Turn them on or off and choose the address in Store settings → Notifications. Replying to an alert emails the buyer, and buyers replying to their download email reach the support email.
 
-## Selling features (Store settings → Checkout, and the Affiliates page)
+## Selling features (Store settings → Checkout)
 
 - **Phone number:** off, optional or required at checkout. It's saved with the buyer, shown in Orders and Customers, included in CSV exports, and passed to Paystack.
 - **Abandoned checkout reminders:** a buyer who opens Paystack but doesn't pay gets one "Still want it?" email (Resend template `checkout-reminder`) after about an hour, within 48 hours. Each order is checked with Paystack first, so late bank transfers are unlocked instead of reminded, and nobody is reminded about something they've since bought.
-- **Affiliates:** add partners with a commission % on the Affiliates page. Their link is `carsin.store/?ref=CODE`, and `?ref=CODE` works on any product link too. A referral counts if the buyer pays within 30 days, and self-referrals don't count. Commission is locked in at the time of sale. You pay partners yourself, then click **Record payout**. Each partner gets a private stats page showing their sales and earnings, without buyer details.
 - **Extra currencies:** tick a currency (e.g. USD) under "Also sell in", then set that price on each product. Buyers see a currency switch on the product page. Percent-off codes work in any currency; fixed-amount codes only in the store currency. Your Paystack account must be enabled for each currency.
 
 ## Analytics (Store settings → Analytics)

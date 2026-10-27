@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+-- Unused: left from a removed affiliate program. Kept because older orders reference it.
 CREATE TABLE IF NOT EXISTS affiliates (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
