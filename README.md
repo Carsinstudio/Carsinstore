@@ -16,7 +16,7 @@ Your own storefront for selling digital downloads: videos, PDFs, ZIPs, documents
 **For you (`/#/admin`)**
 - Overview: revenue, sales, customers, a 30-day chart, top products, recent activity
 - Products: set price and "compare at" price; put a product in several categories; feature on the homepage. Every edit saves as a draft, and visitors only see it after you press **Publish** (you get the link to share). Product list actions: Edit, View, Copy link, Publish, Unpublish, Delete (with confirmation).
-- Covers: up to 4 images or short videos (under 60 MB) per product, in 1:1, 4:3, 3:4 or 16:9. Drag them to reorder, or drop files straight onto the panel. The first is the main one for cards and link previews.
+- Covers: up to 4 images or short videos (under 60 MB) per product, in 1:1 (square, 1080×1080) or 4:3 (1440×1080). Drag them to reorder, or drop files straight onto the panel. The first is the main one for cards and link previews.
 - Buyer ratings and reviews: buyers rate 1 to 5 stars and can write a review from their download page; you can hide or delete any. "You might also like" shows up to 4 products you pick (or others from the same categories) on the product page and the download page.
 - Drag-and-drop uploads with a progress bar per file (up to 4 GB each by default). Keep editing, or move to another dashboard page, while they upload. You can rename files and reorder them.
 - **Free preview** for videos, audio, images and PDFs: visitors can view it on the product page but not download it. For a PDF they only get the first few pages (you choose 1 to 10), cut on the server, so the full file never leaves the store until someone buys.

@@ -207,7 +207,8 @@ function cleanSales(v) {
 }
 
 const MAX_COVERS = 4;
-const RATIOS = ['1:1', '4:3', '3:4', '16:9'];
+const RATIOS = ['1:1', '4:3'];
+const OLD_RATIOS = { '16:9': '4:3', '3:4': '1:1' }; // shapes offered earlier, mapped to the closest one still offered
 const parseJson = (v, fallback) => { try { const x = JSON.parse(v); return x ?? fallback; } catch { return fallback; } };
 const coversOf = p => { const c = parseJson(p.covers || '[]', []); return Array.isArray(c) ? c.slice(0, MAX_COVERS) : []; };
 const coverUrls = p => coversOf(p).map(c => `/media/covers/${c}`);
@@ -235,7 +236,7 @@ function cleanState(s, productId) {
     alt_prices: alt,
     sales: cleanSales(s.sales),
     covers: [...new Set((Array.isArray(s.covers) ? s.covers : []).map(c => path.basename(String(c))))].slice(0, MAX_COVERS),
-    cover_ratio: RATIOS.includes(s.cover_ratio) ? s.cover_ratio : '1:1',
+    cover_ratio: RATIOS.includes(s.cover_ratio) ? s.cover_ratio : OLD_RATIOS[s.cover_ratio] || '1:1',
     cross_sells: ids(s.cross_sells, 4).filter(id => id !== Number(productId)),
   };
 }

@@ -173,7 +173,7 @@
   const busy = { dirty: false, uploads: 0 };
   window.addEventListener('beforeunload', e => { if (busy.dirty || busy.uploads) { e.preventDefault(); e.returnValue = ''; } });
 
-  const RATIOS = ['1:1', '4:3', '3:4', '16:9'];
+  const RATIOS = ['1:1', '4:3'];
   const isVideoUrl = u => /\.(mp4|webm|mov|m4v)$/i.test(u || '');
 
   // Everything typed here saves by itself as a draft. Visitors only see it after Publish.
@@ -384,9 +384,9 @@
     });
 
     // ----- covers: up to 4 images or short videos, dragged to reorder, dropped in to upload -----
-    const ratioHint = { '1:1': 'Square: 1080×1080 px', '4:3': 'Landscape: 1440×1080 px', '3:4': 'Portrait: 1080×1440 px', '16:9': 'Wide: 1920×1080 px' };
+    const ratioHint = { '1:1': 'Square: 1080×1080 px', '4:3': 'Landscape: 1440×1080 px' };
     const drawRatio = () => {
-      const r = $('#pf').elements.cover_ratio.value || '1:1';
+      const r = RATIOS.includes($('#pf').elements.cover_ratio.value) ? $('#pf').elements.cover_ratio.value : '1:1';
       $('#covers').style.setProperty('--ratio', r.replace(':', '/'));
       $('#ratio-hint').textContent = `${ratioHint[r]}. Applies to every cover of this product, on its page and its card.`;
       $$('#ratio label').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));

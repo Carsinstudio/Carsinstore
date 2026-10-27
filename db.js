@@ -191,6 +191,7 @@ function migrate(db) {
   // Edits wait in a draft until Publish; covers can be any of four shapes; hand-picked "you might also like".
   if (!hasColumn(db, 'products', 'draft')) db.exec('ALTER TABLE products ADD COLUMN draft TEXT');
   if (!hasColumn(db, 'products', 'cover_ratio')) db.exec("ALTER TABLE products ADD COLUMN cover_ratio TEXT NOT NULL DEFAULT '1:1'");
+  db.exec("UPDATE products SET cover_ratio = CASE cover_ratio WHEN '16:9' THEN '4:3' ELSE '1:1' END WHERE cover_ratio NOT IN ('1:1', '4:3')"); // only square and 4:3 are offered now
   if (!hasColumn(db, 'products', 'cross_sells')) db.exec("ALTER TABLE products ADD COLUMN cross_sells TEXT NOT NULL DEFAULT '[]'");
   // A product can be in several categories; products.category_id stays as the first one.
   db.exec(`CREATE TABLE IF NOT EXISTS product_categories (
