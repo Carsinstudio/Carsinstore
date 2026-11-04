@@ -150,6 +150,16 @@ If you upload very large videos, raise your reverse proxy's body size limit too 
 | `public/admin.js` | Owner dashboard |
 | `public/styles.css` | The design |
 
+## Hosting on Railway
+
+The live store runs on Railway. `railway.json` sets the start command and health check, and `.node-version` pins Node 24 (the built-in SQLite needs Node 22.13 or newer). In Railway the service needs:
+
+- a **Volume** mounted at `/data` (database, uploads and covers live there and survive deploys)
+- variables: `DATA_DIR=/data`, `BASE_URL=https://carsin.store`, `TRUST_PROXY=1`, `DEMO_CHECKOUT=false`, `EMAIL_FROM=Carsinstore <downloads@mail.carsin.store>`, plus `PAYSTACK_SECRET_KEY` (live) and `RESEND_API_KEY`, entered in Railway only
+- the custom domain carsin.store (and www) added under Settings > Networking, with the DNS records Railway shows added at Namecheap
+
+Every push to GitHub redeploys the store.
+
 ## Hosting on Render
 
 The store is set up for Render with `render.yaml` (a Render Blueprint): one web service on the Starter plan ($7/month) in Frankfurt, with a 10 GB disk at /var/data for the database and files. In Render: **New > Blueprint**, pick this repository, then fill in the live Paystack secret key and the Resend key when asked. Every push to GitHub redeploys the store; the disk keeps your products and orders between deploys.

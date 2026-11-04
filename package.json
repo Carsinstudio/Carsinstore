@@ -10,7 +10,7 @@
     "seed": "node seed.js"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.13"
   },
   "dependencies": {
     "express": "4.22.3",
