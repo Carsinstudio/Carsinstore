@@ -354,12 +354,11 @@
     $$('[data-shelf]').forEach(b => b.addEventListener('click', () => drawShelf(Number(b.dataset.shelf))));
     drawShelf(0);
     $$('.faq-q').forEach(b => b.addEventListener('click', () => b.parentElement.classList.toggle('open')));
-    const sample = all.find(p => p.kinds.includes('video')) || all[0];
     const dlBtn = `<span class="btn btn-sm">${I.down} Download</span>`;
     const tabs = [
       { cap: ['Video Downloads', '<b>Keep them offline.</b> Download full-quality video files to watch on any device, or play them right on your download page.'],
-        html: `<div class="mock"><div class="mock-video"><div class="play">${I.play.replace('<svg', '<svg width="20" height="20"')}</div><div class="bar"><i></i></div></div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px;gap:10px"><span>${esc(sample?.title || 'Full walkthrough')} <small class="dim">· MP4 · 1080p</small></span>${dlBtn}</div></div>` },
+        html: `<div class="mock"><a class="mock-video has-video" href="#/p/pitch-deck-template1" aria-label="NeuronFlow AI Pitch Deck"><video data-src="/showcase/neuronflow-cover.mp4" muted loop playsinline preload="none"></video></a>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px;gap:10px"><span>NeuronFlow AI Pitch Deck <small class="dim">· MP4 · HD</small></span>${dlBtn}</div></div>` },
       { cap: ['Files & Bundles', '<b>Everything included.</b> PDFs, ZIP bundles, templates and documents. Download them whenever you need, as often as you like.'],
         html: `<div class="mock">${[['PDF', 'Workbook.pdf', '4.2 MB'], ['ZIP', 'Templates bundle.zip', '86 MB'], ['DOC', 'Checklist.docx', '210 KB'], ['MP4', 'Bonus walkthrough.mp4', '1.1 GB']].map(([k, n, z]) => `<div class="mock-row"><div class="fi">${k}</div><div class="grow">${n}<small>${z}</small></div><span class="dim">${I.down}</span></div>`).join('')}</div>` },
       { cap: ['Free Previews', '<b>Try before you buy.</b> Watch a sample clip or flip through a sample page right on the product page.'],
@@ -371,6 +370,15 @@
       $$('#tabs button').forEach((b, j) => b.classList.toggle('on', i === j));
       $('#tab-stage').innerHTML = tabs[i].html;
       $('#tab-cap').innerHTML = `<h4>${tabs[i].cap[0]}</h4><p>${tabs[i].cap[1]}</p>`;
+      // The showcase video only downloads once the section is on screen, and pauses when it scrolls away.
+      const v = $('#tab-stage video[data-src]');
+      if (v) {
+        const io = new IntersectionObserver(([e]) => {
+          if (!v.isConnected) return io.disconnect();
+          if (e.isIntersecting) { if (!v.src) v.src = v.dataset.src; v.play().catch(() => {}); } else v.pause();
+        }, { rootMargin: '200px' });
+        io.observe(v);
+      }
     };
     $$('#tabs button').forEach(b => b.addEventListener('click', () => setTab(Number(b.dataset.t))));
     setTab(0);
