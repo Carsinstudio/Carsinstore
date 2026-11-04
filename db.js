@@ -207,6 +207,8 @@ function migrate(db) {
     last_used_at TEXT,
     revoked_at TEXT
   )`);
+  // 'upload' keys add and edit products; 'backup' keys can only download a backup.
+  if (!hasColumn(db, 'api_keys', 'scope')) db.exec("ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'upload'");
   // "Forgot password" links for the owner: only a hash of the link is kept, and each works once, for an hour.
   db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
     token_hash TEXT PRIMARY KEY,

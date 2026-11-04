@@ -134,6 +134,17 @@ Store settings → **Backup & move** downloads the whole store (products, files,
 - A restore replaces everything and signs everyone out. Sign in again with the owner account from the backup.
 - The data from before a restore is kept in `storage/.before-restore`.
 
+### Daily automatic backup to this computer
+
+`tools/backup-store.js` downloads a full backup (with orders and buyers) of the live store, checks the whole archive is readable and complete, and keeps the newest 7. It saves to `OneDrive\Carsinstore Backups`, so each copy also goes to the cloud, and writes a line per run to `backup-log.txt` there.
+
+1. In the dashboard: Store settings → Keys → **Create backup key**. A backup key can only download backups: it can't see or change anything else.
+2. Add it to `carsinstore\.env` as `CARSINSTORE_BACKUP_KEY=...`
+3. Run it once: `node tools/backup-store.js`
+4. Schedule it: `powershell -ExecutionPolicy Bypass -File tools\schedule-backup.ps1` (every day at 9 PM; if the computer is off then, it runs the next time you sign in). Remove it with `-Remove`.
+
+Optional `.env` settings: `BACKUP_DIR` (another folder) and `BACKUP_KEEP` (how many to keep). The key's "Last used" date in the dashboard shows when the last backup ran.
+
 From the command line: `node backup.js export [--with-orders] [file.tar.gz]`, and `node backup.js import <file.tar.gz>` (stop the server first).
 
 Backup files contain your owner account and (with orders) buyer details, so never commit them to Git; `*.tar.gz` is ignored for that reason.

@@ -602,12 +602,12 @@ app.use((req, _res, next) => {
 // Upload keys (Authorization: Bearer cs_upload_...) act as the owner, but only on the product routes listed below.
 const keyHash = k => crypto.createHash('sha256').update(String(k)).digest('hex');
 app.use('/api/admin', (req, res, next) => {
-  const m = String(req.headers.authorization || '').match(/^Bearer (cs_upload_[\w-]{20,})$/);
+  const m = String(req.headers.authorization || '').match(/^Bearer (cs_(upload|backup)_[\w-]{20,})$/);
   if (!m || req.user) return next();
   const wait = failures.blocked(`key:${req.ip}`, 10);
   if (wait) return bad(res, `Too many wrong keys. Try again in ${wait} minutes.`, 429);
-  const k = one('SELECT * FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL', keyHash(m[1]));
-  if (!k) { failures.record(`key:${req.ip}`, 15 * 60 * 1000); return bad(res, 'This upload key is not valid or was switched off.', 401); }
+  const k = one('SELECT * FROM api_keys WHERE key_hash = ? AND scope = ? AND revoked_at IS NULL', keyHash(m[1]), m[2]);
+  if (!k) { failures.record(`key:${req.ip}`, 15 * 60 * 1000); return bad(res, `This ${m[2]} key is not valid or was switched off.`, 401); }
   if (!k.last_used_at || Date.now() - Date.parse(k.last_used_at + 'Z') > 60 * 1000) run("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?", k.id);
   req.user = one('SELECT * FROM users WHERE is_admin = 1 ORDER BY id LIMIT 1');
   req.apiKey = k;
@@ -983,20 +983,27 @@ const upload = multer({
 });
 const admin = express.Router();
 admin.use(requireAdmin);
-admin.use((req, res, next) => (!req.apiKey || KEY_ROUTES.some(([m, r]) => m === req.method && r.test(req.path)) ? next()
-  : bad(res, 'Upload keys can only add and edit products.', 403)));
+// Backup keys (for the daily backup on your computer) can only download a backup.
+const BACKUP_KEY_ROUTES = [['GET', /^\/backup$/]];
+admin.use((req, res, next) => {
+  if (!req.apiKey) return next();
+  const backupKey = req.apiKey.scope === 'backup';
+  if ((backupKey ? BACKUP_KEY_ROUTES : KEY_ROUTES).some(([m, r]) => m === req.method && r.test(req.path))) return next();
+  bad(res, backupKey ? 'Backup keys can only download backups.' : 'Upload keys can only add and edit products.', 403);
+});
 
 // Upload keys are made and switched off from the dashboard (signed in, never with a key).
 admin.get('/keys', (req, res) => {
   if (req.apiKey) return bad(res, 'Not allowed with an upload key.', 403);
-  res.json(all('SELECT id, name, hint, created_at, last_used_at, revoked_at FROM api_keys ORDER BY id DESC'));
+  res.json(all('SELECT id, name, hint, scope, created_at, last_used_at, revoked_at FROM api_keys ORDER BY id DESC'));
 });
 admin.post('/keys', (req, res) => {
   if (req.apiKey) return bad(res, 'Not allowed with an upload key.', 403);
-  const name = String(req.body?.name || '').trim().slice(0, 60) || 'Upload key';
-  const key = `cs_upload_${crypto.randomBytes(24).toString('base64url')}`;
-  const id = run('INSERT INTO api_keys (name, key_hash, hint) VALUES (?, ?, ?)', name, keyHash(key), key.slice(-4)).lastInsertRowid;
-  res.json({ id: Number(id), name, key, url: BASE_URL });
+  const scope = req.body?.scope === 'backup' ? 'backup' : 'upload';
+  const name = String(req.body?.name || '').trim().slice(0, 60) || (scope === 'backup' ? 'Backup key' : 'Upload key');
+  const key = `cs_${scope}_${crypto.randomBytes(24).toString('base64url')}`;
+  const id = run('INSERT INTO api_keys (name, key_hash, hint, scope) VALUES (?, ?, ?, ?)', name, keyHash(key), key.slice(-4), scope).lastInsertRowid;
+  res.json({ id: Number(id), name, key, scope, url: BASE_URL });
 });
 admin.delete('/keys/:id', (req, res) => {
   if (req.apiKey) return bad(res, 'Not allowed with an upload key.', 403);
