@@ -900,6 +900,29 @@
       </div></div>`);
   }
 
+  // Unsubscribe from product announcements. Asks first, so email scanners that open links can't unsubscribe anyone.
+  async function unsubscribePage(token) {
+    let info;
+    try { info = await api('/api/unsubscribe/' + encodeURIComponent(token)); }
+    catch (e) { return shell(`<div class="wrap page" style="text-align:center;padding-top:120px"><span class="label">Unsubscribe</span><h1 style="margin:18px 0 12px">${esc(e.message)}</h1><a class="btn btn-primary" href="#/" style="margin-top:20px">Go to the store</a></div>`); }
+    const draw = off => {
+      shell(`<div class="auth" style="min-height:70vh"><div class="aurora"><i></i></div><div class="auth-card">
+        <span class="label">Email preferences</span>
+        <h1>${off ? 'You’re unsubscribed.' : 'Unsubscribe?'}</h1>
+        <p>${off ? `We won't send <b style="color:var(--text);font-weight:500">${esc(info.email)}</b> news about new products. Receipts and your download links still arrive, and every link you have keeps working.`
+          : `Stop emails about new products to <b style="color:var(--text);font-weight:500">${esc(info.email)}</b>? You'll still get receipts and download links.`}</p>
+        <button class="btn ${off ? '' : 'btn-primary'} btn-block" id="unsub-btn">${off ? 'Subscribe again' : 'Unsubscribe'}</button>
+        <a class="btn btn-ghost btn-block" href="#/shop" style="margin-top:8px">Back to the store</a>
+      </div></div>`);
+      $('#unsub-btn').addEventListener('click', async e => {
+        e.target.disabled = true;
+        try { const r = await api('/api/unsubscribe/' + encodeURIComponent(token), { method: 'POST', body: off ? { resubscribe: true } : {} }); toast(r.unsubscribed ? 'Unsubscribed' : 'Subscribed again'); draw(r.unsubscribed); }
+        catch (err) { toast(err.message, true); e.target.disabled = false; }
+      });
+    };
+    draw(info.unsubscribed);
+  }
+
   function notFound() {
     shell(`<div class="wrap page" style="text-align:center;padding-top:120px"><span class="label">404</span><h1 style="margin:18px 0 12px">Page not found.</h1><p class="muted">That product or page doesn't exist.</p><a class="btn btn-primary" href="#/shop" style="margin-top:20px">Back to the store</a></div>`);
   }
@@ -925,6 +948,7 @@
         case 'reset': return resetPage(parts[1]);
         case 'download': return await downloadPage(parts[1], 0, q);
         case 'find': return findDownloads();
+        case 'unsubscribe': return await unsubscribePage(parts[1]);
         case 'terms': case 'privacy': case 'refunds': return await legalPage(parts[0]);
         case 'affiliate': return await affiliatePage(parts[1]);
         case 'account': return account();

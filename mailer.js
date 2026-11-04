@@ -37,10 +37,11 @@ async function post(body, idempotencyKey) {
 }
 
 // Sends one email from a published Resend template. `key` makes repeats of the same send a no-op.
-async function sendTemplate({ template, to, subject, variables, key, replyTo }) {
+// `raw` names variables the caller has already made safe HTML; `headers` adds email headers (e.g. List-Unsubscribe).
+async function sendTemplate({ template, to, subject, variables, key, replyTo, raw = [], headers }) {
   if (!enabled) return null;
-  const escaped = Object.fromEntries(Object.entries(variables).map(([k, v]) => [k, esc(v)]));
-  const data = await post({ from: FROM, to: [to], subject, template: { id: template, variables: escaped }, ...(replyTo ? { reply_to: replyTo } : {}) }, key);
+  const escaped = Object.fromEntries(Object.entries(variables).map(([k, v]) => [k, raw.includes(k) ? String(v ?? '') : esc(v)]));
+  const data = await post({ from: FROM, to: [to], subject, template: { id: template, variables: escaped }, ...(replyTo ? { reply_to: replyTo } : {}), ...(headers ? { headers } : {}) }, key);
   console.log(`Email "${template}" sent to ${to} (${data.id})`);
   return data.id;
 }
@@ -102,4 +103,17 @@ function sendPasswordReset({ to, store, name, url, siteUrl, support, key }) {
   });
 }
 
-module.exports = { enabled, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };
+// "New in the store": a product announcement to past buyers. Uses the "product-announcement" template.
+// The message is the owner's own words: escaped here, with line breaks kept. Every email carries a one-click
+// unsubscribe (the List-Unsubscribe headers Gmail and Yahoo ask bulk senders for) and a link in the footer.
+function sendAnnouncement({ to, store, name, title, message, price, coverUrl, productUrl, unsubscribeUrl, unsubscribePost, siteUrl, support, subject, key, replyTo }) {
+  return sendTemplate({
+    template: process.env.RESEND_ANNOUNCE_TEMPLATE || 'product-announcement', to, key, replyTo, subject,
+    raw: ['MESSAGE'],
+    headers: { 'List-Unsubscribe': `<${unsubscribePost}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+    variables: { STORE_NAME: store, BUYER_NAME: firstName(name), PRODUCT_TITLE: title, MESSAGE: esc(message).replace(/\r?\n/g, '<br>'), PRICE: price,
+      COVER_URL: coverUrl, PRODUCT_URL: productUrl, UNSUBSCRIBE_URL: unsubscribeUrl, SITE_URL: siteUrl, SUPPORT_EMAIL: support },
+  });
+}
+
+module.exports = { enabled, sendAnnouncement, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };

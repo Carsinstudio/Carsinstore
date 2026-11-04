@@ -18,6 +18,7 @@
     up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 15 6-6 6 6"/></svg>',
     dn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>',
     bank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>',
     eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   };
 
@@ -33,6 +34,7 @@
     window.onscroll = null;
   }
   const head = (title, actions = '') => `<div class="admin-head"><h1>${title}</h1><div style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div></div>`;
+  const people = n => (n === 1 ? '1 person' : `${n} people`);
   const statusPill = s => `<span class="status ${s}">${s}</span>`;
 
   // ---------- gate ----------
@@ -89,18 +91,66 @@
   const copyText = async (text, ok) => { try { await navigator.clipboard.writeText(text); toast(ok); } catch { prompt('Copy this link:', text); } };
 
   // After publishing: the link to share, then back to the product list.
-  function publishedModal(link) {
+  function publishedModal(link, id) {
+    let announce = false;
     modal(`<span class="status live">live</span><h3 style="margin-top:12px">Published</h3><p class="muted" style="margin:0 0 14px">It's live in the store. Here's the link to share:</p>
       <input class="input" readonly value="${esc(link)}" onclick="this.select()">
+      ${id && S.store.emails ? `<button class="btn btn-block" id="pm-announce" style="margin-top:12px">${A.mail.replace('<svg', '<svg width="15" height="15"')} Email past buyers about it</button>` : ''}
       <div class="actions"><a class="btn" href="${esc(link)}" target="_blank" rel="noopener">View</a><button class="btn" id="pm-copy">Copy link</button><button class="btn btn-primary" data-close>Back to products</button></div>`,
-      m => { $('#pm-copy', m).onclick = () => copyText(link, 'Link copied'); },
-      () => { if (location.hash === '#/admin/products') products(); else location.hash = '#/admin/products'; });
+      (m, close) => {
+        $('#pm-copy', m).onclick = () => copyText(link, 'Link copied');
+        $('#pm-announce', m)?.addEventListener('click', () => { announce = true; close(); });
+      },
+      () => {
+        if (announce) return announceModal(id);
+        if (location.hash === '#/admin/products') products(); else location.hash = '#/admin/products';
+      });
   }
   async function publish(id, hasFiles) {
     if (!hasFiles && !(await confirmDialog('Publish without files?', busy.uploads ? 'Your files are still uploading. Buyers who check out before they finish would get nothing to download.' : 'This product has no files yet, so buyers would get nothing to download.', 'Publish anyway'))) return null;
     const r = await api(`/api/admin/products/${id}/publish`, { method: 'POST' });
-    publishedModal(r.link);
+    publishedModal(r.link, id);
     return r;
+  }
+
+  // "Email past buyers": a short announcement about one product, to people who don't have it yet.
+  async function announceModal(id) {
+    const a = await api(`/api/admin/products/${id}/announce`);
+    if (!a.emails) return toast("Email isn't set up on this store, so announcements can't be sent.", true);
+    if (!a.published) return toast('Publish the product first, so the link in the email works.', true);
+    const AUD = [['all', 'Everyone with a product'], ['paid', 'Paying buyers'], ['free', 'Free downloads only']];
+    const room = Math.max(0, a.limit - a.sentToday);
+    modal(`<h3>Email past buyers</h3>
+      <p class="muted" style="margin:0 0 16px;font-size:13.5px">Tell people who bought or downloaded from you about <b style="color:var(--text);font-weight:500">${esc(a.title)}</b>. The email shows its cover, your message, the price and a button to the product. People who already have it${a.unsubscribed ? `, the ${people(a.unsubscribed)} who unsubscribed,` : ' or unsubscribed'} and anyone already told about it are left out.</p>
+      <label class="field"><span>Send to</span><select class="input" id="an-aud">${AUD.map(([k, l]) => `<option value="${k}">${l} (${a.counts[k]})</option>`).join('')}</select></label>
+      <label class="field"><span>Subject</span><input class="input" id="an-sub" maxlength="150" value="${esc(a.subject)}"></label>
+      <label class="field"><span>Message</span><textarea class="input" id="an-msg" rows="5" maxlength="2000">${esc(a.message)}</textarea><small>Starts with "Hi [their first name], there's something new you might like." Keep it short: what it is and who it helps.</small></label>
+      <p class="muted" id="an-note" style="font-size:12.5px;margin:2px 0 0"></p>
+      ${a.previous.length ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">Announced before: ${a.previous.map(x => `${date(x.created_at)} (${plural(x.sent, 'email')})`).join(', ')}.</p>` : ''}
+      <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn" id="an-test">Send me a test</button><button class="btn btn-primary" id="an-send"></button></div>`, (m, close) => {
+      const n = () => a.counts[$('#an-aud', m).value];
+      const draw = () => {
+        const b = $('#an-send', m); b.textContent = `Send to ${people(n())}`; b.disabled = !n();
+        $('#an-note', m).textContent = !n() ? 'Nobody in this group to send to.'
+          : n() > room ? `Up to ${a.limit} go out a day, to leave room for receipts. ${room ? `${room} today, then` : 'None left today, so they start tomorrow:'} the rest over the next ${plural(Math.ceil((n() - room) / a.limit), 'day')}.`
+          : 'They go out over the next few minutes.';
+      };
+      $('#an-aud', m).addEventListener('change', draw); draw();
+      const body = test => ({ audience: $('#an-aud', m).value, subject: $('#an-sub', m).value, message: $('#an-msg', m).value, test });
+      $('#an-test', m).addEventListener('click', async e => {
+        e.target.disabled = true;
+        try { const r = await api(`/api/admin/products/${id}/announce`, { method: 'POST', body: body(true) }); toast(`Test sent to ${r.to}. Check your inbox.`); }
+        catch (err) { toast(err.message, true); } finally { e.target.disabled = false; }
+      });
+      $('#an-send', m).addEventListener('click', async e => {
+        e.target.disabled = true;
+        try {
+          const r = await api(`/api/admin/products/${id}/announce`, { method: 'POST', body: body(false) });
+          close(); toast(`Sending to ${people(r.total)}. Track it on the Customers page.`);
+          location.hash = '#/admin/customers';
+        } catch (err) { toast(err.message, true); e.target.disabled = false; }
+      });
+    });
   }
 
   // What Paystack has paid into your bank, and what's on the way. Money is never held in the store.
@@ -162,6 +212,7 @@
       pop.innerHTML = `<button data-act="edit">${A.edit} Edit</button>
         ${p.published ? `<a href="${esc(p.link)}" target="_blank" rel="noopener" data-act="view">${A.eye} View in store</a><button data-act="copy">${A.link} Copy link</button>` : ''}
         ${!p.published || p.changes ? `<button data-act="publish">${A.up} ${p.published ? 'Publish changes' : 'Publish'}</button>` : ''}
+        ${p.published && S.store.emails ? `<button data-act="announce">${A.mail} Email past buyers</button>` : ''}
         ${p.published ? `<button data-act="unpublish">${A.dn} Unpublish</button>` : ''}
         <hr><button data-act="delete" class="danger">${A.trash} Delete</button>`;
       document.body.append(pop);
@@ -178,6 +229,7 @@
         try {
           if (act === 'edit') location.hash = `#/admin/products/${p.id}`;
           if (act === 'copy') copyText(p.link, 'Link copied');
+          if (act === 'announce') await announceModal(p.id);
           if (act === 'publish') await publish(p.id, p.files > 0);
           if (act === 'unpublish') { await api(`/api/admin/products/${p.id}/unpublish`, { method: 'POST' }); toast('Unpublished. Only you can see it now.'); products(); }
           if (act === 'delete') {
@@ -652,20 +704,29 @@
   // A CSV cell. Values starting with = + - @ are prefixed with ' so spreadsheet apps never run them as formulas.
   const csvCell = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
   async function customers(filter = 'all') {
-    const everyone = await api('/api/admin/customers');
+    const [everyone, sent] = await Promise.all([api('/api/admin/customers'), api('/api/admin/announcements')]);
     const GROUPS = [['all', 'Everyone with a product'], ['paid', 'Paying buyers'], ['free', 'Free downloads only'], ['unfinished', 'Started checkout, never paid']];
     const pick = k => (k === 'all' ? everyone.filter(u => u.kind !== 'unfinished') : everyone.filter(u => u.kind === k));
     const list = pick(filter);
     const count = k => pick(k).length;
     layout('customers', head('Customers', `<select class="input" id="cust-filter" style="width:auto;min-width:220px">${GROUPS.map(([k, l]) => `<option value="${k}" ${k === filter ? 'selected' : ''}>${l} (${count(k)})</option>`).join('')}</select><button class="btn" id="csv" ${list.length ? '' : 'disabled'}>${I.down} Export ${plural(list.length, 'contact')}</button>`) + `
-      <p class="muted" style="margin:-6px 0 16px;font-size:13px;max-width:760px">Everyone who bought or downloaded something from your store. Export the list as a spreadsheet (CSV) to import into an email tool like Mailchimp, Brevo or Kit, or a WhatsApp broadcast list. Send them news about new products, and give them an easy way to unsubscribe.</p>` + (list.length ? `
+      <p class="muted" style="margin:-6px 0 16px;font-size:13px;max-width:760px">Everyone who bought or downloaded something from your store. Export the list as a spreadsheet (CSV) to import into an email tool like Mailchimp, Brevo or Kit, or a WhatsApp broadcast list. Or tell them about a new product from here: open a product's <b style="color:var(--text);font-weight:500">⋯</b> menu on the Products page and choose <b style="color:var(--text);font-weight:500">Email past buyers</b>.</p>
+      ${sent.length ? `<div class="panel tbl-wrap" style="padding:0;margin-bottom:18px"><div class="box-head"><h3 style="font-size:18px">Product announcements</h3><span class="muted" style="font-size:12.5px">${people(everyone.filter(u => u.unsubscribed_at).length)} unsubscribed</span></div>
+        <table class="tbl"><tr><th>Product</th><th>Subject</th><th>Started</th><th>Sent</th><th>Status</th><th></th></tr>
+        ${sent.map(a => `<tr><td>${esc(a.title)}</td><td class="muted">${esc(a.subject)}</td><td class="muted">${date(a.created_at)}</td><td>${a.sent} of ${a.total}${a.failed ? ` <small style="color:#ff8b7a">${a.failed} failed</small>` : ''}</td>
+          <td>${a.status === 'sending' ? `<span class="status pending">sending</span>${a.queued ? ` <small class="dim">${a.queued} waiting</small>` : ''}` : a.status === 'done' ? '<span class="status live">sent</span>' : '<span class="status draft">stopped</span>'}</td>
+          <td style="text-align:right">${a.status === 'sending' ? `<button class="btn btn-sm btn-ghost" data-stop="${a.id}">Stop</button>` : ''}</td></tr>`).join('')}</table></div>` : ''}` + (list.length ? `
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Name</th><th>Email</th><th>Phone</th><th>Products</th><th>Last order</th><th>Spent</th></tr>
-      ${list.map(u => `<tr><td>${esc(u.name || 'No name')}</td><td class="muted">${esc(u.email)}</td><td class="muted">${esc(u.phone || '')}</td><td>${u.titles.length ? `<span title="${esc(u.titles.join('\n'))}">${esc(u.titles[0])}${u.titles.length > 1 ? ` <small class="dim">+${u.titles.length - 1}</small>` : ''}</span>` : '<span class="dim">None yet</span>'}</td><td class="muted">${u.last_at ? date(u.last_at) : date(u.created_at)}</td><td>${u.spent ? money(u.spent) : '<span class="dim">Free</span>'}</td></tr>`).join('')}</table></div>`
+      ${list.map(u => `<tr><td>${esc(u.name || 'No name')}</td><td class="muted">${esc(u.email)}${u.unsubscribed_at ? ' <span class="status draft" title="Unsubscribed from product announcements">unsubscribed</span>' : ''}</td><td class="muted">${esc(u.phone || '')}</td><td>${u.titles.length ? `<span title="${esc(u.titles.join('\n'))}">${esc(u.titles[0])}${u.titles.length > 1 ? ` <small class="dim">+${u.titles.length - 1}</small>` : ''}</span>` : '<span class="dim">None yet</span>'}</td><td class="muted">${u.last_at ? date(u.last_at) : date(u.created_at)}</td><td>${u.spent ? money(u.spent) : '<span class="dim">Free</span>'}</td></tr>`).join('')}</table></div>`
       : `<div class="empty"><h3>Nobody here yet</h3><p>${filter === 'unfinished' ? 'People who start paying but don\'t finish show up here.' : 'Everyone who buys or grabs a free product shows up here with their name and email.'}</p></div>`));
     $('#cust-filter').addEventListener('change', e => customers(e.target.value));
+    $$('[data-stop]').forEach(b => b.addEventListener('click', async () => {
+      if (!(await confirmDialog('Stop sending?', 'Emails already sent stay sent. Nobody else in this announcement gets it.', 'Stop sending', true))) return;
+      await api(`/api/admin/announcements/${b.dataset.stop}/stop`, { method: 'POST' }); toast('Stopped'); customers(filter);
+    }));
     $('#csv').addEventListener('click', () => {
-      const rows = [['email', 'name', 'phone', 'type', 'products', 'first_seen', 'last_order', 'orders', 'spent'],
-        ...list.map(u => [u.email, u.name || '', u.phone || '', u.kind, u.titles.join('; '), (u.created_at || '').slice(0, 10), (u.last_at || '').slice(0, 10), u.products, (u.spent / 100).toFixed(2)])];
+      const rows = [['email', 'name', 'phone', 'type', 'products', 'first_seen', 'last_order', 'orders', 'spent', 'unsubscribed'],
+        ...list.map(u => [u.email, u.name || '', u.phone || '', u.kind, u.titles.join('; '), (u.created_at || '').slice(0, 10), (u.last_at || '').slice(0, 10), u.products, (u.spent / 100).toFixed(2), u.unsubscribed_at ? 'yes' : ''])];
       const blob = new Blob(['﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
       const day = new Date().toISOString().slice(0, 10);
       Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `carsinstore-${filter === 'all' ? 'customers' : filter}-${day}.csv` }).click();

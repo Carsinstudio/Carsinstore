@@ -484,6 +484,71 @@ setInterval(() => {
   askForReviews().catch(e => console.error('Review requests:', e.message));
 }, Number(process.env.REMINDER_CHECK_SECONDS || 600) * 1000).unref();
 
+// ---------- new-product announcements ----------
+// The owner emails past buyers about a product. Each person gets it once per product, never if they already
+// have it (or a bundle with it), never after unsubscribing. Emails go out a few at a time in the background,
+// at most `announce_daily_limit` a day, so receipts and download links always have room in the Resend plan.
+const unsubToken = userId => `${userId}.${crypto.createHmac('sha256', SECRET).update('unsub:' + userId).digest('base64url').slice(0, 22)}`;
+function unsubUser(token) {
+  const [id, mac] = String(token || '').split('.');
+  if (!/^\d+$/.test(id || '') || !mac) return null;
+  const want = unsubToken(id).split('.')[1];
+  return mac.length === want.length && crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(want)) ? one('SELECT * FROM users WHERE id = ? AND is_admin = 0', Number(id)) : null;
+}
+const AUDIENCE_SQL = {
+  all: `EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES})`,
+  paid: `EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'paid')`,
+  free: `EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status IN ('free','granted')) AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'paid')`,
+};
+function announceAudience(p, audience) {
+  return all(`SELECT u.id, u.email, u.name FROM users u WHERE u.is_admin = 0 AND u.unsubscribed_at IS NULL AND ${AUDIENCE_SQL[audience] || AUDIENCE_SQL.all}
+    AND NOT EXISTS (SELECT 1 FROM orders o JOIN products b ON b.id = o.product_id WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES}
+      AND (o.product_id = ? OR EXISTS (SELECT 1 FROM json_each(b.bundle_items) WHERE CAST(value AS INTEGER) = ?)))
+    AND NOT EXISTS (SELECT 1 FROM announcement_recipients r JOIN announcements a ON a.id = r.announcement_id
+      WHERE r.user_id = u.id AND a.product_id = ? AND r.status IN ('queued', 'sent')) ORDER BY u.id`, p.id, p.id, p.id);
+}
+function announceEmail(a, p, u, s) {
+  const cover = coversOf(p).find(c => !isVideoCover(c));
+  const tok = unsubToken(u.id);
+  return {
+    to: u.email, store: s.store_name, name: u.name, title: p.title, message: a.message, subject: a.subject,
+    price: p.price_cents ? formatPrice(p.price_cents, storeCurrencies(s).main) : 'Free',
+    coverUrl: cover ? `${BASE_URL}/media/covers/${coverFile(cover, 'og')}` : shareImage(s),
+    productUrl: `${BASE_URL}/p/${encodeURIComponent(p.slug)}?utm_source=email&utm_medium=announcement&utm_campaign=${encodeURIComponent(p.slug)}`,
+    unsubscribeUrl: `${BASE_URL}/#/unsubscribe/${tok}`, unsubscribePost: `${BASE_URL}/api/unsubscribe/${tok}`,
+    siteUrl: BASE_URL, support: supportEmail(s), replyTo: supportEmail(s),
+  };
+}
+const announceKey = (a, u) => 'ann-' + crypto.createHash('sha256').update(`${a.id}:${a.created_at}:${u.email}`).digest('hex').slice(0, 24);
+const sentToday = () => one("SELECT COUNT(*) AS n FROM announcement_recipients WHERE status IN ('sent', 'failed') AND sent_at >= datetime('now', '-1 day')").n;
+let announcing = false;
+async function sendAnnouncements() {
+  if (announcing || !mailer.enabled) return;
+  announcing = true;
+  try {
+    const s = getSettings();
+    const room = Math.min(Math.max(1, Number(s.announce_daily_limit) || 80) - sentToday(), 20);
+    const due = room > 0 ? all(`SELECT r.* FROM announcement_recipients r JOIN announcements a ON a.id = r.announcement_id
+      WHERE r.status = 'queued' AND a.status = 'sending' ORDER BY r.announcement_id, r.user_id LIMIT ?`, room) : [];
+    for (const r of due) {
+      const a = one('SELECT * FROM announcements WHERE id = ?', r.announcement_id);
+      if (a.status !== 'sending') continue; // stopped while this batch was going out
+      const u = one('SELECT * FROM users WHERE id = ?', r.user_id);
+      const p = a.product_id && one('SELECT * FROM products WHERE id = ? AND published = 1', a.product_id);
+      const where = 'WHERE announcement_id = ? AND user_id = ?';
+      if (!u || u.unsubscribed_at || !p) { run(`UPDATE announcement_recipients SET status = 'skipped' ${where}`, r.announcement_id, r.user_id); continue; }
+      run(`UPDATE announcement_recipients SET status = 'sent', sent_at = datetime('now') ${where}`, r.announcement_id, r.user_id); // mark first: never twice
+      try { await mailer.sendAnnouncement({ ...announceEmail(a, p, u, s), key: announceKey(a, u) }); }
+      catch (e) { run(`UPDATE announcement_recipients SET status = 'failed' ${where}`, r.announcement_id, r.user_id); console.error('Announcement failed:', e.message); }
+      await new Promise(ok => setTimeout(ok, 600)); // stay under Resend's rate limit
+    }
+    for (const a of all("SELECT id FROM announcements WHERE status = 'sending'")) {
+      if (!one("SELECT 1 FROM announcement_recipients WHERE announcement_id = ? AND status = 'queued'", a.id)) run("UPDATE announcements SET status = 'done' WHERE id = ?", a.id);
+    }
+  } finally { announcing = false; }
+}
+setInterval(() => sendAnnouncements().catch(e => console.error('Announcements:', e.message)), Number(process.env.ANNOUNCE_CHECK_SECONDS || 30) * 1000).unref();
+
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
@@ -619,6 +684,23 @@ app.get('/api/affiliate/:token', limit({ name: 'affiliate', max: 60, windowMs: 6
   const recent = all(`SELECT o.created_at, o.amount_cents, o.currency, o.commission_cents, p.title FROM orders o JOIN products p ON p.id = o.product_id
     WHERE o.affiliate_id = ? AND o.status = 'paid' ORDER BY o.id DESC LIMIT 100`, a.id);
   res.json({ name: a.name, code: a.code, percent: a.percent, active: !!a.active, link: sum.link, totals: sum.totals, recent, auto: sum.auto && { bank: sum.auto.bank, last4: sum.auto.last4 } });
+});
+
+// Unsubscribe from product announcements (receipts and download links still arrive). The link in each email opens
+// a page that asks first, so email scanners that open links can't unsubscribe anyone; mail apps' one-click
+// "Unsubscribe" button POSTs here directly.
+app.get('/api/unsubscribe/:token', limit({ name: 'unsub', max: 60, windowMs: 60 * 1000 }), (req, res) => {
+  const u = unsubUser(req.params.token);
+  if (!u) return bad(res, 'This unsubscribe link is not valid.', 404);
+  res.json({ email: u.email.replace(/^(.)[^@]*(@.*)$/, '$1•••$2'), unsubscribed: !!u.unsubscribed_at });
+});
+app.post('/api/unsubscribe/:token', limit({ name: 'unsub', max: 60, windowMs: 60 * 1000 }), express.urlencoded({ extended: false }), (req, res) => {
+  const u = unsubUser(req.params.token);
+  if (!u) return bad(res, 'This unsubscribe link is not valid.', 404);
+  const back = req.body?.resubscribe === true;
+  run(`UPDATE users SET unsubscribed_at = ${back ? 'NULL' : "COALESCE(unsubscribed_at, datetime('now'))"} WHERE id = ?`, u.id);
+  if (!back) run("UPDATE announcement_recipients SET status = 'skipped' WHERE user_id = ? AND status = 'queued'", u.id);
+  res.json({ ok: true, unsubscribed: !back });
 });
 
 // The best buyer reviews for the homepage: 4 or 5 stars with something written, newest first.
@@ -985,6 +1067,59 @@ admin.post('/products/:id/unpublish', (req, res) => {
   run('UPDATE products SET published = 0 WHERE id = ?', p.id);
   res.json({ ok: true });
 });
+// ----- announcements: email past buyers about a product -----
+const announceDefaults = p => ({ subject: `New: ${p.title}`, message: `${p.subtitle ? p.subtitle.trim() + '\n\n' : ''}We just added it to the store and thought you'd like it.` });
+admin.get('/products/:id/announce', (req, res) => {
+  const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
+  if (!p) return bad(res, 'Not found', 404);
+  const s = getSettings();
+  res.json({
+    emails: mailer.enabled, published: !!p.published, title: p.title, ...announceDefaults(p),
+    counts: Object.fromEntries(Object.keys(AUDIENCE_SQL).map(k => [k, announceAudience(p, k).length])),
+    unsubscribed: one('SELECT COUNT(*) AS n FROM users WHERE is_admin = 0 AND unsubscribed_at IS NOT NULL').n,
+    limit: Math.max(1, Number(s.announce_daily_limit) || 80), sentToday: sentToday(), testTo: s.notify_email || supportEmail(s),
+    previous: all(`SELECT a.id, a.created_at, a.status, (SELECT COUNT(*) FROM announcement_recipients r WHERE r.announcement_id = a.id AND r.status = 'sent') AS sent
+      FROM announcements a WHERE a.product_id = ? ORDER BY a.id DESC`, p.id),
+  });
+});
+admin.post('/products/:id/announce', wrap(async (req, res) => {
+  const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
+  if (!p) return bad(res, 'Not found', 404);
+  if (!p.published) return bad(res, 'Publish the product first, so the link in the email works.');
+  if (!mailer.enabled) return bad(res, 'Email is not set up on this store.', 503);
+  const subject = String(req.body?.subject || '').trim().slice(0, 150);
+  const message = String(req.body?.message || '').replace(/\r\n/g, '\n').trim().slice(0, 2000);
+  const audience = AUDIENCE_SQL[req.body?.audience] ? req.body.audience : 'all';
+  if (!subject) return bad(res, 'Add a subject line.');
+  if (!message) return bad(res, 'Add a short message.');
+  const s = getSettings();
+  if (req.body?.test) {
+    // A preview to the owner, sent straight away. The unsubscribe link in it goes nowhere.
+    const to = s.notify_email || supportEmail(s);
+    const draft = { id: 0, created_at: String(Date.now()), subject: `[Test] ${subject}`, message };
+    await mailer.sendAnnouncement({ ...announceEmail(draft, p, { id: 0, email: to, name: req.user.name }, s), key: announceKey(draft, { email: to }) });
+    return res.json({ ok: true, test: true, to });
+  }
+  const people = announceAudience(p, audience);
+  if (!people.length) return bad(res, 'Nobody to send to: everyone in this group already has this product, unsubscribed, or was already told about it.');
+  const limit = Math.max(1, Number(s.announce_daily_limit) || 80);
+  const today = Math.max(0, Math.min(people.length, limit - sentToday()));
+  const id = Number(run('INSERT INTO announcements (product_id, title, subject, message, audience) VALUES (?, ?, ?, ?, ?)', p.id, p.title, subject, message, audience).lastInsertRowid);
+  for (const u of people) run('INSERT INTO announcement_recipients (announcement_id, user_id) VALUES (?, ?)', id, u.id);
+  sendAnnouncements().catch(e => console.error('Announcements:', e.message));
+  res.json({ ok: true, id, total: people.length, today, limit });
+}));
+admin.get('/announcements', (_req, res) => res.json(all(`SELECT a.*,
+  (SELECT COUNT(*) FROM announcement_recipients r WHERE r.announcement_id = a.id) AS total,
+  (SELECT COUNT(*) FROM announcement_recipients r WHERE r.announcement_id = a.id AND r.status = 'sent') AS sent,
+  (SELECT COUNT(*) FROM announcement_recipients r WHERE r.announcement_id = a.id AND r.status = 'queued') AS queued,
+  (SELECT COUNT(*) FROM announcement_recipients r WHERE r.announcement_id = a.id AND r.status = 'failed') AS failed
+  FROM announcements a ORDER BY a.id DESC LIMIT 50`)));
+admin.post('/announcements/:id/stop', (req, res) => {
+  run("UPDATE announcements SET status = 'stopped' WHERE id = ? AND status = 'sending'", req.params.id);
+  run("UPDATE announcement_recipients SET status = 'skipped' WHERE announcement_id = ? AND status = 'queued'", req.params.id);
+  res.json({ ok: true });
+});
 // ----- payouts: Paystack pays sales into your bank (settlements); this shows them, nothing is moved from here -----
 const kobo = n => Math.round(Number(n) || 0);
 admin.get('/payouts', wrap(async (req, res) => {
@@ -1113,7 +1248,7 @@ admin.get('/orders', (_req, res) => res.json(all(`SELECT o.*, u.email, u.name, u
 admin.get('/customers', (_req, res) => {
   const titles = {};
   for (const r of all(`SELECT DISTINCT o.user_id, p.title FROM orders o JOIN products p ON p.id = o.product_id WHERE o.status IN ${ACCESS_STATUSES} ORDER BY o.id`)) (titles[r.user_id] ||= []).push(r.title);
-  res.json(all(`SELECT u.id, u.email, u.name, u.phone, u.created_at,
+  res.json(all(`SELECT u.id, u.email, u.name, u.phone, u.created_at, u.unsubscribed_at,
     (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES}) AS products,
     (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid') AS paid,
     (SELECT COALESCE(SUM(amount_cents),0) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid' AND o.currency = ?) AS spent,

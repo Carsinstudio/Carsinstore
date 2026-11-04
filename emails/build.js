@@ -43,7 +43,7 @@ const keep = html => `<div class="gs"><div class="gd">${html}</div></div>`;
 // A solid colour as a background image as well, which Gmail's dark mode leaves alone.
 const solid = c => `background-color:${c};background-image:linear-gradient(${c},${c});`;
 
-function layout({ preheader, label, heading, sub, details = [], cta, note, secondary, minimal = false, before = '' }) {
+function layout({ preheader, label, heading, sub, details = [], cta, note, secondary, minimal = false, before = '', unsubscribe = false }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -101,6 +101,7 @@ function layout({ preheader, label, heading, sub, details = [], cta, note, secon
     <tr><td class="px t-dim bg-page" bgcolor="${C.page}" style="padding:26px 40px 0 40px;font-family:${SANS};font-size:12px;line-height:1.7;color:${C.dim};${solid(C.page)}"><div class="gs"><div class="gd">
       Questions? Just reply to this email, or write to <a href="mailto:{{{SUPPORT_EMAIL}}}" style="color:${C.soft};text-decoration:none;">{{{SUPPORT_EMAIL}}}</a>.<br>
       ${minimal ? '' : `<a href="{{{SITE_URL}}}/terms" target="_blank" style="color:${C.dim};text-decoration:underline;">Terms</a>&nbsp;&middot;&nbsp;<a href="{{{SITE_URL}}}/refunds" target="_blank" style="color:${C.dim};text-decoration:underline;">Refund policy</a>&nbsp;&middot;&nbsp;<a href="{{{SITE_URL}}}/privacy" target="_blank" style="color:${C.dim};text-decoration:underline;">Privacy</a><br>`}
+      ${unsubscribe ? `You're getting this because you bought or downloaded something from {{{STORE_NAME}}}. <a href="{{{UNSUBSCRIBE_URL}}}" target="_blank" style="color:${C.soft};text-decoration:underline;">Unsubscribe</a> from news like this (your download links keep working).<br>` : ''}
       &copy; {{{STORE_NAME}}}
     </div></div></td></tr>
   </table>
@@ -225,6 +226,39 @@ Your first name shows with your review, never your email. Something not right wi
 {{{STORE_NAME}}}
 `,
   },
+  // "New in the store": sent from the dashboard to past buyers about a product they don't have yet.
+  'product-announcement': {
+    name: 'New product announcement (to past buyers)',
+    subject: 'New: {{{PRODUCT_TITLE}}}',
+    vars: ['STORE_NAME:string:Carsinstore', 'BUYER_NAME:string:there', 'PRODUCT_TITLE:string', 'MESSAGE:string', 'PRICE:string', 'COVER_URL:string', 'PRODUCT_URL:string', 'UNSUBSCRIBE_URL:string', 'SITE_URL:string', 'SUPPORT_EMAIL:string'],
+    html: layout({
+      unsubscribe: true,
+      preheader: 'Something new in the store: {{{PRODUCT_TITLE}}}',
+      label: 'New in the store',
+      heading: '{{{PRODUCT_TITLE}}}',
+      sub: 'Hi {{{BUYER_NAME}}}, there’s something new you might like.',
+      before: `<a href="{{{PRODUCT_URL}}}" target="_blank" style="display:block;text-decoration:none;"><img src="{{{COVER_URL}}}" width="500" alt="{{{PRODUCT_TITLE}}}" style="display:block;width:100%;max-width:500px;height:auto;border:0;border-radius:12px;"></a>
+        <div class="t-text" style="padding-top:24px;font-family:${SANS};font-size:15px;line-height:1.7;color:${C.text};">${keep('{{{MESSAGE}}}')}</div>`,
+      details: [['Price', '{{{PRICE}}}']],
+      cta: { href: '{{{PRODUCT_URL}}}', label: 'See it in the store' },
+      secondary: 'Questions about it? Just reply to this email.',
+    }),
+    text: `Hi {{{BUYER_NAME}}}, there's something new you might like.
+
+{{{PRODUCT_TITLE}}}
+Price: {{{PRICE}}}
+
+See it in the store:
+{{{PRODUCT_URL}}}
+
+Questions about it? Just reply to this email.
+
+You're getting this because you bought or downloaded something from {{{STORE_NAME}}}.
+Unsubscribe from news like this (your download links keep working): {{{UNSUBSCRIBE_URL}}}
+
+{{{STORE_NAME}}}
+`,
+  },
   // To the owner, from "Forgot password?" on the sign-in page.
   'password-reset': {
     name: 'Password reset (to owner)',
@@ -280,6 +314,8 @@ const sample = {
   STORE_NAME: 'Carsinstore', BUYER_NAME: 'Francis', PRODUCT_TITLE: 'Creator Systems Video Pack', AMOUNT: '₦25,000', ORDER_DATE: '27 October 2026',
   ORDER_REF: 'CS-7F3A91', DOWNLOAD_URL: '#', PRODUCT_URL: '#', SITE_URL: 'https://carsin.store', SUPPORT_EMAIL: 'carsindesign@gmail.com',
   ORDER_TYPE: 'New sale', BUYER_EMAIL: 'buyer@example.com', BUYER_PHONE: '0803 123 4567', DASHBOARD_URL: '#', RATE_URL: '#', RESET_URL: '#',
+  MESSAGE: 'A 20-slide pitch deck you can edit in Figma and PowerPoint.<br><br>We just added it to the store and thought you’d like it.',
+  PRICE: '₦15,000', COVER_URL: 'https://carsin.store/brand/share.png', UNSUBSCRIBE_URL: '#',
 };
 const fill = s => s.replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => sample[k] ?? k);
 for (const alias of Object.keys(templates)) fs.writeFileSync(path.join(out, `preview-${alias}.html`), fill(templates[alias].html));

@@ -129,6 +129,7 @@ const DEFAULT_SETTINGS = {
   whatsapp: '',                   // number for the "Chat on WhatsApp" button, e.g. 2348012345678. Empty hides the button
   whatsapp_message: 'Hi, I have a question about',
   home_reviews: '1',              // show buyers' best reviews on the homepage
+  announce_daily_limit: '80',     // most announcement emails sent per day (Resend's free plan allows 100 emails a day in all)
   legal_terms: '', legal_privacy: '', legal_refunds: '', legal_updated: new Date().toISOString().slice(0, 10),
   faq: JSON.stringify([
     { q: 'How do I get my product after buying?', a: 'Instantly. Right after checkout you land on your private download page, and the same link is emailed to you.' },
@@ -219,6 +220,26 @@ function migrate(db) {
   db.exec("UPDATE products SET cover_ratio = CASE cover_ratio WHEN '16:9' THEN '4:3' ELSE '1:1' END WHERE cover_ratio NOT IN ('1:1', '4:3')"); // only square and 4:3 are offered now
   if (!hasColumn(db, 'products', 'cross_sells')) db.exec("ALTER TABLE products ADD COLUMN cross_sells TEXT NOT NULL DEFAULT '[]'");
   // Bundles: buying this product also unlocks the files of the products listed here (ids).
+  // New-product announcements: one email per person, sent a few at a time; people can unsubscribe from them.
+  if (!hasColumn(db, 'users', 'unsubscribed_at')) db.exec('ALTER TABLE users ADD COLUMN unsubscribed_at TEXT');
+  db.exec(`CREATE TABLE IF NOT EXISTS announcements (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    message TEXT NOT NULL DEFAULT '',
+    audience TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'sending',        -- 'sending' | 'done' | 'stopped'
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS announcement_recipients (
+    announcement_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'queued',         -- 'queued' | 'sent' | 'failed' | 'skipped'
+    sent_at TEXT,
+    PRIMARY KEY (announcement_id, user_id)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_ann_queue ON announcement_recipients(status, announcement_id)');
   if (!hasColumn(db, 'products', 'bundle_items')) db.exec("ALTER TABLE products ADD COLUMN bundle_items TEXT NOT NULL DEFAULT '[]'");
   // A product can be in several categories; products.category_id stays as the first one.
   db.exec(`CREATE TABLE IF NOT EXISTS product_categories (
