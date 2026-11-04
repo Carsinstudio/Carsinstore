@@ -106,6 +106,13 @@ Optional. Paste a **Plausible** domain, a **Google Analytics 4** Measurement ID 
 - **What's not counted:** your own visits while signed in, and partner stats pages.
 - **Meta Pixel:** needed for Instagram and Facebook ads to optimise for purchases.
 
+## Search engines and fast images
+
+- **Sitemap:** `/sitemap.xml` lists the homepage, the shop, every published product and the legal pages. Submit it once in Google Search Console.
+- **robots.txt:** lets search engines crawl the store but not `/api/` or the paid files.
+- **Product details in Google:** each product page carries its price in Naira, "in stock" and its star rating (once it has reviews), so Google can show them under the link. The homepage tells Google the store name, logo and social profiles.
+- **Smaller cover images:** every cover photo you upload is kept as it is, and three smaller copies are made from it: one for product cards (640 px wide), one for the product page (1400 px) and a JPEG for link previews. Old covers get their copies the first time the store starts with this version. Videos, GIFs and SVGs are used as uploaded.
+
 ## Security
 
 - **Owner sign-in:** 5 wrong passwords for an email (or 20 from one IP) lock sign-in for 15 minutes. Responses don't reveal whether an email is the owner's.

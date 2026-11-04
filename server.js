@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
 const { PDFDocument } = require('pdf-lib');
+const sharp = require('sharp');
 const { all, one, run, getSettings, DATA_DIR } = require('./db');
 const mailer = require('./mailer');
 const backup = require('./backup');
@@ -211,7 +212,32 @@ const RATIOS = ['1:1', '4:3'];
 const OLD_RATIOS = { '16:9': '4:3', '3:4': '1:1' }; // shapes offered earlier, mapped to the closest one still offered
 const parseJson = (v, fallback) => { try { const x = JSON.parse(v); return x ?? fallback; } catch { return fallback; } };
 const coversOf = p => { const c = parseJson(p.covers || '[]', []); return Array.isArray(c) ? c.slice(0, MAX_COVERS) : []; };
-const coverUrls = p => coversOf(p).map(c => `/media/covers/${c}`);
+// Covers are kept as uploaded, plus smaller copies made from them: "card" for product cards, "big" for the
+// product page and "og" (JPEG, which every app shows) for link previews. Videos, GIFs and SVGs are used as they are.
+const SHRINK = /\.(png|jpe?g|webp)$/i;
+const VARIANTS = { card: { width: 640, ext: 'webp' }, big: { width: 1400, ext: 'webp' }, og: { width: 1200, ext: 'jpg' } };
+async function makeVariants(name) {
+  if (!name || !SHRINK.test(name) || !fs.existsSync(path.join(COVERS_DIR, name))) return;
+  for (const [k, v] of Object.entries(VARIANTS)) {
+    const out = path.join(COVERS_DIR, `${name}.${k}.${v.ext}`);
+    if (fs.existsSync(out)) continue;
+    let img = sharp(path.join(COVERS_DIR, name), { failOn: 'none' }).rotate().resize({ width: v.width, withoutEnlargement: true });
+    img = v.ext === 'webp' ? img.webp({ quality: 80, effort: 4 }) : img.flatten({ background: '#111111' }).jpeg({ quality: 78, mozjpeg: true });
+    await img.toFile(out + '.tmp');
+    fs.renameSync(out + '.tmp', out);
+  }
+}
+const coverFile = (name, kind) => {
+  if (!name || !SHRINK.test(name)) return name;
+  const f = `${name}.${kind}.${VARIANTS[kind].ext}`;
+  return fs.existsSync(path.join(COVERS_DIR, f)) ? f : name;
+};
+const removeCover = name => {
+  if (!name) return;
+  fs.rm(path.join(COVERS_DIR, name), { force: true }, () => {});
+  for (const [k, v] of Object.entries(VARIANTS)) fs.rm(path.join(COVERS_DIR, `${name}.${k}.${v.ext}`), { force: true }, () => {});
+};
+const coverUrls = p => coversOf(p).map(c => `/media/covers/${coverFile(c, 'big')}`);
 const isVideoCover = name => /\.(mp4|webm|mov|m4v)$/i.test(name || '');
 const categoryIds = productId => all('SELECT category_id FROM product_categories WHERE product_id = ? ORDER BY sort, category_id', productId).map(r => r.category_id);
 
@@ -260,7 +286,7 @@ function saveDraft(p, changes) {
 // Deletes cover files that neither the live product nor its draft use any more.
 function dropUnusedCovers(p, candidates) {
   const keep = new Set([...coversOf(p), ...draftState(p).covers]);
-  for (const c of candidates) if (c && !keep.has(c)) fs.rm(path.join(COVERS_DIR, c), { force: true }, () => {});
+  for (const c of candidates) if (c && !keep.has(c)) removeCover(c);
 }
 function publishProduct(p) {
   const d = draftState(p);
@@ -319,7 +345,7 @@ function productCard(p, catIds = categoryIds(p.id)) {
   const categories = catIds.map(id => one('SELECT name, slug FROM categories WHERE id = ?', id)).filter(Boolean);
   return {
     id: p.id, slug: p.slug, title: p.title, subtitle: p.subtitle,
-    price: p.price_cents, compare: p.compare_cents, prices: productPrices(p), cover: p.cover_path ? `/media/covers/${p.cover_path}` : null,
+    price: p.price_cents, compare: p.compare_cents, prices: productPrices(p), cover: p.cover_path ? `/media/covers/${coverFile(p.cover_path, 'card')}` : null,
     coverVideo: isVideoCover(p.cover_path), ratio: p.cover_ratio || '1:1', rating: ratingOf(p.id),
     category: categories[0] || null, categories,
     featured: !!p.featured, published: !!p.published, createdAt: p.created_at,
@@ -894,7 +920,7 @@ const productLink = p => `${BASE_URL}/p/${p.slug}`;
 const adminCard = p => {
   const d = draftState(p);
   return { ...productCard(p), name: d.title || p.title, changes: hasChanges(p), link: productLink(p),
-    draftCover: d.covers[0] ? `/media/covers/${d.covers[0]}` : null, draftCoverVideo: isVideoCover(d.covers[0]) };
+    draftCover: d.covers[0] ? `/media/covers/${coverFile(d.covers[0], 'card')}` : null, draftCoverVideo: isVideoCover(d.covers[0]) };
 };
 admin.get('/products', (_req, res) => res.json(all('SELECT * FROM products ORDER BY created_at DESC').map(adminCard)));
 admin.post('/products', (req, res) => {
@@ -978,7 +1004,7 @@ admin.delete('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
   for (const f of all('SELECT stored_name FROM files WHERE product_id = ?', p.id)) fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
-  for (const c of new Set([...coversOf(p), ...draftState(p).covers, p.cover_path].filter(Boolean))) fs.rm(path.join(COVERS_DIR, c), { force: true }, () => {});
+  for (const c of new Set([...coversOf(p), ...draftState(p).covers, p.cover_path].filter(Boolean))) removeCover(c);
   for (const f of all('SELECT stored_name FROM files WHERE product_id = ?', p.id)) dropSamples(f);
   run('DELETE FROM products WHERE id = ?', p.id);
   res.json({ ok: true });
@@ -997,6 +1023,7 @@ admin.post('/products/:id/cover', upload.single('cover'), (req, res) => {
   const list = draftState(p).covers;
   if (list.length >= MAX_COVERS) return drop(`You can have up to ${MAX_COVERS} covers. Remove one first.`);
   const fresh = saveDraft(p, { covers: [...list, req.file.filename] });
+  makeVariants(req.file.filename).catch(e => console.error('Cover resize failed:', e.message));
   res.json({ covers: draftState(fresh).covers.map(c => `/media/covers/${c}`), changes: hasChanges(fresh) });
 });
 // New order of the covers (as their URLs); any left out are removed.
@@ -1228,8 +1255,9 @@ admin.get('/settings', (_req, res) => res.json(adminSettings()));
 admin.post('/share-image', upload.single('cover'), (req, res) => {
   if (!req.file) return bad(res, 'Upload failed.');
   const old = getSettings().share_image;
-  if (old) fs.rm(path.join(COVERS_DIR, old), { force: true }, () => {});
+  if (old) removeCover(old);
   run("INSERT INTO settings (key, value) VALUES ('share_image', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", req.file.filename);
+  makeVariants(req.file.filename).catch(e => console.error('Share image resize failed:', e.message));
   res.json({ image: `/media/covers/${req.file.filename}` });
 });
 admin.put('/settings', (req, res) => {
@@ -1304,14 +1332,21 @@ function sendPage(res, m) {
     `<meta name="twitter:title" content="${attr(m.ogTitle || m.title)}" />`,
     `<meta name="twitter:description" content="${attr(m.description)}" />`,
     m.image && `<meta name="twitter:image" content="${attr(m.image)}" />`,
+    // Structured data for search engines (price, availability, rating). "<" is escaped so it can't close the tag.
+    m.jsonld && `<script type="application/ld+json">${JSON.stringify(m.jsonld).replace(/</g, '\\u003c')}</script>`,
   ].filter(Boolean).join('\n  ');
   res.setHeader('Cache-Control', 'no-cache');
   res.type('html').send(INDEX_HTML.replace(/<!--META-->[\s\S]*?<!--\/META-->/, tags));
 }
-const shareImage = s => (s.share_image ? `${BASE_URL}/media/covers/${s.share_image}` : `${BASE_URL}/brand/share.png`);
+const shareImage = s => (s.share_image ? `${BASE_URL}/media/covers/${coverFile(s.share_image, 'og')}` : `${BASE_URL}/brand/share.png`);
 function sendHome(res) {
   const s = getSettings();
-  sendPage(res, { title: `${s.store_name} | ${plain(s.tagline)}`, ogTitle: s.store_name, description: shortText(plain(s.hero_sub || s.tagline)), url: `${BASE_URL}/`, site: s.store_name, image: shareImage(s) });
+  const social = ['instagram', 'x', 'youtube', 'tiktok', 'linkedin'].map(k => s[k]).filter(Boolean);
+  sendPage(res, { title: `${s.store_name} | ${plain(s.tagline)}`, ogTitle: s.store_name, description: shortText(plain(s.hero_sub || s.tagline)), url: `${BASE_URL}/`, site: s.store_name, image: shareImage(s),
+    jsonld: { '@context': 'https://schema.org', '@graph': [
+      { '@type': 'Organization', '@id': `${BASE_URL}/#org`, name: s.store_name, url: `${BASE_URL}/`, logo: `${BASE_URL}/brand/apple-touch-icon.png`, ...(social.length ? { sameAs: social } : {}) },
+      { '@type': 'WebSite', name: s.store_name, url: `${BASE_URL}/`, publisher: { '@id': `${BASE_URL}/#org` } },
+    ] } });
 }
 
 app.get('/p/:slug', (req, res) => {
@@ -1323,9 +1358,38 @@ app.get('/p/:slug', (req, res) => {
     title: `${p.title} | ${s.store_name}`, ogTitle: `${p.title} · ${price}`,
     description: shortText(plain(p.subtitle) || plain(p.description) || s.tagline),
     url: `${BASE_URL}/p/${p.slug}`, site: s.store_name, type: 'product',
-    image: (c => (c ? `${BASE_URL}/media/covers/${c}` : shareImage(s)))(coversOf(p).find(c => !isVideoCover(c))),
+    image: (c => (c ? `${BASE_URL}/media/covers/${coverFile(c, 'og')}` : shareImage(s)))(coversOf(p).find(c => !isVideoCover(c))),
     price: p.price_cents ? { cents: p.price_cents, currency: s.currency || 'ngn' } : null,
+    jsonld: productJsonLd(p, s),
   });
+});
+function productJsonLd(p, s) {
+  const r = ratingOf(p.id);
+  const images = coversOf(p).filter(c => !isVideoCover(c)).map(c => `${BASE_URL}/media/covers/${coverFile(c, 'og')}`);
+  return {
+    '@context': 'https://schema.org', '@type': 'Product', name: p.title, sku: p.slug,
+    description: shortText(plain(p.subtitle) || plain(p.description) || s.tagline),
+    ...(images.length ? { image: images } : {}), brand: { '@type': 'Brand', name: s.store_name },
+    ...(p.category_id ? { category: one('SELECT name FROM categories WHERE id = ?', p.category_id)?.name } : {}),
+    offers: { '@type': 'Offer', url: `${BASE_URL}/p/${p.slug}`, price: (p.price_cents / 100).toFixed(2), priceCurrency: String(s.currency || 'ngn').toUpperCase(),
+      availability: 'https://schema.org/InStock', itemCondition: 'https://schema.org/NewCondition' },
+    ...(r ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: r.avg, reviewCount: r.count, bestRating: 5, worstRating: 1 } } : {}),
+  };
+}
+
+// ----- search engines: what to crawl, and the list of pages -----
+app.get('/robots.txt', (_req, res) => res.type('text/plain').send(
+  `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /media/files/\n\nSitemap: ${BASE_URL}/sitemap.xml\n`));
+app.get('/sitemap.xml', (_req, res) => {
+  const esc = u => u.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const day = d => String(d || '').slice(0, 10);
+  const urls = [
+    { loc: `${BASE_URL}/`, priority: '1.0' }, { loc: `${BASE_URL}/shop`, priority: '0.8' },
+    ...all('SELECT slug, created_at FROM products WHERE published = 1 ORDER BY created_at DESC').map(p => ({ loc: `${BASE_URL}/p/${encodeURIComponent(p.slug)}`, lastmod: day(p.created_at), priority: '0.9' })),
+    ...['terms', 'privacy', 'refunds'].map(x => ({ loc: `${BASE_URL}/${x}`, priority: '0.2' })),
+  ];
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u =>
+    `  <url><loc>${esc(u.loc)}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ''}<priority>${u.priority}</priority></url>`).join('\n')}\n</urlset>\n`);
 });
 app.get('/', (_req, res) => sendHome(res));
 for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find']) app.get(`/${page}`, (_req, res) => sendHome(res));
@@ -1342,7 +1406,19 @@ app.use((err, _req, res, _next) => {
   bad(res, err.message || 'Something went wrong.', 500);
 });
 
+// Makes the smaller cover copies for any cover that doesn't have them yet (older uploads, restored backups).
+async function shrinkExistingCovers() {
+  const names = new Set([getSettings().share_image]);
+  for (const p of all('SELECT * FROM products')) for (const c of [...coversOf(p), ...draftState(p).covers, p.cover_path]) names.add(c);
+  let made = 0;
+  for (const n of names) {
+    if (!n || !SHRINK.test(n) || coverFile(n, 'card') !== n && coverFile(n, 'og') !== n && coverFile(n, 'big') !== n) continue;
+    try { await makeVariants(n); made++; } catch (e) { console.error('Cover resize failed for', n, e.message); }
+  }
+  if (made) console.log(`Made smaller copies of ${made} cover image${made === 1 ? '' : 's'}`);
+}
 app.listen(PORT, () => {
+  shrinkExistingCovers().catch(e => console.error('Cover resize:', e.message));
   console.log(`Carsinstore running at ${BASE_URL}`);
   console.log(`Payments: ${PAYSTACK_KEY ? (PAYSTACK_KEY.startsWith('sk_live') ? 'Paystack (LIVE)' : 'Paystack (test mode)') : DEMO_CHECKOUT ? 'DEMO mode (no real charges)' : 'OFF (add PAYSTACK_SECRET_KEY to .env)'}`);
 });
