@@ -192,6 +192,17 @@ function migrate(db) {
   if (!hasColumn(db, 'products', 'sales')) db.exec("ALTER TABLE products ADD COLUMN sales TEXT NOT NULL DEFAULT '{}'"); // sales page sections, see cleanSales in server.js
   if (!hasColumn(db, 'products', 'alt_prices')) db.exec("ALTER TABLE products ADD COLUMN alt_prices TEXT NOT NULL DEFAULT '{}'"); // {"usd": 1500} in cents
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_pending ON orders(status, created_at)');
+  // Upload keys: let a tool on the owner's computer add and edit products without signing in.
+  // Only a hash is stored; the key itself is shown once, when it's made.
+  db.exec(`CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    hint TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    revoked_at TEXT
+  )`);
   // "Forgot password" links for the owner: only a hash of the link is kept, and each works once, for an hour.
   db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
     token_hash TEXT PRIMARY KEY,

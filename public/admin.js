@@ -840,6 +840,7 @@
         <input type="file" id="share-in" accept="image/png,image/jpeg,image/webp" hidden>
       </div>
       <div class="panel"><h3>Social links</h3>${f('instagram', 'Instagram URL')}${f('x', 'X / Twitter URL')}${f('youtube', 'YouTube URL')}${f('tiktok', 'TikTok URL')}${f('linkedin', 'LinkedIn URL')}</div></aside></div></form>
+      <div class="panel" style="max-width:860px" id="keys-panel"></div>
       <div class="panel" style="max-width:860px"><h3>Backup &amp; move</h3>
         <p class="muted" style="margin:-6px 0 18px;font-size:13.5px">Download your whole store (products, files, covers and settings) as one file, then restore it on another computer or host. Also a good safety copy to keep.</p>
         <div class="row" style="align-items:start">
@@ -865,6 +866,39 @@
     };
     drawFaq();
     $('#add-faq').addEventListener('click', () => { faq.push({ q: '', a: '' }); drawFaq(); });
+
+    // Upload keys: for the product upload tool on your computer. Shown once, switched off any time.
+    const drawKeys = async () => {
+      const box = $('#keys-panel'); if (!box) return;
+      const keys = await api('/api/admin/keys').catch(() => []);
+      const live = keys.filter(k => !k.revoked_at);
+      box.innerHTML = `<h3>Upload keys</h3>
+        <p class="muted" style="margin:-6px 0 16px;font-size:13.5px">Lets the upload tool on your computer add products to this store without your password. A key can only add and edit products: it can't delete them, and it can't see orders, customers, payouts or settings.</p>
+        ${live.length ? `<table class="tbl" style="margin-bottom:14px"><tr><th>Name</th><th>Key</th><th>Made</th><th>Last used</th><th></th></tr>${live.map(k => `<tr><td>${esc(k.name)}</td><td style="font-family:var(--mono);font-size:12px">cs_upload_…${esc(k.hint)}</td><td class="muted">${date(k.created_at)}</td><td class="muted">${k.last_used_at ? date(k.last_used_at) : 'Never'}</td>
+          <td style="text-align:right"><button type="button" class="btn btn-sm btn-ghost" data-revoke-key="${k.id}">Switch off</button></td></tr>`).join('')}</table>` : ''}
+        <button type="button" class="btn" id="new-key">${I.plus.replace('<svg', '<svg width="14" height="14"')} Create upload key</button>`;
+      $('#new-key').addEventListener('click', () => modal(`<h3>Create an upload key</h3><form id="kf" style="margin-top:14px">
+          <label class="field"><span>Name</span><input class="input" name="name" value="My computer" maxlength="60"><small>So you can tell keys apart later.</small></label>
+          <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Create key</button></div></form>`, (m, close) => {
+        $('#kf', m).addEventListener('submit', async e => {
+          e.preventDefault();
+          try {
+            const r = await api('/api/admin/keys', { method: 'POST', body: { name: e.target.name.value } });
+            close(); drawKeys();
+            modal(`<h3>Your upload key</h3><p class="muted" style="margin:0 0 12px">Copy it now: it won't be shown again. Paste it into the upload tool's settings file on your computer, never into chat, email or a website.</p>
+              <input class="input" readonly value="${esc(r.key)}" onclick="this.select()" style="font-family:var(--mono);font-size:12.5px">
+              <div class="actions"><button class="btn" id="kcopy">Copy key</button><button class="btn btn-primary" data-close>Done</button></div>`, m2 => {
+              $('#kcopy', m2).onclick = async () => { try { await navigator.clipboard.writeText(r.key); toast('Key copied'); } catch { m2.querySelector('input').select(); } };
+            });
+          } catch (err) { toast(err.message, true); }
+        });
+      }));
+      $$('[data-revoke-key]').forEach(b => b.addEventListener('click', async () => {
+        if (!(await confirmDialog('Switch off this key?', 'Anything using it stops working straight away. You can create a new one at any time.', 'Switch off', true))) return;
+        await api(`/api/admin/keys/${b.dataset.revokeKey}`, { method: 'DELETE' }); toast('Key switched off'); drawKeys();
+      }));
+    };
+    drawKeys();
 
     $('#share-img').addEventListener('click', () => $('#share-in').click());
     $('#share-in').addEventListener('change', async e => {

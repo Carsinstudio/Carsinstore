@@ -165,3 +165,14 @@ Every push to GitHub redeploys the store.
 The store is set up for Render with `render.yaml` (a Render Blueprint): one web service on the Starter plan ($7/month) in Frankfurt, with a 10 GB disk at /var/data for the database and files. In Render: **New > Blueprint**, pick this repository, then fill in the live Paystack secret key and the Resend key when asked. Every push to GitHub redeploys the store; the disk keeps your products and orders between deploys.
 
 To move hosts later (for example to Railway), download a backup from Store settings > Backup & move, restore it on the new host, and point the domain there.
+
+## Adding products from a folder
+
+For adding products regularly without the dashboard: make an **upload key** in Store settings > Upload keys and put it in .env as CARSINSTORE_UPLOAD_KEY (with CARSINSTORE_URL=https://carsin.store). Then give each product a folder (copy `Products to upload/_TEMPLATE` next to this repo) with product.json, description.md, covers/ and files/, and run:
+
+    node tools/add-product.js "../Products to upload/<folder>"            # upload as a draft
+    node tools/add-product.js "../Products to upload/<folder>" --publish  # or go live at once
+    node tools/add-product.js "../Products to upload/<folder>" --check    # only check the folder
+    node tools/add-product.js "../Products to upload/<folder>" --update   # change details later
+
+The tool checks everything first (price, cover count and type, preview files, long dashes), creates missing categories, uploads covers and files one by one, sets free previews, and records the product in the folder so it is never uploaded twice. A key can only add and edit products: it cannot delete products or reach orders, customers, payouts, partners, discounts, settings or backups. Keys can be switched off at any time.
