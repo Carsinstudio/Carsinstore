@@ -192,6 +192,12 @@ function migrate(db) {
   if (!hasColumn(db, 'products', 'sales')) db.exec("ALTER TABLE products ADD COLUMN sales TEXT NOT NULL DEFAULT '{}'"); // sales page sections, see cleanSales in server.js
   if (!hasColumn(db, 'products', 'alt_prices')) db.exec("ALTER TABLE products ADD COLUMN alt_prices TEXT NOT NULL DEFAULT '{}'"); // {"usd": 1500} in cents
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_pending ON orders(status, created_at)');
+  // "Forgot password" links for the owner: only a hash of the link is kept, and each works once, for an hour.
+  db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+  )`);
 
   // Edits wait in a draft until Publish; covers can be any of four shapes; hand-picked "you might also like".
   if (!hasColumn(db, 'products', 'draft')) db.exec('ALTER TABLE products ADD COLUMN draft TEXT');

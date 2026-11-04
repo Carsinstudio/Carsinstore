@@ -93,4 +93,13 @@ function sendReviewRequest({ to, store, name, title, rateUrl, url, siteUrl, supp
   });
 }
 
-module.exports = { enabled, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest };
+// "Reset your password": to the store owner, with a one-time link. Uses the "password-reset" template.
+function sendPasswordReset({ to, store, name, url, siteUrl, support, key }) {
+  return sendTemplate({
+    template: process.env.RESEND_RESET_TEMPLATE || 'password-reset', to, key,
+    subject: `Reset your ${store} password`,
+    variables: { STORE_NAME: store, BUYER_NAME: firstName(name), RESET_URL: url, SITE_URL: siteUrl, SUPPORT_EMAIL: support },
+  });
+}
+
+module.exports = { enabled, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };

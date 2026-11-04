@@ -606,6 +606,37 @@ app.post('/api/auth/password', requireAdmin, (req, res) => {
   run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(next), req.user.id);
   res.json({ ok: true });
 });
+// Forgot password: emails the owner a link that works once, for an hour. The reply is the same whether or not
+// the email matches, so the form can't be used to find out the owner's address.
+const RESET_MINUTES = 60;
+const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
+app.post('/api/auth/forgot',
+  limit({ name: 'forgot-ip', max: 5, windowMs: 60 * 60 * 1000, message: 'Too many requests. Try again in {minutes} minutes.' }),
+  limit({ name: 'forgot-email', max: 3, windowMs: 60 * 60 * 1000, keyOf: req => String(req.body?.email || '').trim().toLowerCase(), message: 'A reset link was sent recently. Check your inbox and spam folder.' }),
+  wrap(async (req, res) => {
+  if (!mailer.enabled) return bad(res, "Email isn't set up on this store, so a reset link can't be sent.", 503);
+  const u = one('SELECT * FROM users WHERE email = ? AND is_admin = 1', String(req.body?.email || '').trim().toLowerCase());
+  if (u) {
+    const token = crypto.randomBytes(32).toString('base64url');
+    run('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?', u.id, Date.now());
+    run('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)', hashToken(token), u.id, Date.now() + RESET_MINUTES * 60 * 1000);
+    await mailer.sendPasswordReset({ to: u.email, store: getSettings().store_name, name: u.name, url: `${BASE_URL}/#/reset/${token}`,
+      siteUrl: BASE_URL, support: supportEmail(), key: `reset-${hashToken(token).slice(0, 24)}` }).catch(e => console.error('Reset email failed:', e.message));
+  }
+  res.json({ ok: true });
+}));
+app.post('/api/auth/reset', limit({ name: 'reset', max: 10, windowMs: 60 * 60 * 1000 }), (req, res) => {
+  const row = one('SELECT * FROM password_resets WHERE token_hash = ?', hashToken(req.body?.token || ''));
+  if (!row || row.expires_at < Date.now()) return bad(res, 'This reset link has expired or was already used. Ask for a new one.');
+  const password = String(req.body?.password || '');
+  if (password.length < 8) return bad(res, 'Use at least 8 characters.');
+  run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(password), row.user_id);
+  run('DELETE FROM password_resets WHERE user_id = ?', row.user_id);
+  bumpSessionEpoch(); // signs out every other device that was signed in
+  failures.reset(`pw:${row.user_id}`);
+  setSession(res, row.user_id);
+  res.json({ user: publicUser(one('SELECT * FROM users WHERE id = ?', row.user_id)) });
+});
 app.post('/api/setup', limit({ name: 'setup', max: 10, windowMs: 60 * 60 * 1000 }), (req, res) => {
   if (one('SELECT id FROM users WHERE is_admin = 1')) return bad(res, 'Store owner already exists.', 403);
   const { email, password, name } = req.body || {};

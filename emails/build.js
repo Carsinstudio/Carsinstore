@@ -206,6 +206,30 @@ Your first name shows with your review, never your email. Something not right wi
 {{{STORE_NAME}}}
 `,
   },
+  // To the owner, from "Forgot password?" on the sign-in page.
+  'password-reset': {
+    name: 'Password reset (to owner)',
+    subject: 'Reset your {{{STORE_NAME}}} password',
+    vars: ['STORE_NAME:string:Carsinstore', 'BUYER_NAME:string:there', 'RESET_URL:string', 'SITE_URL:string', 'SUPPORT_EMAIL:string'],
+    html: layout({
+      minimal: true,
+      preheader: 'Use this link within the hour to choose a new password.',
+      label: 'Password reset',
+      heading: 'Reset your<br>password.',
+      sub: 'Hi {{{BUYER_NAME}}}, someone asked to reset the owner password for {{{STORE_NAME}}}. If that was you, choose a new one below.',
+      cta: { href: '{{{RESET_URL}}}', label: 'Choose a new password' },
+      note: 'The link works once, for one hour. If you didn’t ask for this, ignore this email: your password stays the same and nobody can change it without this link.',
+    }),
+    text: `Hi {{{BUYER_NAME}}},
+
+Someone asked to reset the owner password for {{{STORE_NAME}}}. If that was you, choose a new one here:
+{{{RESET_URL}}}
+
+The link works once, for one hour. If you didn't ask for this, ignore this email: your password stays the same.
+
+{{{STORE_NAME}}}
+`,
+  },
   // To you (the owner) for each sale: same look, kept short.
   'sale-alert': {
     name: 'Sale alert (to owner)',
@@ -236,7 +260,7 @@ fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null,
 const sample = {
   STORE_NAME: 'Carsinstore', BUYER_NAME: 'Francis', PRODUCT_TITLE: 'Creator Systems Video Pack', AMOUNT: '₦25,000', ORDER_DATE: '27 October 2026',
   ORDER_REF: 'CS-7F3A91', DOWNLOAD_URL: '#', PRODUCT_URL: '#', SITE_URL: 'https://carsin.store', SUPPORT_EMAIL: 'carsindesign@gmail.com',
-  ORDER_TYPE: 'New sale', BUYER_EMAIL: 'buyer@example.com', BUYER_PHONE: '0803 123 4567', DASHBOARD_URL: '#', RATE_URL: '#',
+  ORDER_TYPE: 'New sale', BUYER_EMAIL: 'buyer@example.com', BUYER_PHONE: '0803 123 4567', DASHBOARD_URL: '#', RATE_URL: '#', RESET_URL: '#',
 };
 const fill = s => s.replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => sample[k] ?? k);
 for (const alias of Object.keys(templates)) fs.writeFileSync(path.join(out, `preview-${alias}.html`), fill(templates[alias].html));

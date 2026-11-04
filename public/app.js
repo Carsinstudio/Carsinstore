@@ -577,6 +577,27 @@
     finally { if (btn.isConnected) { btn.disabled = false; btn.innerHTML = label; } }
   }
 
+  // Adds a show/hide eye to every password box inside root.
+  function passwordToggles(root = document) {
+    const eye = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const shut = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3l18 18M10.6 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17.7 17.7 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.5 7 10 7c1.8 0 3.4-.5 4.8-1.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+    $$('input[type="password"]', root).forEach(input => {
+      if (input.parentElement.classList.contains('pw-wrap')) return;
+      const wrap = document.createElement('span'); wrap.className = 'pw-wrap';
+      input.replaceWith(wrap); wrap.append(input);
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'pw-eye', innerHTML: eye });
+      b.setAttribute('aria-label', 'Show password');
+      b.addEventListener('click', () => {
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        b.innerHTML = show ? shut : eye;
+        b.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        input.focus();
+      });
+      wrap.append(b);
+    });
+  }
+
   // Owner sign-in only: buyers never need an account.
   function authPage(q) {
     const next = q.get('next') || '#/admin';
@@ -587,11 +608,12 @@
         <h1>Sign in.</h1>
         <p>Manage your products, files and sales. Looking for something you bought? <a href="#/find" style="color:var(--accent-2)">Find my downloads</a>.</p>
         <label class="field"><span>Email</span><input class="input" name="email" type="email" required autocomplete="email"></label>
-        <label class="field"><span>Password</span><input class="input" name="password" type="password" required autocomplete="current-password"></label>
+        <label class="field"><span style="display:flex;justify-content:space-between">Password<a href="#/forgot" style="color:var(--accent-2);font-weight:400">Forgot password?</a></span><input class="input" name="password" type="password" required autocomplete="current-password"></label>
         <div class="error-msg" id="err"></div>
         <button class="btn btn-primary btn-lg btn-block">Sign in ${I.arrow}</button>
       </form></div>`;
     wireChrome();
+    passwordToggles();
     $('#auth').addEventListener('submit', async e => {
       e.preventDefault();
       try {
@@ -710,6 +732,56 @@
     });
   }
 
+  // Forgot password: sends the owner a one-time reset link.
+  function forgotPage() {
+    app.innerHTML = nav() + `<div class="auth"><div class="aurora"><i></i></div><div class="grain"></div>
+      <form class="auth-card" id="forgot">
+        <span class="label">Store owner</span>
+        <h1>Forgot your password?</h1>
+        <p>Enter the email you sign in with. We'll send a link to choose a new password. It works once, for an hour.</p>
+        <label class="field"><span>Email</span><input class="input" name="email" type="email" required autocomplete="email"></label>
+        <div class="error-msg" id="err"></div>
+        <button class="btn btn-primary btn-lg btn-block">Send reset link ${I.arrow}</button>
+        <p style="margin:16px 0 0;font-size:13.5px"><a href="#/login" style="color:var(--accent-2)">Back to sign in</a></p>
+      </form></div>`;
+    wireChrome();
+    $('#forgot').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button'); btn.disabled = true;
+      try {
+        await api('/api/auth/forgot', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+        e.target.innerHTML = `<span class="label">Check your email</span><h1>Link sent.</h1>
+          <p>If that's the store owner's email, a reset link is on its way. It works for an hour. Can't see it? Check your spam folder.</p>
+          <p style="margin:16px 0 0;font-size:13.5px"><a href="#/login" style="color:var(--accent-2)">Back to sign in</a></p>`;
+      } catch (err) { $('#err').textContent = err.message; btn.disabled = false; }
+    });
+  }
+
+  // The page the reset email links to: choose a new password, then you're signed in.
+  function resetPage(token) {
+    app.innerHTML = nav() + `<div class="auth"><div class="aurora"><i></i></div><div class="grain"></div>
+      <form class="auth-card" id="reset">
+        <span class="label">Store owner</span>
+        <h1>Choose a new password.</h1>
+        <p>At least 8 characters. Signing in elsewhere will need the new one.</p>
+        <label class="field"><span>New password</span><input class="input" name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+        <label class="field"><span>Type it again</span><input class="input" name="again" type="password" minlength="8" required autocomplete="new-password"></label>
+        <div class="error-msg" id="err"></div>
+        <button class="btn btn-primary btn-lg btn-block">Save and sign in ${I.arrow}</button>
+      </form></div>`;
+    wireChrome();
+    passwordToggles();
+    $('#reset').addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(e.target));
+      if (f.password !== f.again) return void ($('#err').textContent = "The two passwords don't match.");
+      try {
+        await api('/api/auth/reset', { method: 'POST', body: { token, password: f.password } });
+        await loadStore(); toast('Password changed. You are signed in.'); location.hash = '#/admin';
+      } catch (err) { $('#err').textContent = err.message; }
+    });
+  }
+
   function account() {
     if (!S.store.user) return (location.hash = '#/login?next=' + encodeURIComponent('#/account'));
     shell(`<div class="wrap page" style="max-width:560px"><span class="label">Owner account</span><h1 style="font-size:44px;margin:16px 0 8px">Settings</h1><p class="muted" style="margin:0 0 30px">${esc(S.store.user.email)}</p>
@@ -717,6 +789,7 @@
         <label class="field"><span>Current password</span><input class="input" type="password" name="current" required></label>
         <label class="field"><span>New password</span><input class="input" type="password" name="next" minlength="8" required></label>
         <button class="btn btn-primary">Update password</button></form></div>`);
+    passwordToggles();
     $('#pw').addEventListener('submit', async e => {
       e.preventDefault();
       try { await api('/api/auth/password', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); e.target.reset(); toast('Password updated'); }
@@ -784,13 +857,15 @@
     document.title = S.store.settings.store_name;
     scrollTo(0, 0);
     // Count visitors' pages, not the owner's own dashboard visits or partners checking their stats.
-    if (!['admin', 'login', 'account', 'affiliate'].includes(parts[0]) && !S.store.user?.isAdmin) setTimeout(() => window.Analytics?.page(), 0);
+    if (!['admin', 'login', 'account', 'affiliate', 'forgot', 'reset'].includes(parts[0]) && !S.store.user?.isAdmin) setTimeout(() => window.Analytics?.page(), 0);
     try {
       switch (parts[0]) {
         case undefined: return await home();
         case 'shop': return await shop(q);
         case 'p': return await product(parts[1], q);
         case 'login': return authPage(q);
+        case 'forgot': return forgotPage();
+        case 'reset': return resetPage(parts[1]);
         case 'download': return await downloadPage(parts[1], 0, q);
         case 'find': return findDownloads();
         case 'terms': case 'privacy': case 'refunds': return await legalPage(parts[0]);
@@ -802,7 +877,7 @@
     } catch (e) { console.error(e); toast(e.message || 'Something went wrong', true); }
   }
 
-  window.Store = { api, upload, esc, money, size, plural, date, md, I, toast, modal, confirmDialog, coverHtml, loadStore, S, route, $, $$, kindLabel, extOf, spinner };
+  window.Store = { api, upload, esc, money, size, plural, date, md, I, toast, modal, confirmDialog, coverHtml, loadStore, S, route, $, $$, kindLabel, extOf, spinner, passwordToggles };
   window.addEventListener('hashchange', route);
   window.addEventListener('DOMContentLoaded', async () => {
     try { await loadStore(); } catch { app.innerHTML = '<div class="wrap page"><h1>Store is offline.</h1></div>'; return; }

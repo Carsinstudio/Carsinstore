@@ -1,6 +1,6 @@
 /* Carsinstore owner dashboard: products, uploads, categories, orders, customers, coupons, settings. */
 (() => {
-  const { api, upload, esc, money, size, plural, date, I, toast, modal, confirmDialog, coverHtml, loadStore, S, $, $$, extOf, spinner } = window.Store;
+  const { api, upload, esc, money, size, plural, date, I, toast, modal, confirmDialog, coverHtml, loadStore, S, $, $$, extOf, spinner, passwordToggles } = window.Store;
   const app = document.getElementById('app');
 
   const A = {
@@ -46,6 +46,7 @@
         <label class="field"><span>Password</span><input class="input" type="password" name="password" minlength="8" required><small>${u ? 'Your current account password.' : 'At least 8 characters.'}</small></label>
         <div class="error-msg" id="err"></div>
         <button class="btn btn-primary btn-lg btn-block">Create owner account ${I.arrow}</button></form></div>`;
+    passwordToggles();
     $('#setup').addEventListener('submit', async e => {
       e.preventDefault();
       try { await api('/api/setup', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); await loadStore(); toast('Welcome to your store'); location.hash = '#/admin'; window.Store.route(); }
