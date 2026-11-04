@@ -158,6 +158,15 @@
     if (p.totalSize) bits.push(`<span>${size(p.totalSize)}</span>`);
     return bits.join('');
   }
+  // Homepage shelf card: picture, what it is, price, and a clear "View" so it reads as clickable.
+  function shelfCard(p) {
+    const fmt = !p.price ? 'Free' : formatOf(p);
+    return `<a class="sh-card" href="#/p/${esc(p.slug)}" aria-label="${esc(p.title)}, ${p.price ? money(p.price) : 'free'}">
+      <div class="sh-img">${coverHtml(p)}<span class="sh-fmt ${p.price ? '' : 'free'}">${esc(fmt)}</span></div>
+      <div class="sh-body">${p.category ? `<span class="sh-cat">${esc(p.category.name)}</span>` : ''}<h3>${esc(p.title)}</h3>
+        ${p.rating ? `<span class="sh-rate">${starsHtml(p.rating.avg)} <small>${p.rating.count}</small></span>` : ''}
+        <div class="sh-foot"><span class="sh-price ${p.price ? '' : 'free'}">${p.price ? money(p.price) : 'Free'}</span><span class="sh-view">View ${I.arrow}</span></div></div></a>`;
+  }
   function productCard(p) {
     return `<a class="card reveal" href="#/p/${esc(p.slug)}">
       <div class="cover" style="aspect-ratio:${ratioCss(p.ratio)}">${coverHtml(p)}
@@ -251,6 +260,13 @@
     const cats = S.store.categories;
     const catIcons = [I.playO, I.file, I.grid, I.book, I.bolt, I.gift];
     const faq = s.faq || [];
+    const inCat = (p, c) => (p.categories || []).some(x => x.slug === c.slug);
+    const shelfTabs = [
+      { name: featured.length ? 'Featured' : 'All', items: highlight.length ? [...highlight, ...all.filter(p => !highlight.some(h => h.id === p.id))] : all, href: '#/shop' },
+      ...cats.filter(c => all.some(p => inCat(p, c))).map(c => ({ name: c.name, items: all.filter(p => inCat(p, c)), href: `#/shop?cat=${encodeURIComponent(c.slug)}` })),
+      // a Free tab, unless a category already holds exactly the free products
+      ...(free.length && !cats.some(c => /free/i.test(c.name) && all.filter(p => inCat(p, c)).every(p => !p.price)) ? [{ name: 'Free', items: all.filter(p => !p.price), href: '#/shop?price=free' }] : []),
+    ];
 
     shell(`
     <section class="hero">
@@ -260,13 +276,6 @@
         <h1><span>${esc(t1)}</span>${t2 ? `<span class="line2 fade-2">${esc(t2)}</span>` : ''}</h1>
         <p class="lead">${esc(s.hero_sub)}</p>
         <div class="actions"><a class="btn btn-primary btn-lg" href="#/shop">Explore the store ${I.arrow}</a><a class="btn btn-lg" href="#/shop?price=free">Get free resources</a></div>
-        <div class="showcase reveal"><div class="showcase-inner">
-          <div class="window-bar"><div class="dots"><span></span><span></span><span></span></div><div class="url">${esc(location.host)}/download</div><span>Your downloads</span></div>
-          <div class="showcase-body">
-            <div class="showcase-side"><span class="on">All products <small class="dim">${all.length}</small></span>${cats.slice(0, 5).map(c => `<span>${esc(c.name)} <small class="dim">${c.count}</small></span>`).join('')}</div>
-            <div class="showcase-main">${(highlight.length ? highlight : []).slice(0, 6).map(p => `<a href="#/p/${esc(p.slug)}" class="card" style="pointer-events:auto"><div class="cover">${coverHtml(p)}</div><div class="card-body" style="padding:11px 12px"><h3 style="font-size:15px;margin:0 0 4px">${esc(p.title)}</h3><div style="display:flex;justify-content:space-between;align-items:center"><span class="meta">${formatOf(p)}</span>${priceHtml(p)}</div></div></a>`).join('') || '<div class="muted" style="grid-column:1/-1;padding:40px;text-align:center">Your products will appear here.</div>'}</div>
-          </div>
-        </div></div>
         <div class="trust">
           <div class="t-label">Everything you need to learn, build and ship.</div>
           <div class="t-items"><span class="t-item">${I.bolt}Instant delivery</span><span class="t-item">${I.infinity}Lifetime access</span><span class="t-item">${I.shield}Secure checkout</span><span class="t-item">${I.gift}Free resources</span></div>
@@ -274,16 +283,16 @@
       </div>
     </section>
 
-    ${cats.length ? `<section class="block"><div class="wrap">
+    <section class="block shelf" id="shelf"><div class="wrap">
+      <div class="shelf-head reveal"><div><span class="label">${featured.length ? 'Featured' : 'Latest'}</span><h2>Start with these</h2></div><a class="see-all" id="shelf-all" href="#/shop">Browse all ${plural(all.length, 'product')} ${I.arrow}</a></div>
+      ${shelfTabs.length > 1 ? `<div class="shelf-tabs" role="tablist">${shelfTabs.map((t, i) => `<button type="button" role="tab" class="${i ? '' : 'on'}" data-shelf="${i}" aria-selected="${!i}">${esc(t.name)} <small>${t.items.length}</small></button>`).join('')}</div>` : ''}
+      <div class="shelf-grid" id="shelf-grid">${all.length ? '' : `<div class="empty"><h3>No products yet</h3><p>${S.store.user?.isAdmin ? 'Add your first product from the <a href="#/admin/products" style="color:var(--accent-2)">dashboard</a>.' : 'Check back soon. New drops are on the way.'}</p></div>`}</div>
+    </div></section>
+
+    ${cats.length ? `<section class="block" style="padding-top:20px"><div class="wrap">
       <div class="section-head reveal"><div class="left"><span class="label">Categories</span><h2>Find exactly what<br>you came for.</h2></div><p>Videos, templates, guides and toolkits, organised so you can get straight to the good stuff.</p></div>
       <div class="cat-grid">${cats.map((c, i) => `<a class="cat-card reveal" href="#/shop?cat=${esc(c.slug)}"><span class="n">${String(c.count).padStart(2, '0')}</span><div class="ico">${catIcons[i % catIcons.length]}</div><div><h3>${esc(c.name)}</h3><p>${esc(c.description || plural(c.count, 'product'))}</p></div></a>`).join('')}</div>
     </div></section>` : ''}
-
-    <section class="block" style="padding-top:${cats.length ? 0 : 110}px"><div class="wrap">
-      <div class="section-head reveal"><div class="left"><span class="label">${featured.length ? 'Featured' : 'Latest'}</span><h2>Made to help you<br>move faster.</h2></div><p>Hand-built products with everything included. Download once, keep forever.</p></div>
-      ${highlight.length ? `<div class="grid">${highlight.map(productCard).join('')}</div>` : `<div class="empty"><h3>No products yet</h3><p>${S.store.user?.isAdmin ? 'Add your first product from the <a href="#/admin/products" style="color:var(--accent-2)">dashboard</a>.' : 'Check back soon. New drops are on the way.'}</p></div>`}
-      <div style="text-align:center;margin-top:34px"><a class="btn" href="#/shop">View all products ${I.arrow}</a></div>
-    </div></section>
 
     <section class="block" style="padding-top:20px"><div class="wrap">
       <div class="section-head reveal"><div class="left"><span class="label">Delivery</span><h2>Pay once,<br>download instantly.</h2></div><p>Every purchase comes with a private download link, shown on screen right away and emailed to you to keep.</p></div>
@@ -318,6 +327,17 @@
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><a class="btn btn-primary" href="#/shop">Browse products ${I.arrow}</a><a class="btn" href="#/shop?price=free">Get free resources</a></div>
     </div></section>`);
 
+    // Shelf: show a tab's products (8 at most) and point "Browse all" at the same group.
+    const drawShelf = i => {
+      const tab = shelfTabs[i] || shelfTabs[0], grid = $('#shelf-grid');
+      if (!grid || !all.length) return;
+      grid.innerHTML = tab.items.slice(0, 8).map(shelfCard).join('');
+      $('#shelf-all').href = tab.href;
+      $('#shelf-all').firstChild.textContent = i ? `See all ${tab.items.length} ` : `Browse all ${plural(all.length, 'product')} `;
+      $$('[data-shelf]').forEach(b => { const on = Number(b.dataset.shelf) === i; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    };
+    $$('[data-shelf]').forEach(b => b.addEventListener('click', () => drawShelf(Number(b.dataset.shelf))));
+    drawShelf(0);
     $$('.faq-q').forEach(b => b.addEventListener('click', () => b.parentElement.classList.toggle('open')));
     const sample = all.find(p => p.kinds.includes('video')) || all[0];
     const dlBtn = `<span class="btn btn-sm">${I.down} Download</span>`;
