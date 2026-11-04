@@ -679,3 +679,27 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .pw-eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
 .pw-eye:hover, .pw-eye:focus-visible { color: var(--text); background: rgba(255,255,255,.06); }
 .pw-eye svg { width: 18px; height: 18px; }
+
+/* ---------- phones and tablets: same look, without the effects that make taps and scrolling lag ----------
+   Live blurs, frosted glass and blend modes are redrawn on every scroll and tap, which phones struggle with.
+   The glows are already soft gradients, so they keep their look without the extra blur. */
+@media (hover: none), (max-width: 900px) {
+  .aurora::before, .aurora::after, .aurora i { animation: none; filter: none; opacity: .7; }
+  .cover-gen::before, .glow-bg::before, .foot-glow { filter: none; }
+  .grain, .cover-gen::after { display: none; }
+  .pill, .announce, .dropdown-menu, .foot-card, .auth-card, .nav.scrolled, .mobile-buy, .modal-back, .menu-pop, .badge, .slide-nav, .mock-video .play {
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .nav.scrolled { background: rgba(8,8,8,.96); }
+  .mobile-buy { background: #141414; }
+  .modal-back { background: rgba(0,0,0,.8); }
+  .dropdown-menu, .auth-card, .foot-card { background: #121212; }
+  .card, .btn { transition: none; }
+}
+/* Taps respond straight away (no double-tap-to-zoom wait) and show they've registered. */
+a, button, label, input, select, textarea, summary, [role="button"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+@media (hover: none) {
+  .btn:active, .icon-btn:active, .card:active { transform: scale(.98); opacity: .9; }
+  .btn:active { filter: brightness(1.08); }
+}
+@media (hover: none), (max-width: 900px) { .reveal { transition-duration: .3s; transform: translateY(8px); } .reveal.in { transform: none; } }

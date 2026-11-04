@@ -26,17 +26,22 @@ function button(href, label) {
 // Form-style detail rows: small grey label above the value, thin line underneath (like the reference's fields).
 function rows(items) {
   return items.map(([label, value]) => `<tr><td style="padding:0 0 16px 0;">
-      <div style="font-family:${SANS};font-size:11px;line-height:1.4;color:${C.muted};padding-bottom:6px;">${label}</div>
-      <div style="font-family:${SANS};font-size:15px;line-height:1.5;color:${C.text};padding-bottom:10px;border-bottom:1px solid ${C.line};">${value}</div>
+      <div class="t-muted" style="font-family:${SANS};font-size:11px;line-height:1.4;color:${C.muted};padding-bottom:6px;">${keep(label)}</div>
+      <div class="t-text" style="font-family:${SANS};font-size:15px;line-height:1.5;color:${C.text};padding-bottom:10px;border-bottom:1px solid ${C.line};">${keep(value)}</div>
     </td></tr>`).join('');
 }
 
 // Five tappable stars; each opens the buyer's download page with that rating already picked.
 function starRow(hrefBase) {
-  const star = n => `<td align="center" style="padding:0 3px;"><a href="${hrefBase}${n}" target="_blank" title="${n} star${n > 1 ? 's' : ''}" style="display:block;width:46px;height:46px;line-height:44px;border-radius:10px;border:1px solid ${C.line};background-color:#171717;font-family:Arial,sans-serif;font-size:24px;color:${C.accent2};text-decoration:none;">&#9733;</a></td>`;
+  const star = n => `<td align="center" style="padding:0 3px;"><a href="${hrefBase}${n}" target="_blank" title="${n} star${n > 1 ? 's' : ''}" style="display:block;width:46px;height:46px;line-height:44px;border-radius:10px;border:1px solid ${C.line};background-color:#171717;background-image:linear-gradient(#171717,#171717);font-family:Arial,sans-serif;font-size:24px;color:${C.accent2};text-decoration:none;">&#9733;</a></td>`;
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-left:-3px;"><tr>${[1, 2, 3, 4, 5].map(star).join('')}</tr></table>
     <div style="padding-top:8px;font-family:${SANS};font-size:11px;color:${C.muted};">Tap a star: 1 is poor, 5 is great.</div>`;
 }
+
+// Keeps text its own colour in Gmail's dark mode (Gmail only; elsewhere it changes nothing).
+const keep = html => `<div class="gs"><div class="gd">${html}</div></div>`;
+// A solid colour as a background image as well, which Gmail's dark mode leaves alone.
+const solid = c => `background-color:${c};background-image:linear-gradient(${c},${c});`;
 
 function layout({ preheader, label, heading, sub, details = [], cta, note, secondary, minimal = false, before = '' }) {
   return `<!doctype html>
@@ -44,46 +49,60 @@ function layout({ preheader, label, heading, sub, details = [], cta, note, secon
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark">
-<meta name="supported-color-schemes" content="dark">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
 <title>{{{STORE_NAME}}}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,300;6..72,400&display=swap" rel="stylesheet">
 <style>
+  :root{color-scheme:light dark;supported-color-schemes:light dark}
   @media (max-width:600px){ .px{padding-left:24px!important;padding-right:24px!important} .h1{font-size:36px!important} }
   a{color:${C.accent2}}
+  /* The design is always black: in dark mode, put back the same colours. Apple Mail, iOS Mail and others. */
+  @media (prefers-color-scheme: dark){
+    body,.body,.bg-page{background-color:${C.page}!important}
+    .bg-card{background-color:${C.card}!important}
+    .t-text{color:${C.text}!important} .t-soft{color:#e8dcd2!important} .t-muted{color:${C.muted}!important} .t-dim{color:${C.dim}!important} .t-label{color:#f6c9a8!important}
+  }
+  /* Outlook.com and the Outlook apps in dark mode */
+  [data-ogsb] .bg-page,[data-ogsb] body{background-color:${C.page}!important}
+  [data-ogsb] .bg-card{background-color:${C.card}!important}
+  [data-ogsc] .t-text{color:${C.text}!important} [data-ogsc] .t-soft{color:#e8dcd2!important} [data-ogsc] .t-muted{color:${C.muted}!important} [data-ogsc] .t-dim{color:${C.dim}!important} [data-ogsc] .t-label{color:#f6c9a8!important}
+  /* Gmail's dark mode: these two layers cancel its colour flip on text */
+  u + .body .gs{background:#000;mix-blend-mode:screen}
+  u + .body .gd{background:#000;mix-blend-mode:difference}
 </style>
 </head>
-<body style="margin:0;padding:0;background-color:${C.page};">
+<body class="body" bgcolor="${C.page}" style="margin:0;padding:0;${solid(C.page)}">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:${C.page};">${preheader}&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${C.page}" style="background-color:${C.page};">
-<tr><td align="center" style="padding:36px 14px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${C.page}" class="bg-page" style="${solid(C.page)}">
+<tr><td align="center" class="bg-page" bgcolor="${C.page}" style="padding:36px 14px;${solid(C.page)}">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;">
     <!-- hero with the glow -->
-    <tr><td bgcolor="${C.card}" class="px" style="padding:30px 40px 44px 40px;border-radius:18px 18px 0 0;background-color:${C.card};background-image:radial-gradient(ellipse 85% 72% at 24% 44%,rgba(236,98,48,0.95) 0%,rgba(206,68,38,0.6) 28%,rgba(120,38,24,0.2) 52%,rgba(17,17,17,0) 70%);">
+    <tr><td bgcolor="${C.card}" class="px bg-card" style="padding:30px 40px 44px 40px;border-radius:18px 18px 0 0;background-color:${C.card};background-image:radial-gradient(ellipse 85% 72% at 24% 44%,rgba(236,98,48,0.95) 0%,rgba(206,68,38,0.6) 28%,rgba(120,38,24,0.2) 52%,rgba(17,17,17,0) 70%),linear-gradient(${C.card},${C.card});">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr>
           <td style="font-family:${SANS};font-size:13px;font-weight:500;color:${C.text};"><img src="{{{SITE_URL}}}/brand/logo-email.png" width="170" height="25" alt="{{{STORE_NAME}}}" style="display:block;border:0;outline:none;text-decoration:none;width:170px;height:25px;"></td>
           <td align="right">${minimal ? '' : `<a href="{{{SITE_URL}}}" target="_blank" style="font-family:${SANS};font-size:12px;color:${C.soft};text-decoration:none;">Visit store</a>`}</td>
         </tr>
-        <tr><td colspan="2" style="padding-top:78px;font-family:${SANS};font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:#f6c9a8;">${label}</td></tr>
-        <tr><td colspan="2" class="h1" style="padding-top:12px;font-family:${SERIF};font-size:44px;font-weight:300;line-height:1.08;letter-spacing:-0.5px;color:${C.text};">${heading}</td></tr>
-        ${sub ? `<tr><td colspan="2" style="padding-top:16px;font-family:${SANS};font-size:15px;line-height:1.6;color:#e8dcd2;max-width:420px;">${sub}</td></tr>` : ''}
+        <tr><td colspan="2" class="t-label" style="padding-top:78px;font-family:${SANS};font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:#f6c9a8;">${keep(label)}</td></tr>
+        <tr><td colspan="2" class="h1 t-text" style="padding-top:12px;font-family:${SERIF};font-size:44px;font-weight:300;line-height:1.08;letter-spacing:-0.5px;color:${C.text};">${keep(heading)}</td></tr>
+        ${sub ? `<tr><td colspan="2" class="t-soft" style="padding-top:16px;font-family:${SANS};font-size:15px;line-height:1.6;color:#e8dcd2;max-width:420px;">${keep(sub)}</td></tr>` : ''}
       </table>
     </td></tr>
     <!-- details, button, note -->
-    <tr><td bgcolor="${C.card}" class="px" style="padding:34px 40px 38px 40px;background-color:${C.card};border-radius:0 0 18px 18px;">
+    <tr><td bgcolor="${C.card}" class="px bg-card" style="padding:34px 40px 38px 40px;${solid(C.card)}border-radius:0 0 18px 18px;">
       ${before ? `<div style="padding-bottom:26px;">${before}</div>` : ''}
       ${details.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rows(details)}</table>` : ''}
       ${cta ? `<div style="padding-top:${details.length ? 14 : 0}px;">${button(cta.href, cta.label)}</div>` : ''}
-      ${secondary ? `<div style="padding-top:18px;font-family:${SANS};font-size:13px;color:${C.muted};">${secondary}</div>` : ''}
-      ${note ? `<div style="padding-top:26px;font-family:${SANS};font-size:13px;line-height:1.6;color:${C.muted};">${note}</div>` : ''}
+      ${secondary ? `<div class="t-muted" style="padding-top:18px;font-family:${SANS};font-size:13px;color:${C.muted};">${keep(secondary)}</div>` : ''}
+      ${note ? `<div class="t-muted" style="padding-top:26px;font-family:${SANS};font-size:13px;line-height:1.6;color:${C.muted};">${keep(note)}</div>` : ''}
     </td></tr>
     <!-- footer -->
-    <tr><td class="px" style="padding:26px 40px 0 40px;font-family:${SANS};font-size:12px;line-height:1.7;color:${C.dim};">
+    <tr><td class="px t-dim bg-page" bgcolor="${C.page}" style="padding:26px 40px 0 40px;font-family:${SANS};font-size:12px;line-height:1.7;color:${C.dim};${solid(C.page)}"><div class="gs"><div class="gd">
       Questions? Just reply to this email, or write to <a href="mailto:{{{SUPPORT_EMAIL}}}" style="color:${C.soft};text-decoration:none;">{{{SUPPORT_EMAIL}}}</a>.<br>
       ${minimal ? '' : `<a href="{{{SITE_URL}}}/terms" target="_blank" style="color:${C.dim};text-decoration:underline;">Terms</a>&nbsp;&middot;&nbsp;<a href="{{{SITE_URL}}}/refunds" target="_blank" style="color:${C.dim};text-decoration:underline;">Refund policy</a>&nbsp;&middot;&nbsp;<a href="{{{SITE_URL}}}/privacy" target="_blank" style="color:${C.dim};text-decoration:underline;">Privacy</a><br>`}
       &copy; {{{STORE_NAME}}}
-    </td></tr>
+    </div></div></td></tr>
   </table>
 </td></tr>
 </table>

@@ -218,7 +218,17 @@
   }
   function wireChrome() {
     const navEl = $('#nav');
-    const onScroll = () => navEl && navEl.classList.toggle('scrolled', scrollY > 10);
+    // At most once per frame, and only touching the page when the state actually changes.
+    let queued = false, was = null;
+    const onScroll = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        const now = scrollY > 10;
+        if (navEl && now !== was) { navEl.classList.toggle('scrolled', now); was = now; }
+      });
+    };
     window.onscroll = onScroll; onScroll();
     $$('.dropdown').forEach(dd => {
       const btn = dd.querySelector('button');
