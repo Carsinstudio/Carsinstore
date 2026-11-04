@@ -195,7 +195,31 @@ async function sendLinks(orders, { resend = false } = {}) {
 
 function productFiles(productId) {
   return all('SELECT * FROM files WHERE product_id = ? ORDER BY sort, id', productId)
-    .map(f => ({ id: f.id, name: f.original_name, size: f.size, mime: f.mime, preview: !!f.preview, previewPages: f.preview_pages, kind: fileKind(f.mime, f.original_name) }));
+    .map(f => ({ id: f.id, name: f.original_name, size: f.size, mime: f.mime, preview: !f.url && !!f.preview, previewPages: f.preview_pages, kind: fileKind(f.mime, f.original_name),
+      ...(f.url ? { link: true, host: linkHost(f.url) } : {}) }));
+}
+// Link files: big files hosted elsewhere (Google Drive, Dropbox...). Buyers are sent there from their download page;
+// the address itself is never shown to anyone else.
+const LINK_KINDS = { video: 'video/x-link', file: 'application/x-link' };
+const HOSTS = { 'drive.google.com': 'Google Drive', 'docs.google.com': 'Google Drive', 'dropbox.com': 'Dropbox', 'onedrive.live.com': 'OneDrive', '1drv.ms': 'OneDrive',
+  'mega.nz': 'MEGA', 'wetransfer.com': 'WeTransfer', 'we.tl': 'WeTransfer', 'vimeo.com': 'Vimeo', 'youtube.com': 'YouTube', 'youtu.be': 'YouTube', 'notion.so': 'Notion', 'notion.site': 'Notion' };
+function linkHost(url) {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, '');
+    const k = Object.keys(HOSTS).find(d => h === d || h.endsWith('.' + d));
+    return k ? HOSTS[k] : h;
+  } catch { return 'Link'; }
+}
+function cleanLink(v) {
+  const s = String(v || '').trim();
+  try { const u = new URL(s); return ['http:', 'https:'].includes(u.protocol) && s.length <= 2000 ? u.href : null; } catch { return null; }
+}
+// "2.4 GB", "800mb", "350 KB" -> bytes (0 when left empty).
+function parseSize(v) {
+  const m = String(v || '').trim().match(/^([\d.,]+)\s*(kb|mb|gb|tb|k|m|g|t)?b?$/i);
+  if (!m) return 0;
+  const n = Number(m[1].replace(',', '.')), u = (m[2] || 'mb')[0].toLowerCase();
+  return Number.isFinite(n) ? Math.round(n * { k: 1e3, m: 1e6, g: 1e9, t: 1e12 }[u]) : 0;
 }
 
 // Extra product page sections: buyer reviews (everything else lives in the description).
@@ -356,7 +380,7 @@ function productCard(p, catIds = categoryIds(p.id)) {
     category: categories[0] || null, categories,
     featured: !!p.featured, published: !!p.published, createdAt: p.created_at,
     files: files.length, totalSize: files.reduce((n, f) => n + f.size, 0), students,
-    kinds: [...new Set(files.map(f => f.kind))],
+    kinds: [...new Set(files.map(f => f.kind))], previews: files.filter(f => f.preview && PREVIEWABLE.includes(f.kind)).length,
     // For bundles: how many products are inside and what they'd cost one by one (store currency).
     bundle: inside.length ? { count: inside.length, worth: inside.reduce((n, x) => n + (x.price_cents || 0), 0) } : null,
   };
@@ -615,7 +639,7 @@ app.use('/api/admin', (req, res, next) => {
 });
 const KEY_ROUTES = [
   ['GET', /^\/products$/], ['POST', /^\/products$/], ['GET', /^\/products\/\d+$/], ['PUT', /^\/products\/\d+$/],
-  ['POST', /^\/products\/\d+\/(publish|unpublish|cover|files)$/], ['PUT', /^\/products\/\d+\/covers$/],
+  ['POST', /^\/products\/\d+\/(publish|unpublish|cover|files|links)$/], ['PUT', /^\/products\/\d+\/covers$/],
   ['PUT', /^\/files\/\d+$/], ['DELETE', /^\/files\/\d+$/], ['GET', /^\/categories$/], ['POST', /^\/categories$/],
 ];
 const requireAdmin = (req, res, next) => (req.user?.is_admin ? next() : bad(res, 'Admins only.', 403));
@@ -667,7 +691,7 @@ app.get('/api/products/:slug', (req, res) => {
   // File ids are only exposed for free previews; everything else stays locked until purchase.
   const files = productFiles(p.id).map(f => {
     const preview = f.preview && PREVIEWABLE.includes(f.kind);
-    return { name: f.name, size: f.size, kind: f.kind, preview, ...(preview ? { id: f.id } : {}), ...(preview && f.kind === 'pdf' ? { previewPages: f.previewPages } : {}) };
+    return { name: f.name, size: f.size, kind: f.kind, preview, ...(f.link ? { link: true, host: f.host } : {}),...(preview ? { id: f.id } : {}), ...(preview && f.kind === 'pdf' ? { previewPages: f.previewPages } : {}) };
   });
   const reviews = all('SELECT name, rating, body, created_at FROM reviews WHERE product_id = ? AND hidden = 0 ORDER BY updated_at DESC LIMIT 30', p.id);
   res.json({ ...productCard(p, cats), covers: coverUrls(p), description: p.description, sales: cleanSales(p.sales), fileList: files,
@@ -953,6 +977,13 @@ app.get('/api/files/:id', wrap(async (req, res) => {
   const viaLink = req.query.t && one(`SELECT 1 FROM orders o JOIN products b ON b.id = o.product_id WHERE o.access_token = ? AND o.status IN ${ACCESS_STATUSES}
     AND (o.product_id = ? OR EXISTS (SELECT 1 FROM json_each(b.bundle_items) WHERE CAST(value AS INTEGER) = ?))`, String(req.query.t), f.product_id, f.product_id);
   const full = viaLink || (req.user?.is_admin && !req.query.sample);
+  // A link file: buyers (and the owner) are sent on to where it is hosted. Nobody else ever sees the address.
+  if (f.url) {
+    if (!full) return bad(res, 'This file is only available to buyers.', 403);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    return res.redirect(302, f.url);
+  }
   const kind = fileKind(f.mime, f.original_name);
   if (!full && !(f.preview && PREVIEWABLE.includes(kind))) return bad(res, 'This file is only available to buyers.', 403);
   let file = path.join(FILES_DIR, f.stored_name), name = f.original_name;
@@ -1046,7 +1077,8 @@ admin.get('/products/:id', (req, res) => {
   if (!p) return bad(res, 'Not found', 404);
   const d = draftState(p);
   res.json({ id: p.id, slug: p.slug, published: !!p.published, changes: hasChanges(p), link: productLink(p),
-    edit: { ...d, covers: d.covers.map(c => `/media/covers/${c}`) }, files: productFiles(p.id),
+    edit: { ...d, covers: d.covers.map(c => `/media/covers/${c}`) },
+    files: productFiles(p.id).map(f => (f.link ? { ...f, url: one('SELECT url FROM files WHERE id = ?', f.id).url } : f)),
     reviews: all('SELECT r.*, u.email FROM reviews r JOIN orders o ON o.id = r.order_id JOIN users u ON u.id = o.user_id WHERE r.product_id = ? ORDER BY r.updated_at DESC', p.id),
     others: all('SELECT id, title, price_cents, bundle_items FROM products WHERE id != ? ORDER BY title', p.id)
       .map(o => ({ id: o.id, title: o.title, price: o.price_cents, isBundle: bundleIds(o).length > 0 })) });
@@ -1169,9 +1201,9 @@ admin.delete('/reviews/:id', (req, res) => { run('DELETE FROM reviews WHERE id =
 admin.delete('/products/:id', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
-  for (const f of all('SELECT stored_name FROM files WHERE product_id = ?', p.id)) fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
+  for (const f of all("SELECT stored_name FROM files WHERE product_id = ? AND stored_name != ''", p.id)) fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
   for (const c of new Set([...coversOf(p), ...draftState(p).covers, p.cover_path].filter(Boolean))) removeCover(c);
-  for (const f of all('SELECT stored_name FROM files WHERE product_id = ?', p.id)) dropSamples(f);
+  for (const f of all("SELECT stored_name FROM files WHERE product_id = ? AND stored_name != ''", p.id)) dropSamples(f);
   run('DELETE FROM products WHERE id = ?', p.id);
   res.json({ ok: true });
 });
@@ -1212,9 +1244,27 @@ admin.post('/products/:id/files', upload.array('files', 50), (req, res) => {
   }
   res.json({ ok: true, count: (req.files || []).length });
 });
+// A link instead of an upload, for big files kept on Google Drive and similar: { name, url, kind: 'video'|'file', size: '2.4 GB' }.
+admin.post('/products/:id/links', (req, res) => {
+  const p = one('SELECT id FROM products WHERE id = ?', req.params.id);
+  if (!p) return bad(res, 'Not found', 404);
+  const url = cleanLink(req.body?.url);
+  if (!url) return bad(res, 'Paste the full link, starting with https://');
+  const name = String(req.body?.name || '').trim().slice(0, 200) || `${linkHost(url)} folder`;
+  const sort = one('SELECT COALESCE(MAX(sort), -1) AS s FROM files WHERE product_id = ?', p.id).s + 1;
+  const r = run('INSERT INTO files (product_id, original_name, stored_name, mime, size, sort, url) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    p.id, name, '', LINK_KINDS[req.body?.kind] || LINK_KINDS.file, parseSize(req.body?.size), sort, url);
+  res.json({ ok: true, id: Number(r.lastInsertRowid) });
+});
 admin.put('/files/:id', (req, res) => {
   const f = one('SELECT * FROM files WHERE id = ?', req.params.id);
   if (!f) return bad(res, 'Not found', 404);
+  if (f.url && (req.body.url !== undefined || req.body.kind !== undefined || req.body.size !== undefined)) {
+    const url = req.body.url === undefined ? f.url : cleanLink(req.body.url);
+    if (!url) return bad(res, 'Paste the full link, starting with https://');
+    run('UPDATE files SET url = ?, mime = ?, size = ? WHERE id = ?', url, LINK_KINDS[req.body.kind] || f.mime,
+      req.body.size === undefined ? f.size : parseSize(req.body.size), f.id);
+  }
   const pages = req.body.preview_pages === undefined ? f.preview_pages : Math.min(Math.max(Math.round(Number(req.body.preview_pages)) || 3, 1), 20);
   run('UPDATE files SET original_name = ?, preview = ?, sort = ?, preview_pages = ? WHERE id = ?', req.body.name || f.original_name,
     req.body.preview === undefined ? f.preview : req.body.preview ? 1 : 0, req.body.sort ?? f.sort, pages, f.id);
@@ -1223,8 +1273,7 @@ admin.put('/files/:id', (req, res) => {
 admin.delete('/files/:id', (req, res) => {
   const f = one('SELECT * FROM files WHERE id = ?', req.params.id);
   if (!f) return bad(res, 'Not found', 404);
-  fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
-  dropSamples(f);
+  if (f.stored_name) { fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {}); dropSamples(f); }
   run('DELETE FROM files WHERE id = ?', f.id);
   res.json({ ok: true });
 });

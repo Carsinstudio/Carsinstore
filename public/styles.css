@@ -211,8 +211,10 @@ section.block { padding: 110px 0; position: relative; }
 .mock-video .bar i { display: block; height: 100%; width: 38%; background: var(--accent-2); border-radius: 3px; }
 .mock-row { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; font-size: 13px; }
 .mock-row + .mock-row { border-top: 1px solid var(--line); }
-.mock-row .fi { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--card-3); border: 1px solid var(--line-2); font: 9px var(--mono); color: var(--accent-2); }
-.mock-row .grow { flex: 1; } .mock-row small { color: var(--dim); display: block; font-size: 11.5px; }
+.mock-row .fi { flex-shrink: 0; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--card-3); border: 1px solid var(--line-2); font: 9px var(--mono); color: var(--accent-2); }
+.mock-row .grow { flex: 1; min-width: 0; } .mock-row .nm { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+a.mock-row { color: inherit; text-decoration: none; transition: background .15s; } a.mock-row:hover { background: var(--card-3); }
+.mock-row small { color: var(--dim); display: block; font-size: 11.5px; }
 .ring { --p: 72; width: 120px; height: 120px; border-radius: 50%; background: conic-gradient(var(--accent-2) calc(var(--p) * 1%), #2a2a2a 0); display: grid; place-items: center; }
 .ring > div { width: 94px; height: 94px; border-radius: 50%; background: #171717; display: grid; place-items: center; text-align: center; font-size: 11px; color: var(--muted); }
 .ring b { display: block; font: 26px var(--serif); color: var(--text); }
@@ -746,3 +748,8 @@ a.bundle-row:hover { background: rgba(255,255,255,.025); }
 .home-reviews figcaption a { color: var(--accent-2); }
 @media (max-width: 980px) { .hr-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 640px) { .hr-grid { grid-template-columns: 1fr; } }
+
+/* Dashboard: add a hosted link (Google Drive etc.) instead of uploading */
+.link-add { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+.link-add .btn svg { width: 14px; height: 14px; }
+.file-ico svg { display: block; }

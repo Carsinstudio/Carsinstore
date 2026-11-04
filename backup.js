@@ -58,7 +58,7 @@ async function exportBackup(out, { includeOrders = false } = {}) {
       snap.exec('PRAGMA foreign_keys = ON; DELETE FROM orders; DELETE FROM users WHERE is_admin = 0; UPDATE coupons SET uses = 0;');
       snap.exec('VACUUM');
     }
-    const files = snap.prepare('SELECT stored_name FROM files').all().map(r => r.stored_name);
+    const files = snap.prepare("SELECT stored_name FROM files WHERE stored_name != ''").all().map(r => r.stored_name);
     const covers = [...new Set(snap.prepare('SELECT cover_path, covers, draft FROM products').all().flatMap(r => {
       let list = [], draft = []; try { list = JSON.parse(r.covers || '[]'); } catch {}
       try { draft = JSON.parse(r.draft || '{}').covers || []; } catch {}
@@ -138,7 +138,7 @@ function inspect(dir) {
   const db = new DatabaseSync(path.join(dir, 'store.db'));
   try {
     store.migrate(db); // upgrades backups made by older versions of the store
-    const files = db.prepare('SELECT stored_name FROM files').all().map(r => r.stored_name);
+    const files = db.prepare("SELECT stored_name FROM files WHERE stored_name != ''").all().map(r => r.stored_name);
     return {
       manifest,
       products: db.prepare('SELECT COUNT(*) AS n FROM products').get().n,

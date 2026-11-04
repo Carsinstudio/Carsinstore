@@ -199,7 +199,7 @@
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Product</th><th>Price</th><th>Files</th><th>Sales</th><th>Status</th><th></th></tr>
       ${list.map(p => `<tr class="click" data-id="${p.id}"><td><div style="display:flex;gap:12px;align-items:center"><div class="thumb">${p.draftCover ? coverThumb(p.draftCover, p.draftCoverVideo) : coverHtml(p)}</div><div><div>${esc(p.name)}</div><small class="dim">${p.categories.length ? esc(p.categories.map(c => c.name).join(', ')) : 'No category'}${p.rating ? ` · ★ ${p.rating.avg} (${p.rating.count})` : ''}</small></div></div></td>
         <td>${p.price ? money(p.price) : '<span style="color:var(--amber)">Free</span>'}</td>
-        <td class="muted">${p.files ? `${plural(p.files, 'file')} · ${size(p.totalSize)}` : '<span style="color:#ff8b7a">No files yet</span>'}</td><td>${p.students}</td>
+        <td class="muted">${p.files ? `${plural(p.files, 'file')}${p.totalSize ? ' · ' + size(p.totalSize) : ''}` : '<span style="color:#ff8b7a">No files yet</span>'}</td><td>${p.students}</td>
         <td>${statusOf(p)}${p.featured ? ' <span class="status free">featured</span>' : ''}</td>
         <td style="text-align:right;width:1%"><button class="icon-btn" data-menu="${p.id}" title="Actions">${dots}</button></td></tr>`).join('')}</table></div>`
       : `<div class="empty"><h3>No products yet</h3><p>Create your first digital product, then upload its files.</p></div>`));
@@ -290,6 +290,7 @@
           <div class="mini-files" id="file-list"></div>
           <div id="up-list"></div>
           <div class="dropzone" data-drop>${A.upload}<div><b style="font-weight:500;color:var(--text)">Drop files here</b> or click to upload</div><small class="dim">Videos, PDFs, ZIPs, documents, audio, anything. Max 4 GB each. You can keep editing while they upload.</small></div>
+          <div class="link-add"><span class="muted">Big video course on Google Drive or Dropbox?</span><button type="button" class="btn btn-sm" id="add-link">${A.link} Add a link instead</button></div>
         </div>
         <form class="panel" id="pf"><h3>Details</h3>
           <label class="field"><span>Title</span><input class="input" name="title" value="${esc(e0.title)}" required></label>
@@ -558,7 +559,7 @@
     // ----- files -----
     const drawFiles = () => {
       const total = files.reduce((n, f) => n + f.size, 0);
-      $('#file-count').textContent = files.length ? `${plural(files.length, 'file')} · ${size(total)}` : '';
+      $('#file-count').textContent = files.length ? `${plural(files.length, 'file')}${total ? ' · ' + size(total) : ''}` : '';
       $('#file-list').innerHTML = files.map((f, i) => fileHtml(f, i, files.length)).join('');
     };
     const refreshFiles = async () => {
@@ -575,6 +576,7 @@
         if (!(await confirmDialog('Delete this file?', 'Customers will no longer be able to download it.', 'Delete', true))) return;
         fileAction(() => api(`/api/admin/files/${b.dataset.delFile}`, { method: 'DELETE' }), 'File deleted');
       }
+      if (b.dataset.editLink) return linkModal(files.find(f => f.id === Number(b.dataset.editLink)));
       if (b.dataset.renFile) {
         const cur = files.find(f => f.id === Number(b.dataset.renFile)).name;
         modal(`<h3>Rename file</h3><form id="rn"><label class="field" style="margin-top:14px"><span>Name buyers see</span><input class="input" name="name" value="${esc(cur)}"></label>
@@ -595,6 +597,31 @@
       if (t.dataset.previewFile) fileAction(() => putFile(t.dataset.previewFile, { preview: t.checked }), t.checked ? 'Visitors can now preview this file' : 'Preview turned off');
       if (t.dataset.previewPages) fileAction(() => putFile(t.dataset.previewPages, { preview_pages: Number(t.value) }), `Preview shows the first ${plural(Number(t.value), 'page')}`);
     });
+
+    // A link instead of an upload: buyers press Download and are sent to it. Only buyers ever get the address.
+    const linkModal = (f = null) => modal(`<h3>${f ? 'Edit link' : 'Add a link'}</h3>
+      <p class="muted" style="margin:6px 0 0;font-size:13.5px">For big files kept on Google Drive, Dropbox or similar. Buyers see it with their other files, and pressing Download takes them there. Visitors never see the address.</p>
+      <form id="lf" style="margin-top:16px">
+        <label class="field"><span>Link</span><input class="input" name="url" type="url" required placeholder="https://drive.google.com/drive/folders/..." value="${esc(f?.url || '')}"></label>
+        <label class="field"><span>Name buyers see</span><input class="input" name="name" placeholder="Full course videos" value="${esc(f?.name || '')}"></label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <label class="field"><span>What's there</span><select class="input" name="kind"><option value="video"${f?.kind === 'video' || !f ? ' selected' : ''}>Videos</option><option value="file"${f && f.kind !== 'video' ? ' selected' : ''}>Files (ZIP, PDFs, other)</option></select></label>
+          <label class="field"><span>Size (optional)</span><input class="input" name="size" placeholder="e.g. 4.5 GB" value="${f?.size ? esc(size(f.size)) : ''}"></label>
+        </div>
+        <div style="font-size:13px;margin:4px 0 0;padding:10px 12px;border-radius:10px;background:rgba(243,178,108,.08);border:1px solid rgba(243,178,108,.25);color:var(--muted)">On Google Drive, set sharing to <b>Anyone with the link</b> (Viewer), or buyers will be asked to request access.</div>
+        <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">${f ? 'Save' : 'Add link'}</button></div>
+      </form>`, (m, close) => {
+      $('#lf', m).addEventListener('submit', async e => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(e.target));
+        try {
+          if (f) await api(`/api/admin/files/${f.id}`, { method: 'PUT', body: { ...body, name: body.name || f.name } });
+          else await api(`/api/admin/products/${id}/links`, { method: 'POST', body });
+          close(); toast(f ? 'Link saved' : 'Link added'); await refreshFiles();
+        } catch (err) { toast(err.message, true); }
+      });
+    });
+    $('#add-link').addEventListener('click', () => linkModal());
 
     // Uploads go one file at a time, each with its own progress bar, and keep going if you leave this page.
     const dz = $('[data-drop]');
@@ -632,6 +659,10 @@
 
   const PREVIEWABLE = ['video', 'audio', 'pdf', 'image'];
   function fileHtml(f, i, count) {
+    if (f.link) return `<div class="mini-file"><div class="file-ico ${f.kind}" style="width:30px;height:30px">${A.link.replace('<svg', '<svg width="14" height="14"')}</div><span class="grow" title="${esc(f.name)}">${esc(f.name)}</span><small class="dim" style="white-space:nowrap">${esc(f.host)}${f.size ? ' · ' + size(f.size) : ''}</small>
+      <button class="icon-btn" data-move-file="${f.id}:-1" ${i === 0 ? 'disabled' : ''} title="Move up">${A.up}</button><button class="icon-btn" data-move-file="${f.id}:1" ${i === count - 1 ? 'disabled' : ''} title="Move down">${A.dn}</button>
+      <a class="icon-btn" href="/api/files/${f.id}" target="_blank" rel="noopener noreferrer" title="Open link">${A.eye}</a>
+      <button class="icon-btn" data-edit-link="${f.id}" title="Edit">${A.edit}</button><button class="icon-btn" data-del-file="${f.id}" title="Delete">${A.trash}</button></div>`;
     const preview = PREVIEWABLE.includes(f.kind)
       ? `<label class="check" style="font-size:12px;gap:6px;white-space:nowrap" title="Visitors can view this file on the product page, but not download it"><span class="switch" style="transform:scale(.8)"><input type="checkbox" data-preview-file="${f.id}" ${f.preview ? 'checked' : ''}><i></i></span><span class="${f.preview ? '' : 'dim'}">Free preview</span></label>`
       : '';

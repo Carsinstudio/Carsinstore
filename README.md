@@ -161,6 +161,15 @@ Everything (database plus uploaded files) lives in `storage/` (or `DATA_DIR`). *
 
 If you upload very large videos, raise your reverse proxy's body size limit too (e.g. Nginx `client_max_body_size 5G;`).
 
+## Big files on Google Drive (link files)
+
+For a video course too big to upload, keep it on Google Drive (or Dropbox, OneDrive, MEGA) and add a link instead. On the product page in the dashboard, under the upload box, click **Add a link instead**. Paste the link, give it the name buyers see, pick Videos or Files, and add the size if you like.
+
+- Buyers see it with their other files. Pressing **Download** takes them to the link in a new tab.
+- The address is sent only to buyers, after their purchase is checked. Visitors see only the name and that it's on Google Drive.
+- On Google Drive, set the folder's sharing to **Anyone with the link** (Viewer), or buyers will be asked to request access. Anyone who has the address can open it, so a buyer could pass it on. Uploaded files stay safer.
+- Link files can't be free previews, and they aren't inside store backups (the files stay on Drive).
+
 ## Files
 
 | File | What it does |

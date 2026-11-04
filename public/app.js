@@ -37,6 +37,10 @@
   const date = d => new Date(d.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   const kindLabel = { video: 'MP4', pdf: 'PDF', archive: 'ZIP', document: 'DOC', spreadsheet: 'XLS', slides: 'PPT', audio: 'AUD', image: 'IMG', file: 'FILE' };
   const extOf = name => (name.split('.').pop() || 'file').slice(0, 4);
+  // A file's icon and its small grey line. Link files (hosted on Google Drive etc.) show a link icon and where they're hosted.
+  const LINK_ICO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
+  const fileIco = f => `<div class="file-ico ${f.kind}">${f.link ? LINK_ICO : esc(extOf(f.name))}</div>`;
+  const fileMeta = f => (f.link ? [f.kind === 'video' ? 'Videos' : 'Files', 'on ' + esc(f.host), f.size ? size(f.size) : ''].filter(Boolean).join(' · ') : size(f.size));
 
   function md(src) {
     // Tiny markdown: headings, bullet lists, bold, italics, links, paragraphs.
@@ -354,17 +358,23 @@
     $$('[data-shelf]').forEach(b => b.addEventListener('click', () => drawShelf(Number(b.dataset.shelf))));
     drawShelf(0);
     $$('.faq-q').forEach(b => b.addEventListener('click', () => b.parentElement.classList.toggle('open')));
-    const dlBtn = `<span class="btn btn-sm">${I.down} Download</span>`;
+    // The showcase uses real products from the store, each row linking to its page.
+    const KIND_TAG = { video: 'MP4', pdf: 'PDF', archive: 'ZIP', document: 'DOC', audio: 'MP3', spreadsheet: 'XLS', slides: 'PPT', image: 'IMG', file: 'FILE' };
+    const tagOf = p => KIND_TAG[p.kinds.find(k => k !== 'image') || p.kinds[0]] || 'FILE';
+    const filesLine = p => [p.bundle ? `Bundle of ${plural(p.bundle.count, 'product')}` : '', plural(p.files, 'file'), p.totalSize ? size(p.totalSize) : ''].filter(Boolean).join(' · ');
+    const row = (p, sub, end) => `<a class="mock-row" href="#/p/${esc(p.slug)}"><div class="fi">${tagOf(p)}</div><div class="grow"><span class="nm">${esc(p.title)}</span><small>${sub}</small></div>${end}</a>`;
+    const withFiles = all.filter(p => p.files);
+    const previewed = withFiles.filter(p => p.previews).slice(0, 2);
+    const locked = withFiles.filter(p => !previewed.includes(p)).slice(0, 3 - previewed.length);
+    const lockIco = `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`;
     const tabs = [
       { cap: ['Video Downloads', '<b>Keep them offline.</b> Download full-quality video files to watch on any device, or play them right on your download page.'],
         html: `<div class="mock"><a class="mock-video has-video" href="#/p/pitch-deck-template1" aria-label="NeuronFlow AI Pitch Deck"><video data-src="/showcase/neuronflow-cover.mp4" muted loop playsinline preload="none"></video></a>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px;gap:10px"><span>NeuronFlow AI Pitch Deck <small class="dim">· MP4 · HD</small></span>${dlBtn}</div></div>` },
+          <div style="margin-top:12px;font-size:13px">NeuronFlow AI Pitch Deck <small class="dim">· MP4 · HD</small></div></div>` },
       { cap: ['Files & Bundles', '<b>Everything included.</b> PDFs, ZIP bundles, templates and documents. Download them whenever you need, as often as you like.'],
-        html: `<div class="mock">${[['PDF', 'Workbook.pdf', '4.2 MB'], ['ZIP', 'Templates bundle.zip', '86 MB'], ['DOC', 'Checklist.docx', '210 KB'], ['MP4', 'Bonus walkthrough.mp4', '1.1 GB']].map(([k, n, z]) => `<div class="mock-row"><div class="fi">${k}</div><div class="grow">${n}<small>${z}</small></div><span class="dim">${I.down}</span></div>`).join('')}</div>` },
+        html: `<div class="mock">${withFiles.slice(0, 4).map(p => row(p, filesLine(p), `<span class="dim">${I.down}</span>`)).join('')}</div>` },
       { cap: ['Free Previews', '<b>Try before you buy.</b> Watch a sample clip or flip through a sample page right on the product page.'],
-        html: `<div class="mock"><div class="mock-row"><div class="fi">MP4</div><div class="grow">Sample clip.mp4<small>Free preview</small></div><span class="tag-preview">Preview</span></div>
-          <div class="mock-row"><div class="fi">PDF</div><div class="grow">Sample pages.pdf<small>Free preview</small></div><span class="tag-preview">Preview</span></div>
-          <div class="mock-row"><div class="fi">ZIP</div><div class="grow">Full bundle.zip<small>Unlocks after purchase</small></div><span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span></div></div>` },
+        html: `<div class="mock">${previewed.map(p => row(p, 'Free preview', '<span class="tag-preview">Preview</span>')).join('')}${locked.map(p => row(p, 'Unlocks after purchase', lockIco)).join('')}</div>` },
     ];
     const setTab = i => {
       $$('#tabs button').forEach((b, j) => b.classList.toggle('on', i === j));
@@ -452,12 +462,12 @@
             <div class="slide-dots">${p.covers.map((_, i) => `<button data-dot="${i}" aria-label="Image ${i + 1}"></button>`).join('')}</div>` : p.covers?.length ? coverMedia(p.covers[0], false) : coverHtml(p, { title: false })}
             ${previews.length ? `<button class="btn btn-sm" data-preview="${previews[0].id}" style="position:absolute;left:16px;bottom:16px;z-index:3;background:rgba(10,10,10,.7);backdrop-filter:blur(8px)">${I.play.replace('<svg', '<svg width="13" height="13"')} ${previews[0].kind === 'video' ? 'Watch preview' : 'View sample'}</button>` : ''}</div>
           ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
-          ${items.length ? `<div class="box bundle-box" style="margin-top:36px"><div class="box-head"><h3>${plural(items.length, 'product')} in this bundle</h3><span class="muted" style="font-size:13px">${plural(p.files, 'file')} · ${size(p.totalSize)}</span></div>
+          ${items.length ? `<div class="box bundle-box" style="margin-top:36px"><div class="box-head"><h3>${plural(items.length, 'product')} in this bundle</h3><span class="muted" style="font-size:13px">${plural(p.files, 'file')}${p.totalSize ? ' · ' + size(p.totalSize) : ''}</span></div>
             ${items.map(x => `<${x.published ? `a href="#/p/${esc(x.slug)}"` : 'div'} class="bundle-row"><div class="bundle-img" style="aspect-ratio:${ratioCss(x.ratio)}">${coverHtml(x)}</div><div class="grow"><div class="nm">${esc(x.title)}</div><small>${plural(x.files, 'file')}${x.subtitle ? ' · ' + esc(x.subtitle) : ''}</small></div><span class="bundle-worth">${x.price ? money(x.price) : 'Free'}</span></${x.published ? 'a' : 'div'}>`).join('')}
             ${p.bundle?.worth > p.price ? `<div class="bundle-save"><span>Bought one by one</span><s>${money(p.bundle.worth)}</s><span>In this bundle</span><b>${p.price ? money(p.price) : 'Free'}</b><em>You save ${money(p.bundle.worth - p.price)}</em></div>` : ''}
           </div>` : ''}
-          ${p.fileList.length ? `<div class="box" style="margin-top:${items.length ? 18 : 36}px"><div class="box-head"><h3>${items.length ? 'Bonus files' : "What's included"}</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')}${items.length ? '' : ' · ' + size(p.totalSize)}</span></div>
-            ${p.fileList.map(f => `<div class="file-row"><div class="file-ico ${f.kind}">${esc(extOf(f.name))}</div><div class="grow"><div class="nm">${esc(f.name)}</div><small>${size(f.size)}</small></div>
+          ${p.fileList.length ? `<div class="box" style="margin-top:${items.length ? 18 : 36}px"><div class="box-head"><h3>${items.length ? 'Bonus files' : "What's included"}</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')}${items.length || !p.totalSize ? '' : ' · ' + size(p.totalSize)}</span></div>
+            ${p.fileList.map(f => `<div class="file-row">${fileIco(f)}<div class="grow"><div class="nm">${esc(f.name)}</div><small>${fileMeta(f)}</small></div>
               ${f.preview ? `<button class="tag-preview" style="background:none;cursor:pointer" data-preview="${f.id}">Preview</button>` : `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`}</div>`).join('')}
           </div>` : ''}
           ${p.reviews.length || sales.reviews.length ? `<section class="sales-sec" id="reviews"><h3>Reviews${p.rating ? ` <span class="rating-sum">${starsHtml(p.rating.avg)} ${p.rating.avg.toFixed(1)} · ${plural(p.rating.count, 'rating')}</span>` : ''}</h3><div class="reviews">
@@ -699,7 +709,7 @@
       return shell(`<div class="wrap page" style="text-align:center;padding-top:120px"><h1 style="font-size:40px">Still waiting on payment.</h1><p class="muted">If you completed checkout, refresh this page in a minute. Your link will also be emailed to you.</p></div>`);
     }
     document.title = `${p.title} | ${S.store.settings.store_name}`;
-    const viewable = f => ['video', 'audio', 'pdf', 'image'].includes(f.kind);
+    const viewable = f => !f.link && ['video', 'audio', 'pdf', 'image'].includes(f.kind);
     const first = (p.buyer.name || '').split(' ')[0];
     // A bundle shows each included product's files under its own name, then any bonus files.
     const inside = p.bundleItems || [];
@@ -712,10 +722,10 @@
         <p>${esc(p.title)}: ${p.emailed ? `we've also emailed this link to <b style="color:var(--text);font-weight:500">${esc(p.buyer.email)}</b>.` : 'bookmark this page to come back to your files any time.'}</p></div></div>
       <div class="wrap page" style="padding-top:10px;max-width:960px">
         <div id="viewer" style="margin-bottom:22px"></div>
-        ${groups.some(g => g.files.length) ? groups.filter(g => g.files.length).map((g, i) => `<div class="box"${i ? ' style="margin-top:18px"' : ''}><div class="box-head"><h3>${esc(g.title)}</h3><span class="muted" style="font-size:13px">${plural(g.files.length, 'file')} · ${size(g.files.reduce((n, f) => n + f.size, 0))}</span></div>
-          ${g.files.map(f => `<div class="file-row"><div class="file-ico ${f.kind}">${esc(extOf(f.name))}</div><div class="grow"><div class="nm">${esc(f.name)}</div><small>${size(f.size)}</small></div>
+        ${groups.some(g => g.files.length) ? groups.filter(g => g.files.length).map((g, i) => `<div class="box"${i ? ' style="margin-top:18px"' : ''}><div class="box-head"><h3>${esc(g.title)}</h3><span class="muted" style="font-size:13px">${plural(g.files.length, 'file')}${(t => t ? ' · ' + size(t) : '')(g.files.reduce((n, f) => n + f.size, 0))}</span></div>
+          ${g.files.map(f => `<div class="file-row">${fileIco(f)}<div class="grow"><div class="nm">${esc(f.name)}</div><small>${fileMeta(f)}</small></div>
             ${viewable(f) ? `<button class="btn btn-sm btn-ghost" data-view="${f.id}">${f.kind === 'video' || f.kind === 'audio' ? 'Play' : 'View'}</button>` : ''}
-            <a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" download>${I.down} Download</a></div>`).join('')}
+            ${f.link ? `<a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" target="_blank" rel="noopener noreferrer">${I.down} Download</a>` : `<a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" download>${I.down} Download</a>`}</div>`).join('')}${g.files.some(f => f.link) ? `<p class="dim" style="font-size:12.5px;margin:12px 0 0">Files marked with a link open on ${esc([...new Set(g.files.filter(f => f.link).map(f => f.host))].join(', '))} in a new tab, where you can download or watch them.</p>` : ''}
         </div>`).join('') : '<div class="empty"><h3>Files coming soon</h3><p>The files for this product haven\'t been uploaded yet. This same link will work once they are.</p></div>'}
         <div class="box" style="margin-top:18px;padding:16px 20px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
           <span class="muted" style="font-size:13.5px">This private link is your access. Keep it safe and don't share it.</span>
