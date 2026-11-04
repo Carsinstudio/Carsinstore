@@ -125,7 +125,7 @@ const DEFAULT_SETTINGS = {
   review_requests: '1',           // email buyers once, a few days after they get a product, asking for a rating
   review_after_days: '3',
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
-  plausible_domain: '', ga_id: '', meta_pixel_id: '',   // analytics, all optional
+  plausible_domain: '', ga_id: '', meta_pixel_id: '', tiktok_pixel_id: '',   // analytics, all optional
   legal_terms: '', legal_privacy: '', legal_refunds: '', legal_updated: new Date().toISOString().slice(0, 10),
   faq: JSON.stringify([
     { q: 'How do I get my product after buying?', a: 'Instantly. Right after checkout you land on your private download page, and the same link is emailed to you.' },

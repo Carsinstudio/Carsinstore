@@ -1,8 +1,8 @@
-/* Optional analytics: Plausible, Google Analytics 4 and the Meta Pixel, switched on by pasting their IDs in
+/* Optional analytics: Plausible, Google Analytics 4, the Meta Pixel and the TikTok Pixel, switched on by pasting their IDs in
    Store settings → Analytics. Only page views and store events (product viewed, checkout started, purchase,
    free download) are sent, never names, emails or phone numbers. */
 (() => {
-  const on = { plausible: false, ga: false, pixel: false };
+  const on = { plausible: false, ga: false, pixel: false, tiktok: false };
 
   function load(src, attrs = {}) {
     const s = document.createElement('script');
@@ -15,6 +15,7 @@
     const domain = String(settings.plausible_domain || '').trim().toLowerCase();
     const ga = String(settings.ga_id || '').trim().toUpperCase();
     const pixel = String(settings.meta_pixel_id || '').trim();
+    const tiktok = String(settings.tiktok_pixel_id || '').trim().toUpperCase();
 
     if (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) {
       on.plausible = true;
@@ -37,6 +38,24 @@
       load('https://connect.facebook.net/en_US/fbevents.js');
       fbq('init', pixel);
     }
+    if (/^[A-Z0-9]{10,40}$/.test(tiktok)) {
+      on.tiktok = true;
+      // TikTok's standard loader: queues calls until its script arrives.
+      const ttq = (window.ttq = window.ttq || []);
+      window.TiktokAnalyticsObject = 'ttq';
+      ttq.methods = ['page', 'track', 'identify', 'instances', 'debug', 'on', 'off', 'once', 'ready', 'alias', 'group', 'enableCookie', 'disableCookie', 'holdConsent', 'revokeConsent', 'grantConsent'];
+      ttq.setAndDefer = (t, e) => { t[e] = function () { t.push([e].concat(Array.prototype.slice.call(arguments, 0))); }; };
+      ttq.methods.forEach(m => ttq.setAndDefer(ttq, m));
+      ttq.instance = id => { const e = ttq._i[id] || []; ttq.methods.forEach(m => ttq.setAndDefer(e, m)); return e; };
+      ttq.load = (id, opts) => {
+        const src = 'https://analytics.tiktok.com/i18n/pixel/events.js';
+        ttq._i = ttq._i || {}; ttq._i[id] = []; ttq._i[id]._u = src;
+        ttq._t = ttq._t || {}; ttq._t[id] = +new Date();
+        ttq._o = ttq._o || {}; ttq._o[id] = opts || {};
+        load(`${src}?sdkid=${id}&lib=ttq`);
+      };
+      ttq.load(tiktok);
+    }
   }
 
   // Called on every route change (Plausible's hash script counts pages itself).
@@ -44,6 +63,7 @@
     const path = location.pathname + location.hash;
     if (on.ga) gtag('event', 'page_view', { page_location: location.href, page_path: path, page_title: document.title });
     if (on.pixel) fbq('track', 'PageView');
+    if (on.tiktok) ttq.page();
   }
 
   const units = c => c / 100;
@@ -51,20 +71,25 @@
   function track(event, d = {}) {
     const currency = String(d.currency || '').toUpperCase(), value = units(d.amount || 0);
     const item = { item_id: d.slug, item_name: d.title, price: value, quantity: 1 };
+    const content = { content_id: d.slug, content_name: d.title, price: value, quantity: 1 };
     if (event === 'view_product') {
       if (on.ga) gtag('event', 'view_item', { currency, value, items: [item] });
       if (on.pixel) fbq('track', 'ViewContent', { content_ids: [d.slug], content_name: d.title, content_type: 'product', value, currency });
+      if (on.tiktok) ttq.track('ViewContent', { contents: [content], content_type: 'product', value, currency });
     } else if (event === 'begin_checkout') {
       if (on.ga) gtag('event', 'begin_checkout', { currency, value, items: [item] });
       if (on.pixel) fbq('track', 'InitiateCheckout', { content_ids: [d.slug], value, currency });
+      if (on.tiktok) ttq.track('InitiateCheckout', { contents: [content], content_type: 'product', value, currency });
       if (on.plausible) plausible('Checkout', { props: { product: d.title } });
     } else if (event === 'purchase') {
       if (on.ga) gtag('event', 'purchase', { transaction_id: d.ref, currency, value, items: [item] });
       if (on.pixel) fbq('track', 'Purchase', { content_ids: [d.slug], content_type: 'product', value, currency }, { eventID: d.ref });
+      if (on.tiktok) ttq.track('CompletePayment', { contents: [content], content_type: 'product', value, currency }, { event_id: d.ref });
       if (on.plausible) plausible('Purchase', { revenue: { currency, amount: value }, props: { product: d.title } });
     } else if (event === 'free_download') {
       if (on.ga) gtag('event', 'generate_lead', { items: [item] });
       if (on.pixel) fbq('track', 'Lead', { content_name: d.title });
+      if (on.tiktok) ttq.track('SubmitForm', { contents: [content], content_type: 'product' });
       if (on.plausible) plausible('Free download', { props: { product: d.title } });
     }
   }

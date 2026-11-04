@@ -826,6 +826,7 @@
         ${f('plausible_domain', 'Plausible: site domain', 'e.g. carsin.store (add the site in your Plausible account first)')}
         ${f('ga_id', 'Google Analytics 4: Measurement ID', 'Starts with G-, from Admin → Data streams')}
         ${f('meta_pixel_id', 'Meta Pixel ID', 'Numbers only, from Events Manager. Needed for Instagram/Facebook ads.')}
+        ${f('tiktok_pixel_id', 'TikTok Pixel ID', 'Letters and numbers, from TikTok Ads Manager > Tools > Events. Needed for TikTok ads.')}
       </div>
       <div class="panel"><h3>Notifications</h3>
         ${S.store.emails ? '' : '<p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Email isn\'t set up on this copy of the store, so alerts won\'t be sent from here.</p>'}

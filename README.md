@@ -100,7 +100,7 @@ The designs are built by `emails/build.js` (open `emails/dist/preview-*.html` to
 
 ## Analytics (Store settings → Analytics)
 
-Optional. Paste a **Plausible** domain, a **Google Analytics 4** Measurement ID (`G-…`) and/or a **Meta Pixel** ID to switch each one on.
+Optional. Paste a **Plausible** domain, a **Google Analytics 4** Measurement ID (`G-…`) a **Meta Pixel** ID and/or a **TikTok Pixel** ID to switch each one on. Both pixels get the same shopping events (product viewed, checkout started, purchase with its amount, free download), so Meta and TikTok ads can optimise for real sales.
 
 - **What's reported:** page views, product viewed, checkout started, purchase (amount and currency, once per order) and free download. Names, emails and phone numbers are never sent.
 - **What's not counted:** your own visits while signed in, and partner stats pages.
