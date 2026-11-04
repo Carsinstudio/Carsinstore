@@ -140,11 +140,6 @@ section.block { padding: 110px 0; position: relative; }
 .section-head p { max-width: 340px; color: var(--muted); margin: 0; font-size: 14.5px; }
 .section-head.center { flex-direction: column; align-items: center; text-align: center; }
 .section-head.center p { max-width: 460px; }
-.trust { display: flex; align-items: center; gap: 40px; flex-wrap: wrap; padding: 34px 0 0; position: relative; z-index: 2; }
-.trust .t-label { font-size: 13px; color: var(--muted); max-width: 170px; line-height: 1.4; }
-.trust .t-items { display: flex; gap: 38px; flex: 1; justify-content: space-around; flex-wrap: wrap; }
-.trust .t-item { display: flex; align-items: center; gap: 9px; color: #cfcac3; font-weight: 500; font-size: 15px; opacity: .85; }
-.trust svg { width: 18px; height: 18px; color: var(--accent-2); }
 
 /* categories */
 .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
@@ -522,10 +517,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .stat b { font-size: 26px; }
   .hero { padding-top: 150px; }
   .tab-stage { padding: 26px 16px 0; }
-  .trust { flex-direction: column; align-items: stretch; gap: 18px; text-align: center; }
-  .trust .t-label { max-width: none; }
-  .trust .t-items { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .trust .t-item { font-size: 13.5px; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

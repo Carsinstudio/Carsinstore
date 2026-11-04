@@ -276,10 +276,6 @@
         <h1><span>${esc(t1)}</span>${t2 ? `<span class="line2 fade-2">${esc(t2)}</span>` : ''}</h1>
         <p class="lead">${esc(s.hero_sub)}</p>
         <div class="actions"><a class="btn btn-primary btn-lg" href="#/shop">Explore the store ${I.arrow}</a><a class="btn btn-lg" href="#/shop?price=free">Get free resources</a></div>
-        <div class="trust">
-          <div class="t-label">Everything you need to learn, build and ship.</div>
-          <div class="t-items"><span class="t-item">${I.bolt}Instant delivery</span><span class="t-item">${I.infinity}Lifetime access</span><span class="t-item">${I.shield}Secure checkout</span><span class="t-item">${I.gift}Free resources</span></div>
-        </div>
       </div>
     </section>
 
@@ -454,7 +450,8 @@
             ${p.fileList.length ? `<li>${I.checkC}${plural(p.fileList.length, 'downloadable file')}${kinds.length ? ` (${kinds.map(k => kindLabel[k]).join(', ')})` : ''}</li>` : ''}
             <li>${I.checkC}Instant download link after checkout</li>
             <li>${I.checkC}No account needed, just your email</li>
-            <li>${I.checkC}Free future updates to the files</li>
+            <li>${I.checkC}Yours to keep, with free updates</li>
+            ${p.price ? `<li>${I.checkC}Secure payment by Paystack</li>` : ''}
           </ul>
           <div style="display:flex;gap:8px;align-items:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13px">
             <span class="muted" style="margin-right:auto">Share</span>
