@@ -147,10 +147,12 @@
   }
   // Short format label for a product, e.g. "Video", "PDF", "Bundle".
   const formatNames = { video: 'Video', pdf: 'PDF', archive: 'ZIP', document: 'Document', spreadsheet: 'Spreadsheet', slides: 'Slides', audio: 'Audio', image: 'Image', file: 'Download' };
-  const formatOf = p => (!p.kinds?.length ? 'Download' : p.kinds.length > 1 ? 'Bundle' : formatNames[p.kinds[0]]);
+  const formatOf = p => (p.bundle ? 'Bundle' : !p.kinds?.length ? 'Download' : p.kinds.length > 1 ? 'Pack' : formatNames[p.kinds[0]]);
+  // The crossed-out price: the "compare at" price, or for a bundle what its products cost one by one.
+  const compareOf = p => (p.compare && p.compare > p.price ? p.compare : p.bundle?.worth > p.price ? p.bundle.worth : 0);
   function priceHtml(p) {
     if (!p.price) return '<span class="price free">Free</span>';
-    return `<span class="price">${money(p.price)}${p.compare && p.compare > p.price ? `<s>${money(p.compare)}</s>` : ''}</span>`;
+    return `<span class="price">${money(p.price)}${compareOf(p) ? `<s>${money(compareOf(p))}</s>` : ''}</span>`;
   }
   function metaHtml(p) {
     const bits = [];
@@ -165,7 +167,7 @@
       <div class="sh-img">${coverHtml(p)}<span class="sh-fmt ${p.price ? '' : 'free'}">${esc(fmt)}</span></div>
       <div class="sh-body">${p.category ? `<span class="sh-cat">${esc(p.category.name)}</span>` : ''}<h3>${esc(p.title)}</h3>
         ${p.rating ? `<span class="sh-rate">${starsHtml(p.rating.avg)} <small>${p.rating.count}</small></span>` : ''}
-        <div class="sh-foot"><span class="sh-price ${p.price ? '' : 'free'}">${p.price ? money(p.price) : 'Free'}</span><span class="sh-view">View ${I.arrow}</span></div></div></a>`;
+        <div class="sh-foot"><span class="sh-price ${p.price ? '' : 'free'}">${p.price ? money(p.price) : 'Free'}${p.bundle && compareOf(p) ? `<s>${money(compareOf(p))}</s>` : ''}</span><span class="sh-view">View ${I.arrow}</span></div></div></a>`;
   }
   function productCard(p) {
     return `<a class="card reveal" href="#/p/${esc(p.slug)}">
@@ -216,14 +218,24 @@
           ${social.length ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Stay connected</div><div class="socials">${social.map(([k, ic]) => `<a href="${esc(s[k])}" target="_blank" rel="noopener" aria-label="${k}">${ic}</a>`).join('')}</div>` : ''}</div>
         <div><h5>Store</h5><a href="#/shop">All products</a><a href="#/shop?kind=video">Videos</a><a href="#/shop?kind=pdf">PDFs & guides</a><a href="#/shop?price=free">Free resources</a></div>
         <div><h5>Categories</h5>${cats.map(c => `<a href="#/shop?cat=${esc(c.slug)}">${esc(c.name)}</a>`).join('') || '<a href="#/shop">Browse all</a>'}</div>
-        <div><h5>Help</h5><a href="#/find">Find my downloads</a><a href="#/" data-faq>FAQ</a>${s.support_email ? `<a href="mailto:${esc(s.support_email)}">Contact us</a>` : ''}<a href="#/refunds">Refund policy</a></div>
+        <div><h5>Help</h5><a href="#/find">Find my downloads</a><a href="#/" data-faq>FAQ</a>${s.whatsapp ? `<a href="${waLink()}" target="_blank" rel="noopener">Chat on WhatsApp</a>` : ''}${s.support_email ? `<a href="mailto:${esc(s.support_email)}">Contact us</a>` : ''}<a href="#/refunds">Refund policy</a></div>
       </div>
       <div class="foot-bottom"><span>© ${new Date().getFullYear()} ${esc(s.store_name)}. All rights reserved.</span><div><a href="#/terms">Terms</a><a href="#/privacy">Privacy</a><a href="#/refunds">Refunds</a></div></div>
     </div><div class="wordmark">${esc(s.store_name)}</div><div class="foot-glow"></div></footer>`;
   }
-  function shell(content, { active, bare } = {}) {
-    app.innerHTML = nav(active) + `<main>${content}</main>` + (bare ? '' : footer());
+  // WhatsApp chat link with a first message typed in; on a product page it names the product.
+  const waLink = about => {
+    const s = S.store.settings, msg = String(s.whatsapp_message || '').trim();
+    const text = about ? `${msg || 'Hi, I have a question about'} ${about}` : msg.replace(/\s+about$/i, '').trim() || 'Hi';
+    return `https://wa.me/${encodeURIComponent(String(s.whatsapp || '').replace(/\D/g, ''))}?text=${encodeURIComponent(text)}`;
+  };
+  const waIcon = '<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2c0 1.3.9 2.5 1 2.7.1.2 1.8 2.8 4.4 3.9 1.6.7 2.3.8 3.1.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.6-.3z"/></svg>';
+  function shell(content, { active, bare, wa } = {}) {
+    const s = S.store.settings;
+    const fab = s.whatsapp ? `<a class="wa-fab${wa ? ' lift' : ''}" href="${waLink(wa)}" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp" data-wa>${waIcon}<span>Chat with us</span></a>` : '';
+    app.innerHTML = nav(active) + `<main>${content}</main>` + (bare ? '' : footer()) + fab;
     wireChrome();
+    $('[data-wa]')?.addEventListener('click', () => window.Analytics?.track('contact', { channel: 'whatsapp' }));
   }
   function wireChrome() {
     const navEl = $('#nav');
@@ -253,7 +265,7 @@
   // ---------- pages ----------
   async function home() {
     const s = S.store.settings;
-    const [featured, all] = await Promise.all([api('/api/products?featured=1&limit=6'), api('/api/products?limit=60')]);
+    const [featured, all, top] = await Promise.all([api('/api/products?featured=1&limit=6'), api('/api/products?limit=60'), api('/api/reviews/top').catch(() => ({ reviews: [] }))]);
     const free = all.filter(p => !p.price).slice(0, 3);
     const highlight = (featured.length ? featured : all).slice(0, 6);
     const [t1, t2] = String(s.hero_title || '').split('|');
@@ -284,6 +296,13 @@
       ${shelfTabs.length > 1 ? `<div class="shelf-tabs" role="tablist">${shelfTabs.map((t, i) => `<button type="button" role="tab" class="${i ? '' : 'on'}" data-shelf="${i}" aria-selected="${!i}">${esc(t.name)} <small>${t.items.length}</small></button>`).join('')}</div>` : ''}
       <div class="shelf-grid" id="shelf-grid">${all.length ? '' : `<div class="empty"><h3>No products yet</h3><p>${S.store.user?.isAdmin ? 'Add your first product from the <a href="#/admin/products" style="color:var(--accent-2)">dashboard</a>.' : 'Check back soon. New drops are on the way.'}</p></div>`}</div>
     </div></section>
+
+    ${top.reviews?.length ? `<section class="block home-reviews" style="padding-top:20px"><div class="wrap">
+      <div class="section-head reveal"><div class="left"><span class="label">Reviews</span><h2>What buyers<br>are saying.</h2></div>
+        ${top.total ? `<p class="hr-total">${starsHtml(top.total.avg)}<b>${top.total.avg.toFixed(1)}</b> from ${plural(top.total.count, 'verified review')}</p>` : ''}</div>
+      <div class="hr-grid">${top.reviews.map(r => `<figure class="review reveal">${starsHtml(r.rating)}<blockquote class="no-quote">${esc(r.body)}</blockquote>
+        <figcaption><b>${esc(r.name)}</b><span>Verified buyer of <a href="#/p/${esc(r.slug)}">${esc(r.title)}</a></span></figcaption></figure>`).join('')}</div>
+    </div></section>` : ''}
 
     ${cats.length ? `<section class="block" style="padding-top:20px"><div class="wrap">
       <div class="section-head reveal"><div class="left"><span class="label">Categories</span><h2>Find exactly what<br>you came for.</h2></div><p>Videos, templates, guides and toolkits, organised so you can get straight to the good stuff.</p></div>
@@ -406,7 +425,9 @@
     catch { return notFound(); }
     const kinds = [...new Set(p.fileList.map(f => f.kind))];
     const previews = p.fileList.filter(f => f.preview);
-    const off = p.compare && p.compare > p.price ? Math.round((1 - p.price / p.compare) * 100) : 0;
+    const was = compareOf(p);
+    const off = was ? Math.round((1 - p.price / was) * 100) : 0;
+    const items = p.bundleItems || [];
     document.title = `${p.title} | ${S.store.settings.store_name}`;
     const sales = p.sales || { reviews: [] };
     const sec = (title, body) => `<section class="sales-sec"><h3>${title}</h3>${body}</section>`;
@@ -423,7 +444,11 @@
             <div class="slide-dots">${p.covers.map((_, i) => `<button data-dot="${i}" aria-label="Image ${i + 1}"></button>`).join('')}</div>` : p.covers?.length ? coverMedia(p.covers[0], false) : coverHtml(p, { title: false })}
             ${previews.length ? `<button class="btn btn-sm" data-preview="${previews[0].id}" style="position:absolute;left:16px;bottom:16px;z-index:3;background:rgba(10,10,10,.7);backdrop-filter:blur(8px)">${I.play.replace('<svg', '<svg width="13" height="13"')} ${previews[0].kind === 'video' ? 'Watch preview' : 'View sample'}</button>` : ''}</div>
           ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
-          ${p.fileList.length ? `<div class="box" style="margin-top:36px"><div class="box-head"><h3>What's included</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')} · ${size(p.totalSize)}</span></div>
+          ${items.length ? `<div class="box bundle-box" style="margin-top:36px"><div class="box-head"><h3>${plural(items.length, 'product')} in this bundle</h3><span class="muted" style="font-size:13px">${plural(p.files, 'file')} · ${size(p.totalSize)}</span></div>
+            ${items.map(x => `<${x.published ? `a href="#/p/${esc(x.slug)}"` : 'div'} class="bundle-row"><div class="bundle-img" style="aspect-ratio:${ratioCss(x.ratio)}">${coverHtml(x)}</div><div class="grow"><div class="nm">${esc(x.title)}</div><small>${plural(x.files, 'file')}${x.subtitle ? ' · ' + esc(x.subtitle) : ''}</small></div><span class="bundle-worth">${x.price ? money(x.price) : 'Free'}</span></${x.published ? 'a' : 'div'}>`).join('')}
+            ${p.bundle?.worth > p.price ? `<div class="bundle-save"><span>Bought one by one</span><s>${money(p.bundle.worth)}</s><span>In this bundle</span><b>${p.price ? money(p.price) : 'Free'}</b><em>You save ${money(p.bundle.worth - p.price)}</em></div>` : ''}
+          </div>` : ''}
+          ${p.fileList.length ? `<div class="box" style="margin-top:${items.length ? 18 : 36}px"><div class="box-head"><h3>${items.length ? 'Bonus files' : "What's included"}</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')}${items.length ? '' : ' · ' + size(p.totalSize)}</span></div>
             ${p.fileList.map(f => `<div class="file-row"><div class="file-ico ${f.kind}">${esc(extOf(f.name))}</div><div class="grow"><div class="nm">${esc(f.name)}</div><small>${size(f.size)}</small></div>
               ${f.preview ? `<button class="tag-preview" style="background:none;cursor:pointer" data-preview="${f.id}">Preview</button>` : `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`}</div>`).join('')}
           </div>` : ''}
@@ -447,7 +472,8 @@
           </form>
           ${p.price ? `<button class="coupon-toggle" id="coupon-toggle">Have a discount code?</button><form class="coupon hidden" id="coupon-form"><input class="input" name="code" placeholder="CODE"><button class="btn btn-sm">Apply</button></form>` : ''}
           <ul class="includes">
-            ${p.fileList.length ? `<li>${I.checkC}${plural(p.fileList.length, 'downloadable file')}${kinds.length ? ` (${kinds.map(k => kindLabel[k]).join(', ')})` : ''}</li>` : ''}
+            ${items.length ? `<li>${I.checkC}${plural(items.length, 'product')} in one checkout</li>` : ''}
+            ${p.files ? `<li>${I.checkC}${plural(p.files, 'downloadable file')}${kinds.length ? ` (${kinds.map(k => kindLabel[k]).join(', ')})` : ''}</li>` : ''}
             <li>${I.checkC}Instant download link after checkout</li>
             <li>${I.checkC}No account needed, just your email</li>
             <li>${I.checkC}Yours to keep, with free updates</li>
@@ -464,7 +490,7 @@
         <div class="mobile-buy"><div><b>${esc(p.title)}</b><span>${p.price ? money(p.price) : 'Free'}</span></div><button class="btn btn-primary" id="mobile-buy">${p.price ? 'Buy now' : 'Get it free'}</button></div>
       </div>
       ${p.crossSells?.length ? `<section class="xsell"><h3>You might also like</h3><div class="grid">${p.crossSells.map(productCard).join('')}</div></section>` : ''}
-      </div>`, { active: 'shop' });
+      </div>`, { active: 'shop', wa: p.title });
     observeReveal();
     $('[data-to-reviews]')?.addEventListener('click', e => { e.preventDefault(); $('#reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 
@@ -494,7 +520,7 @@
       const d = state.discounted;
       $('#price').innerHTML = !base ? 'Free'
         : d !== null ? `${d ? money(d, cur) : 'Free'}<s>${money(base, cur)}</s><span class="off">${esc(state.coupon.toUpperCase())}</span>`
-        : `${money(base, cur)}${off && cur === main ? `<s>${money(p.compare, cur)}</s><span class="off">-${off}%</span>` : ''}`;
+        : `${money(base, cur)}${off && cur === main ? `<s>${money(was, cur)}</s><span class="off">-${off}%</span>` : ''}`;
       const paid = base && d !== 0;
       $('#buy').innerHTML = (paid ? 'Buy now' : 'Get it free') + ' ' + I.arrow;
       $('.mobile-buy span').textContent = base ? money(d ?? base, cur) : 'Free';
@@ -667,6 +693,10 @@
     document.title = `${p.title} | ${S.store.settings.store_name}`;
     const viewable = f => ['video', 'audio', 'pdf', 'image'].includes(f.kind);
     const first = (p.buyer.name || '').split(' ')[0];
+    // A bundle shows each included product's files under its own name, then any bonus files.
+    const inside = p.bundleItems || [];
+    const groups = inside.length ? [...inside.map(x => ({ title: x.title, files: x.downloads })), { title: 'Bonus files', files: p.downloads }] : [{ title: 'Your files', files: p.downloads }];
+    const allFiles = groups.flatMap(g => g.files);
 
     shell(`<div class="page-top"><div class="aurora"><i></i></div><div class="wrap" style="position:relative;max-width:960px">
         <span class="label">${p.price ? 'Order confirmed' : 'All yours'}</span>
@@ -674,11 +704,11 @@
         <p>${esc(p.title)}: ${p.emailed ? `we've also emailed this link to <b style="color:var(--text);font-weight:500">${esc(p.buyer.email)}</b>.` : 'bookmark this page to come back to your files any time.'}</p></div></div>
       <div class="wrap page" style="padding-top:10px;max-width:960px">
         <div id="viewer" style="margin-bottom:22px"></div>
-        ${p.downloads.length ? `<div class="box"><div class="box-head"><h3>Your files</h3><span class="muted" style="font-size:13px">${plural(p.downloads.length, 'file')} · ${size(p.totalSize)}</span></div>
-          ${p.downloads.map(f => `<div class="file-row"><div class="file-ico ${f.kind}">${esc(extOf(f.name))}</div><div class="grow"><div class="nm">${esc(f.name)}</div><small>${size(f.size)}</small></div>
+        ${groups.some(g => g.files.length) ? groups.filter(g => g.files.length).map((g, i) => `<div class="box"${i ? ' style="margin-top:18px"' : ''}><div class="box-head"><h3>${esc(g.title)}</h3><span class="muted" style="font-size:13px">${plural(g.files.length, 'file')} · ${size(g.files.reduce((n, f) => n + f.size, 0))}</span></div>
+          ${g.files.map(f => `<div class="file-row"><div class="file-ico ${f.kind}">${esc(extOf(f.name))}</div><div class="grow"><div class="nm">${esc(f.name)}</div><small>${size(f.size)}</small></div>
             ${viewable(f) ? `<button class="btn btn-sm btn-ghost" data-view="${f.id}">${f.kind === 'video' || f.kind === 'audio' ? 'Play' : 'View'}</button>` : ''}
             <a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" download>${I.down} Download</a></div>`).join('')}
-        </div>` : '<div class="empty"><h3>Files coming soon</h3><p>The files for this product haven\'t been uploaded yet. This same link will work once they are.</p></div>'}
+        </div>`).join('') : '<div class="empty"><h3>Files coming soon</h3><p>The files for this product haven\'t been uploaded yet. This same link will work once they are.</p></div>'}
         <div class="box" style="margin-top:18px;padding:16px 20px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
           <span class="muted" style="font-size:13.5px">This private link is your access. Keep it safe and don't share it.</span>
           <button class="btn btn-sm" id="copy-link">Copy link</button>
@@ -730,7 +760,7 @@
       try { await navigator.clipboard.writeText(location.href); toast('Link copied'); } catch { toast('Copy the address from your browser bar', true); }
     });
     $$('[data-view]').forEach(b => b.addEventListener('click', () => {
-      const f = p.downloads.find(x => x.id === Number(b.dataset.view));
+      const f = allFiles.find(x => x.id === Number(b.dataset.view));
       $('#viewer').innerHTML = `<div class="box" style="padding:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin:0 4px 12px;gap:10px"><span style="font-size:14px">${esc(f.name)}</span><button class="btn btn-sm btn-ghost" id="close-viewer">Close</button></div>${viewerHtml(f, token)}</div>`;
       $('#close-viewer').onclick = () => ($('#viewer').innerHTML = '');
       $('#viewer').scrollIntoView({ behavior: 'smooth', block: 'start' });

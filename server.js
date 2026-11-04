@@ -239,6 +239,9 @@ const removeCover = name => {
 };
 const coverUrls = p => coversOf(p).map(c => `/media/covers/${coverFile(c, 'big')}`);
 const isVideoCover = name => /\.(mp4|webm|mov|m4v)$/i.test(name || '');
+// Bundles: the products a bundle includes. Buying the bundle unlocks their files too.
+const bundleIds = p => { const v = parseJson(p?.bundle_items || '[]', []); return Array.isArray(v) ? v.map(Number).filter(n => Number.isInteger(n) && n > 0) : []; };
+const bundleProducts = p => bundleIds(p).map(id => one('SELECT * FROM products WHERE id = ?', id)).filter(Boolean);
 const categoryIds = productId => all('SELECT category_id FROM product_categories WHERE product_id = ? ORDER BY sort, category_id', productId).map(r => r.category_id);
 
 // ----- drafts: every edit is saved as a draft, and only goes live when you press Publish -----
@@ -264,11 +267,13 @@ function cleanState(s, productId) {
     covers: [...new Set((Array.isArray(s.covers) ? s.covers : []).map(c => path.basename(String(c))))].slice(0, MAX_COVERS),
     cover_ratio: RATIOS.includes(s.cover_ratio) ? s.cover_ratio : OLD_RATIOS[s.cover_ratio] || '1:1',
     cross_sells: ids(s.cross_sells, 4).filter(id => id !== Number(productId)),
+    // A bundle holds plain products only (not other bundles), so what a buyer unlocks is always one level deep.
+    bundle_items: ids(s.bundle_items, 30).filter(id => id !== Number(productId) && (r => r && !bundleIds(r).length)(one('SELECT id, bundle_items FROM products WHERE id = ?', id))),
   };
 }
 const liveState = p => cleanState({
   ...p, featured: p.featured, alt_prices: parseJson(p.alt_prices || '{}', {}), sales: p.sales,
-  covers: coversOf(p), cross_sells: parseJson(p.cross_sells || '[]', []), category_ids: categoryIds(p.id),
+  covers: coversOf(p), cross_sells: parseJson(p.cross_sells || '[]', []), category_ids: categoryIds(p.id), bundle_items: bundleIds(p),
 }, p.id);
 const draftState = p => p.draft ? cleanState({ ...liveState(p), ...parseJson(p.draft, {}) }, p.id) : liveState(p);
 const hasChanges = p => !!p.draft && JSON.stringify(draftState(p)) !== JSON.stringify(liveState(p));
@@ -276,7 +281,7 @@ const hasChanges = p => !!p.draft && JSON.stringify(draftState(p)) !== JSON.stri
 const rowWithDraft = p => {
   const d = draftState(p);
   return { ...p, ...d, featured: d.featured ? 1 : 0, alt_prices: JSON.stringify(d.alt_prices), sales: JSON.stringify(d.sales), covers: JSON.stringify(d.covers),
-    cover_path: d.covers[0] || null, cross_sells: JSON.stringify(d.cross_sells), category_id: d.category_ids[0] || null, slug: p.slug };
+    cover_path: d.covers[0] || null, cross_sells: JSON.stringify(d.cross_sells), bundle_items: JSON.stringify(d.bundle_items), category_id: d.category_ids[0] || null, slug: p.slug };
 };
 function saveDraft(p, changes) {
   const next = cleanState({ ...draftState(p), ...changes }, p.id);
@@ -293,9 +298,9 @@ function publishProduct(p) {
   const before = coversOf(p);
   const slug = uniqueSlug('products', d.slug, p.id);
   run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, featured=?, alt_prices=?, sales=?,
-    covers=?, cover_path=?, cover_ratio=?, cross_sells=?, published=1, draft=NULL WHERE id=?`,
+    covers=?, cover_path=?, cover_ratio=?, cross_sells=?, bundle_items=?, published=1, draft=NULL WHERE id=?`,
     slug, d.title || 'Untitled product', d.subtitle, d.description, d.price_cents, d.compare_cents, d.category_ids[0] || null, d.featured ? 1 : 0,
-    JSON.stringify(d.alt_prices), JSON.stringify(d.sales), JSON.stringify(d.covers), d.covers[0] || null, d.cover_ratio, JSON.stringify(d.cross_sells), p.id);
+    JSON.stringify(d.alt_prices), JSON.stringify(d.sales), JSON.stringify(d.covers), d.covers[0] || null, d.cover_ratio, JSON.stringify(d.cross_sells), JSON.stringify(d.bundle_items), p.id);
   run('DELETE FROM product_categories WHERE product_id = ?', p.id);
   d.category_ids.forEach((c, i) => run('INSERT INTO product_categories (product_id, category_id, sort) VALUES (?, ?, ?)', p.id, c, i));
   const fresh = one('SELECT * FROM products WHERE id = ?', p.id);
@@ -340,7 +345,8 @@ const dropSamples = f => fs.promises.readdir(path.join(FILES_DIR, '.previews')).
   .filter(n => n.startsWith(f.stored_name + '-')).forEach(n => fs.rm(path.join(FILES_DIR, '.previews', n), { force: true }, () => {}))).catch(() => {});
 
 function productCard(p, catIds = categoryIds(p.id)) {
-  const files = productFiles(p.id);
+  const inside = bundleProducts(p);
+  const files = [...productFiles(p.id), ...inside.flatMap(x => productFiles(x.id))];
   const students = one(`SELECT COUNT(*) AS n FROM orders WHERE product_id = ? AND status IN ${ACCESS_STATUSES}`, p.id).n;
   const categories = catIds.map(id => one('SELECT name, slug FROM categories WHERE id = ?', id)).filter(Boolean);
   return {
@@ -351,8 +357,14 @@ function productCard(p, catIds = categoryIds(p.id)) {
     featured: !!p.featured, published: !!p.published, createdAt: p.created_at,
     files: files.length, totalSize: files.reduce((n, f) => n + f.size, 0), students,
     kinds: [...new Set(files.map(f => f.kind))],
+    // For bundles: how many products are inside and what they'd cost one by one (store currency).
+    bundle: inside.length ? { count: inside.length, worth: inside.reduce((n, x) => n + (x.price_cents || 0), 0) } : null,
   };
 }
+// One included product, as shown on a bundle's page and its buyers' download page.
+const bundleItemCard = x => ({ id: x.id, slug: x.slug, title: x.title, subtitle: x.subtitle, price: x.price_cents, published: !!x.published,
+  cover: x.cover_path ? `/media/covers/${coverFile(x.cover_path, 'card')}` : null, coverVideo: isVideoCover(x.cover_path), ratio: x.cover_ratio || '1:1',
+  files: productFiles(x.id).length });
 
 // Fixed-amount codes are in the store currency, so they only apply to prices in that currency.
 function priceAfterCoupon(price, code, currency, mainCurrency = currency) {
@@ -594,7 +606,7 @@ app.get('/api/products/:slug', (req, res) => {
   });
   const reviews = all('SELECT name, rating, body, created_at FROM reviews WHERE product_id = ? AND hidden = 0 ORDER BY updated_at DESC LIMIT 30', p.id);
   res.json({ ...productCard(p, cats), covers: coverUrls(p), description: p.description, sales: cleanSales(p.sales), fileList: files,
-    reviews, crossSells: crossSellsFor(p, draft ? draftState(live).cross_sells : undefined),
+    reviews, crossSells: crossSellsFor(p, draft ? draftState(live).cross_sells : undefined), bundleItems: bundleProducts(p).map(bundleItemCard),
     // For the owner: whether this is unpublished, and whether it differs from what visitors see.
     draft: !!draft, owner: req.user?.is_admin ? { id: live.id, published: !!live.published, changes: hasChanges(live) } : undefined });
 });
@@ -607,6 +619,15 @@ app.get('/api/affiliate/:token', limit({ name: 'affiliate', max: 60, windowMs: 6
   const recent = all(`SELECT o.created_at, o.amount_cents, o.currency, o.commission_cents, p.title FROM orders o JOIN products p ON p.id = o.product_id
     WHERE o.affiliate_id = ? AND o.status = 'paid' ORDER BY o.id DESC LIMIT 100`, a.id);
   res.json({ name: a.name, code: a.code, percent: a.percent, active: !!a.active, link: sum.link, totals: sum.totals, recent, auto: sum.auto && { bank: sum.auto.bank, last4: sum.auto.last4 } });
+});
+
+// The best buyer reviews for the homepage: 4 or 5 stars with something written, newest first.
+app.get('/api/reviews/top', (_req, res) => {
+  if (getSettings().home_reviews === '0') return res.json({ reviews: [], total: null });
+  const reviews = all(`SELECT r.name, r.rating, r.body, r.created_at, p.title, p.slug FROM reviews r JOIN products p ON p.id = r.product_id
+    WHERE r.hidden = 0 AND p.published = 1 AND r.rating >= 4 AND length(trim(r.body)) >= 15 ORDER BY r.updated_at DESC LIMIT 6`);
+  const t = one('SELECT COUNT(*) AS n, AVG(r.rating) AS avg FROM reviews r JOIN products p ON p.id = r.product_id WHERE r.hidden = 0 AND p.published = 1');
+  res.json({ reviews, total: t.n ? { count: t.n, avg: Math.round(t.avg * 10) / 10 } : null });
 });
 
 app.get('/api/legal/:page', (req, res) => {
@@ -806,6 +827,7 @@ app.get('/api/order/:token', limit({ name: 'order', max: 120, windowMs: 60 * 100
   const mine = one('SELECT rating, body, name FROM reviews WHERE order_id = ?', o.id);
   res.json({
     ...productCard(p), description: p.description, downloads: productFiles(p.id),
+    bundleItems: bundleProducts(p).map(x => ({ ...bundleItemCard(x), downloads: productFiles(x.id) })),
     myReview: mine || null, crossSells: crossSellsFor(p),
     buyer: { name: o.name, email: o.email }, purchasedAt: o.created_at, emailed: mailer.enabled,
     // For analytics "purchase" events: what was actually paid, and an id that isn't the secret link.
@@ -846,7 +868,8 @@ app.post('/api/resend-links',
 app.get('/api/files/:id', wrap(async (req, res) => {
   const f = one('SELECT * FROM files WHERE id = ?', req.params.id);
   if (!f) return bad(res, 'File not found.', 404);
-  const viaLink = req.query.t && one(`SELECT 1 FROM orders WHERE access_token = ? AND product_id = ? AND status IN ${ACCESS_STATUSES}`, String(req.query.t), f.product_id);
+  const viaLink = req.query.t && one(`SELECT 1 FROM orders o JOIN products b ON b.id = o.product_id WHERE o.access_token = ? AND o.status IN ${ACCESS_STATUSES}
+    AND (o.product_id = ? OR EXISTS (SELECT 1 FROM json_each(b.bundle_items) WHERE CAST(value AS INTEGER) = ?))`, String(req.query.t), f.product_id, f.product_id);
   const full = viaLink || (req.user?.is_admin && !req.query.sample);
   const kind = fileKind(f.mime, f.original_name);
   if (!full && !(f.preview && PREVIEWABLE.includes(kind))) return bad(res, 'This file is only available to buyers.', 403);
@@ -936,7 +959,8 @@ admin.get('/products/:id', (req, res) => {
   res.json({ id: p.id, slug: p.slug, published: !!p.published, changes: hasChanges(p), link: productLink(p),
     edit: { ...d, covers: d.covers.map(c => `/media/covers/${c}`) }, files: productFiles(p.id),
     reviews: all('SELECT r.*, u.email FROM reviews r JOIN orders o ON o.id = r.order_id JOIN users u ON u.id = o.user_id WHERE r.product_id = ? ORDER BY r.updated_at DESC', p.id),
-    others: all('SELECT id, title FROM products WHERE id != ? ORDER BY title', p.id) });
+    others: all('SELECT id, title, price_cents, bundle_items FROM products WHERE id != ? ORDER BY title', p.id)
+      .map(o => ({ id: o.id, title: o.title, price: o.price_cents, isBundle: bundleIds(o).length > 0 })) });
 });
 // Saves edits to the draft. Nothing changes for visitors until Publish.
 admin.put('/products/:id', (req, res) => {
@@ -1086,10 +1110,17 @@ admin.delete('/categories/:id', (req, res) => {
 admin.get('/orders', (_req, res) => res.json(all(`SELECT o.*, u.email, u.name, u.phone, p.title, p.slug, a.code AS affiliate_code FROM orders o
   JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id LEFT JOIN affiliates a ON a.id = o.affiliate_id ORDER BY o.id DESC LIMIT 500`)
   .map(o => ({ ...o, ref: orderRef(o), link: downloadUrl(o.access_token) }))));
-admin.get('/customers', (_req, res) => res.json(all(`SELECT u.id, u.email, u.name, u.phone, u.created_at, u.is_admin,
-  (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES}) AS products,
-  (SELECT COALESCE(SUM(amount_cents),0) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid' AND o.currency = ?) AS spent
-  FROM users u WHERE u.is_admin = 0 ORDER BY u.id DESC LIMIT 5000`, storeCurrencies().main)));
+admin.get('/customers', (_req, res) => {
+  const titles = {};
+  for (const r of all(`SELECT DISTINCT o.user_id, p.title FROM orders o JOIN products p ON p.id = o.product_id WHERE o.status IN ${ACCESS_STATUSES} ORDER BY o.id`)) (titles[r.user_id] ||= []).push(r.title);
+  res.json(all(`SELECT u.id, u.email, u.name, u.phone, u.created_at,
+    (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES}) AS products,
+    (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid') AS paid,
+    (SELECT COALESCE(SUM(amount_cents),0) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid' AND o.currency = ?) AS spent,
+    (SELECT MAX(created_at) FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES}) AS last_at
+    FROM users u WHERE u.is_admin = 0 AND EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id) ORDER BY u.id DESC LIMIT 10000`, storeCurrencies().main)
+    .map(u => ({ ...u, titles: [...new Set(titles[u.id] || [])], kind: u.paid ? 'paid' : u.products ? 'free' : 'unfinished' })));
+});
 admin.post('/grant', (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 'Enter a valid email address.');
@@ -1271,6 +1302,7 @@ admin.put('/settings', (req, res) => {
       if (v.trim() !== String(before[k]).trim()) legalChanged = true;
       if (v.trim() === legal.text.trim()) v = ''; // unchanged draft: keep following the built-in text
     }
+    if (k === 'whatsapp') { v = String(v).replace(/\D/g, ''); if (/^0\d{10}$/.test(v)) v = '234' + v.slice(1); }
     run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, typeof v === 'string' ? v : JSON.stringify(v));
   }
   if (legalChanged) run("INSERT INTO settings (key, value) VALUES ('legal_updated', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", new Date().toISOString().slice(0, 10));
@@ -1397,7 +1429,10 @@ for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find']) app.get(`/${
 // Covers are only ever pictures or videos: opened directly, they can't run anything.
 app.use('/media/covers', express.static(COVERS_DIR, { maxAge: '7d', setHeaders: res => res.setHeader('Content-Security-Policy', SANDBOX + "; media-src 'self'") }));
 app.use(['/media', '/api'], (_req, res) => res.status(404).json({ error: 'Not found.' })); // never fall through to the store page
-app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], index: false }));
+// The store's scripts and styles are re-checked on every visit (a quick "not changed" reply when they're the same),
+// so visitors get updates the moment a new version goes live instead of running an old copy.
+app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], index: false,
+  setHeaders: (res, file) => { if (/\.(js|css|html)$/i.test(file)) res.setHeader('Cache-Control', 'no-cache'); } }));
 app.get('*', (_req, res) => sendHome(res));
 
 app.use((err, _req, res, _next) => {

@@ -126,6 +126,9 @@ const DEFAULT_SETTINGS = {
   review_after_days: '3',
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '', tiktok_pixel_id: '',   // analytics, all optional
+  whatsapp: '',                   // number for the "Chat on WhatsApp" button, e.g. 2348012345678. Empty hides the button
+  whatsapp_message: 'Hi, I have a question about',
+  home_reviews: '1',              // show buyers' best reviews on the homepage
   legal_terms: '', legal_privacy: '', legal_refunds: '', legal_updated: new Date().toISOString().slice(0, 10),
   faq: JSON.stringify([
     { q: 'How do I get my product after buying?', a: 'Instantly. Right after checkout you land on your private download page, and the same link is emailed to you.' },
@@ -215,6 +218,8 @@ function migrate(db) {
   if (!hasColumn(db, 'products', 'cover_ratio')) db.exec("ALTER TABLE products ADD COLUMN cover_ratio TEXT NOT NULL DEFAULT '1:1'");
   db.exec("UPDATE products SET cover_ratio = CASE cover_ratio WHEN '16:9' THEN '4:3' ELSE '1:1' END WHERE cover_ratio NOT IN ('1:1', '4:3')"); // only square and 4:3 are offered now
   if (!hasColumn(db, 'products', 'cross_sells')) db.exec("ALTER TABLE products ADD COLUMN cross_sells TEXT NOT NULL DEFAULT '[]'");
+  // Bundles: buying this product also unlocks the files of the products listed here (ids).
+  if (!hasColumn(db, 'products', 'bundle_items')) db.exec("ALTER TABLE products ADD COLUMN bundle_items TEXT NOT NULL DEFAULT '[]'");
   // A product can be in several categories; products.category_id stays as the first one.
   db.exec(`CREATE TABLE IF NOT EXISTS product_categories (
     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,

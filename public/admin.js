@@ -281,6 +281,10 @@
           <p class="muted" style="margin:-8px 0 10px;font-size:12.5px">Up to 4 products shown on this product's page and on the buyer's download page. Pick none to show others from the same categories.</p>
           <div class="check-list" id="xsell">${p.others.map(o => `<label class="check"><input type="checkbox" form="pf" name="cross_sells" value="${o.id}" ${e0.cross_sells.includes(o.id) ? 'checked' : ''}>${esc(o.title)}</label>`).join('') || '<p class="muted" style="margin:0;font-size:13px">Add more products first.</p>'}</div>
         </div>
+        <div class="panel"><h3>Bundle <span class="muted" id="bundle-sum" style="font:13px var(--sans)"></span></h3>
+          <p class="muted" style="margin:-8px 0 10px;font-size:12.5px">Tick products to sell them together as this one product. Buyers get every file from each, on one download page. Set this product's price lower than the total to show the saving.</p>
+          <div class="check-list" id="bundle">${p.others.filter(o => !o.isBundle).map(o => `<label class="check"><input type="checkbox" form="pf" name="bundle_items" value="${o.id}" data-price="${o.price}" ${e0.bundle_items.includes(o.id) ? 'checked' : ''}>${esc(o.title)} <small class="dim" style="margin-left:auto">${o.price ? money(o.price) : 'Free'}</small></label>`).join('') || '<p class="muted" style="margin:0;font-size:13px">Add more products first.</p>'}</div>
+        </div>
         <div class="panel"><h3>Give access</h3><p class="muted" style="font-size:13px;margin:-6px 0 12px">Give someone this product for free. You get a download link to send them.</p>
           <form id="grant" style="display:grid;gap:8px"><input class="input" name="name" placeholder="Their name" style="height:36px"><div style="display:flex;gap:8px"><input class="input" name="email" type="email" placeholder="their@email.com" required style="height:36px"><button class="btn btn-sm">Grant</button></div></form></div>
         <button class="btn btn-danger btn-block" id="del">${A.trash.replace('<svg', '<svg width="15" height="15"')} Delete product</button>
@@ -310,7 +314,7 @@
         title: f.title, subtitle: f.subtitle, description: f.description, slug: f.slug,
         price_cents: Math.round(parseFloat(f.price || 0) * 100) || 0, compare_cents: f.compare ? Math.round(parseFloat(f.compare) * 100) : null,
         featured: !!f.featured, category_ids: fd.getAll('category_ids').map(Number), cross_sells: fd.getAll('cross_sells').map(Number),
-        cover_ratio: f.cover_ratio || '1:1',
+        bundle_items: fd.getAll('bundle_items').map(Number), cover_ratio: f.cover_ratio || '1:1',
         alt_prices: Object.fromEntries(extraCurrencies().map(c => [c, Math.round(parseFloat(f['price_' + c] || 0) * 100) || 0])),
         sales: { reviews: sales.reviews.filter(x => x.quote.trim()) },
       };
@@ -337,6 +341,17 @@
     const onEdit = e => { if (e.target.form?.id === 'pf' || e.target.closest('#reviews')) queueSave(); };
     $('.editor').addEventListener('input', onEdit);
     $('.editor').addEventListener('change', onEdit);
+    // Bundle: what the ticked products cost one by one, against this product's price.
+    const drawBundle = () => {
+      const picked = $$('[name="bundle_items"]:checked'), el = $('#bundle-sum');
+      if (!el) return;
+      const worth = picked.reduce((n, b) => n + Number(b.dataset.price || 0), 0);
+      const price = Math.round(parseFloat($('[name="price"]').value || 0) * 100) || 0;
+      el.textContent = !picked.length ? '' : `${plural(picked.length, 'product')} worth ${money(worth)}${worth > price ? `, buyers save ${money(worth - price)}` : ''}`;
+    };
+    $('.editor').addEventListener('input', drawBundle);
+    $('.editor').addEventListener('change', drawBundle);
+    drawBundle();
     $('[name="title"]').addEventListener('input', e => { $('#head-title').textContent = $('#crumb-title').textContent = e.target.value || 'Untitled product'; });
     $('#pf').addEventListener('submit', e => e.preventDefault());
     // Save straight away when leaving this page.
@@ -347,7 +362,7 @@
     $('#publish').addEventListener('click', async () => {
       try {
         busy.dirty = busy.dirty || !!snapshot; await flush();
-        const r = await publish(id, files.length > 0);
+        const r = await publish(id, files.length > 0 || $$('[name="bundle_items"]:checked').length > 0);
         if (r) { published = true; changes = false; drawPublish(); setState('Published', 'ok'); }
       } catch (err) { toast(err.message, true); }
     });
@@ -634,15 +649,27 @@
       await api(`/api/admin/orders/${b.dataset.revoke}/revoke`, { method: 'POST' }); orders();
     }));
   }
-  async function customers() {
-    const list = await api('/api/admin/customers');
-    layout('customers', head('Customers', `<span class="muted" style="font-size:13px;align-self:center">${plural(list.length, 'buyer')}</span><button class="btn" id="csv">Export emails</button>`) + (list.length ? `
-      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Name</th><th>Email</th><th>Phone</th><th>First seen</th><th>Products</th><th>Spent</th></tr>
-      ${list.map(u => `<tr><td>${esc(u.name || 'No name')}</td><td class="muted">${esc(u.email)}</td><td class="muted">${esc(u.phone || 'Not given')}</td><td class="muted">${date(u.created_at)}</td><td>${u.products}</td><td>${money(u.spent)}</td></tr>`).join('')}</table></div>`
-      : '<div class="empty"><h3>No buyers yet</h3><p>Everyone who buys or grabs a free product shows up here with their name and email.</p></div>'));
+  // A CSV cell. Values starting with = + - @ are prefixed with ' so spreadsheet apps never run them as formulas.
+  const csvCell = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+  async function customers(filter = 'all') {
+    const everyone = await api('/api/admin/customers');
+    const GROUPS = [['all', 'Everyone with a product'], ['paid', 'Paying buyers'], ['free', 'Free downloads only'], ['unfinished', 'Started checkout, never paid']];
+    const pick = k => (k === 'all' ? everyone.filter(u => u.kind !== 'unfinished') : everyone.filter(u => u.kind === k));
+    const list = pick(filter);
+    const count = k => pick(k).length;
+    layout('customers', head('Customers', `<select class="input" id="cust-filter" style="width:auto;min-width:220px">${GROUPS.map(([k, l]) => `<option value="${k}" ${k === filter ? 'selected' : ''}>${l} (${count(k)})</option>`).join('')}</select><button class="btn" id="csv" ${list.length ? '' : 'disabled'}>${I.down} Export ${plural(list.length, 'contact')}</button>`) + `
+      <p class="muted" style="margin:-6px 0 16px;font-size:13px;max-width:760px">Everyone who bought or downloaded something from your store. Export the list as a spreadsheet (CSV) to import into an email tool like Mailchimp, Brevo or Kit, or a WhatsApp broadcast list. Send them news about new products, and give them an easy way to unsubscribe.</p>` + (list.length ? `
+      <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Name</th><th>Email</th><th>Phone</th><th>Products</th><th>Last order</th><th>Spent</th></tr>
+      ${list.map(u => `<tr><td>${esc(u.name || 'No name')}</td><td class="muted">${esc(u.email)}</td><td class="muted">${esc(u.phone || '')}</td><td>${u.titles.length ? `<span title="${esc(u.titles.join('\n'))}">${esc(u.titles[0])}${u.titles.length > 1 ? ` <small class="dim">+${u.titles.length - 1}</small>` : ''}</span>` : '<span class="dim">None yet</span>'}</td><td class="muted">${u.last_at ? date(u.last_at) : date(u.created_at)}</td><td>${u.spent ? money(u.spent) : '<span class="dim">Free</span>'}</td></tr>`).join('')}</table></div>`
+      : `<div class="empty"><h3>Nobody here yet</h3><p>${filter === 'unfinished' ? 'People who start paying but don\'t finish show up here.' : 'Everyone who buys or grabs a free product shows up here with their name and email.'}</p></div>`));
+    $('#cust-filter').addEventListener('change', e => customers(e.target.value));
     $('#csv').addEventListener('click', () => {
-      const blob = new Blob(['email,name,phone,joined,products,spent\n' + list.map(u => [u.email, u.name || '', u.phone || '', u.created_at, u.products, (u.spent / 100).toFixed(2)].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')], { type: 'text/csv' });
-      Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'customers.csv' }).click();
+      const rows = [['email', 'name', 'phone', 'type', 'products', 'first_seen', 'last_order', 'orders', 'spent'],
+        ...list.map(u => [u.email, u.name || '', u.phone || '', u.kind, u.titles.join('; '), (u.created_at || '').slice(0, 10), (u.last_at || '').slice(0, 10), u.products, (u.spent / 100).toFixed(2)])];
+      const blob = new Blob(['﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const day = new Date().toISOString().slice(0, 10);
+      Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `carsinstore-${filter === 'all' ? 'customers' : filter}-${day}.csv` }).click();
+      toast(`Exported ${plural(list.length, 'contact')}`);
     });
   }
 
@@ -799,7 +826,9 @@
       <div class="panel"><h3>Brand</h3>${f('store_name', 'Store name')}${f('tagline', 'Tagline')}${f('footer_blurb', 'Footer text')}
         <label class="field"><span>Currency</span><select class="input" name="currency">${[['ngn', 'NGN (Naira)'], ['ghs', 'GHS (Cedi)'], ['kes', 'KES (Shilling)'], ['zar', 'ZAR (Rand)'], ['usd', 'USD (Dollar)']].map(([c, l]) => `<option value="${c}" ${s.currency === c ? 'selected' : ''}>${l}</option>`).join('')}</select><small>Paystack charges in the currency your account is approved for. Naira works for every Nigerian account; USD needs to be enabled by Paystack.</small></label></div>
       <div class="panel"><h3>Homepage</h3>${f('announcement', 'Announcement bar', 'Leave empty to hide it.')}${f('hero_eyebrow', 'Hero label', 'The last word is highlighted.')}${f('hero_title', 'Hero headline', 'Use | to split into two lines. The second line is softly faded.')}
-        <label class="field"><span>Hero text</span><textarea class="input" name="hero_sub" rows="3">${esc(s.hero_sub || '')}</textarea></label></div>
+        <label class="field"><span>Hero text</span><textarea class="input" name="hero_sub" rows="3">${esc(s.hero_sub || '')}</textarea></label>
+        <label class="check" style="margin-bottom:6px"><span class="switch"><input type="checkbox" data-flag="home_reviews" ${s.home_reviews !== '0' ? 'checked' : ''}><i></i></span>Show buyer reviews on the homepage</label>
+        <small class="dim" style="display:block;font-size:12px">Up to 6 recent 4 and 5 star reviews with written comments. Hidden reviews never show. The section appears once you have one.</small></div>
       <div class="panel"><h3>FAQ <button type="button" class="btn btn-sm" id="add-faq">${I.plus.replace('<svg', '<svg width="13" height="13"')} Add question</button></h3><div id="faq"></div></div>
       <div class="panel"><h3>Legal pages</h3>
         <p class="muted" style="margin:-6px 0 16px;font-size:13px">Drafts written for how this store works (guest checkout, Paystack, emailed download links, Nigerian law). Read them and adjust anything that doesn't match your business. They're a starting point, not legal advice. <code>{{STORE}}</code>, <code>{{EMAIL}}</code>, <code>{{WEBSITE}}</code>, <code>{{LOCATION}}</code> and <code>{{UPDATED}}</code> are filled in automatically.</p>
@@ -810,6 +839,11 @@
       </div>
     </div><aside>
       <div class="panel"><h3>Contact &amp; business</h3>${f('support_email', 'Support email', 'Shown in the footer and legal pages. When buyers reply to an email from the store, the reply goes here. Leave empty to use your owner email.', 'email')}${f('business_location', 'Business location', 'e.g. Lagos, Nigeria')}</div>
+      <div class="panel"><h3>WhatsApp chat</h3>
+        ${f('whatsapp', 'WhatsApp number', 'Shows a "Chat on WhatsApp" button on every store page. With country code, e.g. 2348012345678 (0801... works too). Leave empty to hide the button.', 'tel')}
+        ${f('whatsapp_message', 'First message', 'Typed in for them when they tap the button. On a product page the product name is added at the end.')}
+        ${s.whatsapp ? `<a class="btn btn-sm" href="https://wa.me/${esc(s.whatsapp)}" target="_blank" rel="noopener">Test the link</a>` : ''}
+      </div>
       <div class="panel"><h3>Checkout</h3>
         <label class="field"><span>Ask for phone number</span><select class="input" name="checkout_phone">${[['off', 'No, just name and email'], ['optional', 'Optional'], ['required', 'Required']].map(([v, l]) => `<option value="${v}" ${s.checkout_phone === v ? 'selected' : ''}>${l}</option>`).join('')}</select><small>Each extra field costs a few sales. Only ask if you'll use it.</small></label>
         <label class="check" style="margin-bottom:6px"><span class="switch"><input type="checkbox" data-flag="abandoned_reminders" ${s.abandoned_reminders !== '0' ? 'checked' : ''}><i></i></span>Remind unfinished checkouts</label>

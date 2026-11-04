@@ -67,7 +67,7 @@
   }
 
   const units = c => c / 100;
-  // event: 'view_product' | 'begin_checkout' | 'purchase' | 'free_download'
+  // event: 'view_product' | 'begin_checkout' | 'purchase' | 'free_download' | 'contact'
   function track(event, d = {}) {
     const currency = String(d.currency || '').toUpperCase(), value = units(d.amount || 0);
     const item = { item_id: d.slug, item_name: d.title, price: value, quantity: 1 };
@@ -91,6 +91,11 @@
       if (on.pixel) fbq('track', 'Lead', { content_name: d.title });
       if (on.tiktok) ttq.track('SubmitForm', { contents: [content], content_type: 'product' });
       if (on.plausible) plausible('Free download', { props: { product: d.title } });
+    } else if (event === 'contact') {
+      if (on.ga) gtag('event', 'contact', { method: d.channel });
+      if (on.pixel) fbq('track', 'Contact');
+      if (on.tiktok) ttq.track('Contact');
+      if (on.plausible) plausible('WhatsApp chat');
     }
   }
 
