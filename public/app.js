@@ -66,6 +66,48 @@
     return out;
   }
 
+  // Formatted descriptions (from the dashboard's editor) are HTML. Only a short list of tags, attributes and
+  // styles is kept; anything else (scripts, event handlers, other sites' frames) is removed before it's shown.
+  const RT_TAGS = new Set(['P', 'BR', 'H2', 'H3', 'H4', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'STRIKE', 'DEL', 'A', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'CODE', 'PRE', 'IMG', 'SPAN', 'DIV', 'IFRAME', 'HR']);
+  const RT_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'TEMPLATE', 'svg', 'SVG', 'MATH', 'FORM', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'LINK', 'META', 'NOSCRIPT', 'TITLE', 'HEAD']);
+  const RT_VIDEO = /^https:\/\/(www\.youtube-nocookie\.com\/embed\/[\w-]{6,20}|player\.vimeo\.com\/video\/\d{4,12})(\?[\w=&.-]*)?$/;
+  const RT_COLOR = /^(#[0-9a-f]{3,8}|rgba?\(\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*(,\s*[\d.]+\s*)?\)|[a-z]{3,20})$/i;
+  const safeHref = h => /^(https?:\/\/|mailto:|#\/)/i.test(h) ? h : null;
+  const safeSrc = s => /^(\/media\/covers\/[A-Za-z0-9._-]+|https:\/\/[^\s"'<>]+)$/i.test(s) ? s : null;
+  function cleanHtml(html) {
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    const walk = node => {
+      for (const el of [...node.children]) {
+        const tag = el.tagName;
+        if (tag === 'IFRAME' && RT_VIDEO.test(el.getAttribute('src') || '')) {
+          const src = el.getAttribute('src');
+          [...el.attributes].forEach(a => el.removeAttribute(a.name));
+          Object.entries({ src, allowfullscreen: '', loading: 'lazy', frameborder: '0', allow: 'encrypted-media; picture-in-picture; fullscreen', referrerpolicy: 'strict-origin-when-cross-origin' }).forEach(([k, v]) => el.setAttribute(k, v));
+          continue;
+        }
+        if (RT_DROP.has(tag)) { el.remove(); continue; }
+        if (!RT_TAGS.has(tag)) { walk(el); el.replaceWith(...el.childNodes); continue; }
+        const keep = {};
+        if (tag === 'A') { const h = safeHref(el.getAttribute('href') || ''); if (h) Object.assign(keep, { href: h }, /^#\//.test(h) ? {} : { target: '_blank', rel: 'noopener nofollow' }); }
+        if (tag === 'IMG') { const s = safeSrc(el.getAttribute('src') || ''); if (!s) { el.remove(); continue; } Object.assign(keep, { src: s, alt: (el.getAttribute('alt') || '').slice(0, 200), loading: 'lazy' }); }
+        if (tag === 'DIV' && el.classList.contains('rt-video')) keep.class = 'rt-video';
+        const st = [];
+        if (el.style?.color && RT_COLOR.test(el.style.color)) st.push(`color:${el.style.color}`);
+        if (el.style?.backgroundColor && RT_COLOR.test(el.style.backgroundColor) && el.style.backgroundColor !== 'transparent') st.push(`background-color:${el.style.backgroundColor}`);
+        if (/^(left|center|right|justify)$/.test(el.style?.textAlign || '')) st.push(`text-align:${el.style.textAlign}`);
+        if (st.length) keep.style = st.join(';');
+        [...el.attributes].forEach(a => el.removeAttribute(a.name));
+        Object.entries(keep).forEach(([k, v]) => el.setAttribute(k, v));
+        walk(el);
+      }
+    };
+    walk(doc.body);
+    return doc.body.innerHTML;
+  }
+  // A description: formatted (starts with a tag) or the older plain text with simple markdown.
+  const isRich = src => /^\s*</.test(String(src || ''));
+  const richText = src => (isRich(src) ? cleanHtml(String(src)) : md(src));
+
   // ---------- icons ----------
   const I = {
     logo: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17 15 5h4L7 17zM3 11l6-6h4L3 15zM9 19 21 7v4l-8 8z"/></svg>',
@@ -461,7 +503,7 @@
             <button class="slide-nav prev" data-slide="-1" aria-label="Previous image">${I.arrow}</button><button class="slide-nav next" data-slide="1" aria-label="Next image">${I.arrow}</button>
             <div class="slide-dots">${p.covers.map((_, i) => `<button data-dot="${i}" aria-label="Image ${i + 1}"></button>`).join('')}</div>` : p.covers?.length ? coverMedia(p.covers[0], false) : coverHtml(p, { title: false })}
             ${previews.length ? `<button class="btn btn-sm" data-preview="${previews[0].id}" style="position:absolute;left:16px;bottom:16px;z-index:3;background:rgba(10,10,10,.7);backdrop-filter:blur(8px)">${I.play.replace('<svg', '<svg width="13" height="13"')} ${previews[0].kind === 'video' ? 'Watch preview' : 'View sample'}</button>` : ''}</div>
-          ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
+          ${p.description ? `<div class="prose rich" style="margin-top:36px">${richText(p.description)}</div>` : ''}
           ${items.length ? `<div class="box bundle-box" style="margin-top:36px"><div class="box-head"><h3>${plural(items.length, 'product')} in this bundle</h3><span class="muted" style="font-size:13px">${plural(p.files, 'file')}${p.totalSize ? ' · ' + size(p.totalSize) : ''}</span></div>
             ${items.map(x => `<${x.published ? `a href="#/p/${esc(x.slug)}"` : 'div'} class="bundle-row"><div class="bundle-img" style="aspect-ratio:${ratioCss(x.ratio)}">${coverHtml(x)}</div><div class="grow"><div class="nm">${esc(x.title)}</div><small>${plural(x.files, 'file')}${x.subtitle ? ' · ' + esc(x.subtitle) : ''}</small></div><span class="bundle-worth">${x.price ? money(x.price) : 'Free'}</span></${x.published ? 'a' : 'div'}>`).join('')}
             ${p.bundle?.worth > p.price ? `<div class="bundle-save"><span>Bought one by one</span><s>${money(p.bundle.worth)}</s><span>In this bundle</span><b>${p.price ? money(p.price) : 'Free'}</b><em>You save ${money(p.bundle.worth - p.price)}</em></div>` : ''}
@@ -733,7 +775,7 @@
         </div>
         <div class="box rate-box" id="rate"></div>
         ${p.crossSells?.length ? `<section class="xsell" style="padding:0"><h3>You might also like</h3><div class="grid">${p.crossSells.map(productCard).join('')}</div></section>` : ''}
-        ${p.description ? `<div class="prose" style="margin-top:36px">${md(p.description)}</div>` : ''}
+        ${p.description ? `<div class="prose rich" style="margin-top:36px">${richText(p.description)}</div>` : ''}
       </div>`);
     observeReveal();
 
@@ -976,7 +1018,7 @@
     } catch (e) { console.error(e); toast(e.message || 'Something went wrong', true); }
   }
 
-  window.Store = { api, upload, esc, money, size, plural, date, md, I, toast, modal, confirmDialog, coverHtml, loadStore, S, route, $, $$, kindLabel, extOf, spinner, passwordToggles };
+  window.Store = { api, upload, esc, money, size, plural, date, md, cleanHtml, isRich, richText, I, toast, modal, confirmDialog, coverHtml, loadStore, S, route, $, $$, kindLabel, extOf, spinner, passwordToggles };
   window.addEventListener('hashchange', route);
   window.addEventListener('DOMContentLoaded', async () => {
     try { await loadStore(); } catch { app.innerHTML = '<div class="wrap page"><h1>Store is offline.</h1></div>'; return; }

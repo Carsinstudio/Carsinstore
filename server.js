@@ -639,7 +639,7 @@ app.use('/api/admin', (req, res, next) => {
 });
 const KEY_ROUTES = [
   ['GET', /^\/products$/], ['POST', /^\/products$/], ['GET', /^\/products\/\d+$/], ['PUT', /^\/products\/\d+$/],
-  ['POST', /^\/products\/\d+\/(publish|unpublish|cover|files|links)$/], ['PUT', /^\/products\/\d+\/covers$/],
+  ['POST', /^\/products\/\d+\/(publish|unpublish|cover|files|links|description-image)$/], ['PUT', /^\/products\/\d+\/covers$/],
   ['PUT', /^\/files\/\d+$/], ['DELETE', /^\/files\/\d+$/], ['GET', /^\/categories$/], ['POST', /^\/categories$/],
 ];
 const requireAdmin = (req, res, next) => (req.user?.is_admin ? next() : bad(res, 'Admins only.', 403));
@@ -1224,6 +1224,21 @@ admin.post('/products/:id/cover', upload.single('cover'), (req, res) => {
   makeVariants(req.file.filename).catch(e => console.error('Cover resize failed:', e.message));
   res.json({ covers: draftState(fresh).covers.map(c => `/media/covers/${c}`), changes: hasChanges(fresh) });
 });
+// A picture for the product description. Saved as a web-friendly copy (at most 1600px wide), served next to the covers.
+admin.post('/products/:id/description-image', upload.single('cover'), wrap(async (req, res) => {
+  const p = one('SELECT id FROM products WHERE id = ?', req.params.id);
+  if (!p || !req.file) return bad(res, 'Upload failed.');
+  const src = req.file.path;
+  if (!/^image\/(png|jpe?g|webp|gif|avif)$/i.test(req.file.mimetype)) { fs.rm(src, { force: true }, () => {}); return bad(res, 'Use a JPG, PNG, WebP or GIF image.'); }
+  if (req.file.size > 25 * 1024 * 1024) { fs.rm(src, { force: true }, () => {}); return bad(res, 'Images must be under 25 MB.'); }
+  const name = `${crypto.randomBytes(12).toString('hex')}.webp`;
+  try {
+    await sharp(src, { failOn: 'none', animated: /gif|webp/i.test(req.file.mimetype) }).rotate()
+      .resize({ width: 1600, withoutEnlargement: true }).webp({ quality: 82, effort: 4 }).toFile(path.join(COVERS_DIR, name));
+  } catch { return bad(res, 'That image could not be read. Try a JPG or PNG.'); }
+  finally { fs.rm(src, { force: true }, () => {}); }
+  res.json({ url: `/media/covers/${name}` });
+}));
 // New order of the covers (as their URLs); any left out are removed.
 admin.put('/products/:id/covers', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
@@ -1531,7 +1546,10 @@ app.use('/api', (_req, res) => bad(res, 'Not found', 404));
 // The app then turns the path into its usual #/ route without reloading.
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
 const attr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const plain = s => String(s || '').replace(/[#*_`>\[\]()]/g, '').replace(/\s+/g, ' ').trim();
+// Text only, for search engines and link previews: drops HTML tags (formatted descriptions) and markdown marks.
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' };
+const plain = s => String(s || '').replace(/<(br|\/p|\/h\d|\/li|\/div)\b[^>]*>/gi, ' ').replace(/<[^>]*>/g, '')
+  .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, e) => ENTITIES[e]).replace(/[#*_`>\[\]()]/g, '').replace(/\s+/g, ' ').trim();
 const shortText = (s, n = 180) => (s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : s);
 function formatPrice(cents, currency) {
   try { return new Intl.NumberFormat('en-NG', { style: 'currency', currency: currency.toUpperCase(), currencyDisplay: 'narrowSymbol', minimumFractionDigits: cents % 100 ? 2 : 0 }).format(cents / 100); }

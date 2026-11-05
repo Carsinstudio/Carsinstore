@@ -59,10 +59,12 @@ async function exportBackup(out, { includeOrders = false } = {}) {
       snap.exec('VACUUM');
     }
     const files = snap.prepare("SELECT stored_name FROM files WHERE stored_name != ''").all().map(r => r.stored_name);
-    const covers = [...new Set(snap.prepare('SELECT cover_path, covers, draft FROM products').all().flatMap(r => {
-      let list = [], draft = []; try { list = JSON.parse(r.covers || '[]'); } catch {}
-      try { draft = JSON.parse(r.draft || '{}').covers || []; } catch {}
-      return [r.cover_path, ...(Array.isArray(list) ? list : []), ...(Array.isArray(draft) ? draft : [])];
+    // Pictures inside descriptions (live and draft) live in the covers folder too.
+    const inText = t => [...String(t || '').matchAll(/\/media\/covers\/([A-Za-z0-9._-]+)/g)].map(m => m[1]);
+    const covers = [...new Set(snap.prepare('SELECT cover_path, covers, draft, description FROM products').all().flatMap(r => {
+      let list = [], draft = [], draftText = ''; try { list = JSON.parse(r.covers || '[]'); } catch {}
+      try { const d = JSON.parse(r.draft || '{}'); draft = d.covers || []; draftText = d.description || ''; } catch {}
+      return [r.cover_path, ...(Array.isArray(list) ? list : []), ...(Array.isArray(draft) ? draft : []), ...inText(r.description), ...inText(draftText)];
     }).filter(Boolean))];
     const shareImage = snap.prepare("SELECT value FROM settings WHERE key = 'share_image'").get()?.value;
     if (shareImage) covers.push(shareImage);

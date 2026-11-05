@@ -252,9 +252,11 @@
     modal(`<h3>New product</h3><p class="muted" style="margin:0 0 20px">Everything can be changed later.</p>
       <form id="np"><label class="field"><span>Title</span><input class="input" name="title" required placeholder="e.g. Cinematic LUT Pack + Tutorial"></label>
       <label class="field"><span>Short description</span><input class="input" name="subtitle" placeholder="One line that sells it"><small>Shown under the title, on product cards and as the text in link previews on WhatsApp, Instagram and X.</small></label>
-      <label class="field"><span>Description</span><textarea class="input" name="description" rows="6" placeholder="What it is, what's inside, who it's for, questions buyers ask"></textarea><small>Next you'll upload the files and covers.</small></label>
+      <div class="field"><span>Description</span><textarea class="input" name="description" rows="6"></textarea><small>Next you'll upload the files and covers.</small></div>
       <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Create product</button></div></form>`,
       (m, close) => {
+        m.style.maxWidth = '760px';
+        richEditor($('[name="description"]', m), { placeholder: "What it is, what's inside, who it's for, questions buyers ask" }).el.style.minHeight = '180px';
         $('#np', m).addEventListener('submit', async e => {
           e.preventDefault();
           const r = await api('/api/admin/products', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
@@ -295,8 +297,8 @@
         <form class="panel" id="pf"><h3>Details</h3>
           <label class="field"><span>Title</span><input class="input" name="title" value="${esc(e0.title)}" required></label>
           <label class="field"><span>Short description</span><input class="input" name="subtitle" value="${esc(e0.subtitle)}" placeholder="One line that sells it"><small>Shown under the title, on product cards and as the text in link previews on WhatsApp, Instagram and X.</small></label>
-          <label class="field"><span>Description</span><textarea class="input" name="description" rows="16" placeholder="Everything about the product: what it is, what's inside, who it's for, questions buyers ask">${esc(e0.description)}</textarea>
-            <small>This is the whole sales page text. Formatting: blank line = new paragraph, <code>## Heading</code>, <code>- bullet</code>, <code>**bold**</code>, <code>[link](https://…)</code>.</small></label>
+          <div class="field"><span>Description</span><textarea class="input" name="description" rows="16">${esc(e0.description)}</textarea>
+            <small>This is the whole sales page text. Use the toolbar for headings, bold, colours, lists and links. Add pictures with the picture button, or paste or drop them in.</small></div>
           <label class="field"><span>URL slug</span><input class="input" name="slug" value="${esc(e0.slug)}"><small>Share link: <span id="share-url">${esc(location.origin)}/p/${esc(e0.slug)}</span>. It shows the cover, title and price when posted on WhatsApp, Instagram or X.</small></label>
         </form>
         <div class="panel"><h3>Buyer reviews <span class="muted" id="rv-count" style="font:13px var(--sans)"></span></h3>
@@ -356,6 +358,8 @@
           : `${statusPill('live')} <span class="muted" style="margin-left:6px">Visible in the store</span>`;
     };
     drawPublish();
+
+    richEditor($('#pf [name="description"]'), { productId: id, placeholder: "Everything about the product: what it is, what's inside, who it's for, questions buyers ask" });
 
     // ----- autosave to the draft -----
     const stateEl = $('#save-state');
@@ -674,6 +678,190 @@
       <button class="icon-btn" data-move-file="${f.id}:-1" ${i === 0 ? 'disabled' : ''} title="Move up">${A.up}</button><button class="icon-btn" data-move-file="${f.id}:1" ${i === count - 1 ? 'disabled' : ''} title="Move down">${A.dn}</button>
       <a class="icon-btn" href="/api/files/${f.id}?inline=1" target="_blank" title="Open">${A.eye}</a>
       <button class="icon-btn" data-ren-file="${f.id}" title="Rename">${A.edit}</button><button class="icon-btn" data-del-file="${f.id}" title="Delete">${A.trash}</button>${pages}</div>`;
+  }
+
+  // ---------- description editor ----------
+  // Turns the description textarea into a formatting editor: headings, bold, colours, lists, links, pictures, videos.
+  // The textarea stays (hidden) and holds the result, so saving works as before. Old plain-text descriptions open
+  // formatted and are only rewritten once you change them.
+  const RI = {
+    b: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z"/></svg>',
+    i: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 5h-4M14 19h-4M14.5 5l-5 14M19 5h-5M10 19H5"/></svg>',
+    u: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 4v7a5 5 0 0 0 10 0V4M5 20h14"/></svg>',
+    s: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16M16.5 7.5C16 5.5 14.3 4.5 12 4.5c-2.8 0-4.5 1.4-4.5 3.4 0 1.3.8 2.3 2.5 3M7.5 16.5c.5 2 2.2 3 4.5 3 2.8 0 4.5-1.4 4.5-3.4"/></svg>',
+    link: A.link,
+    img: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>',
+    video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z" fill="currentColor"/></svg>',
+    code: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>',
+    color: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 16 6-12 6 12M8.5 11h7"/></svg>',
+    mark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m9 15 7.5-7.5a2.1 2.1 0 0 0-3-3L6 12l-1 4z"/><path d="M4 20h7"/></svg>',
+    left: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg>',
+    center: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M7 10h10M4 14h16M7 18h10"/></svg>',
+    right: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M10 10h10M4 14h16M10 18h10"/></svg>',
+    ol: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 6h10M10 12h10M10 18h10M4 5h1.5v4M4 9h3M4 14.5a1.5 1.5 0 0 1 3 .2c0 .8-3 2.3-3 3.3h3"/></svg>',
+    ul: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 6h10M10 12h10M10 18h10"/><circle cx="5" cy="6" r="1" fill="currentColor"/><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="5" cy="18" r="1" fill="currentColor"/></svg>',
+    clear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 5h12M12 5l-3 14M4 21h8M15 15l5 5M20 15l-5 5"/></svg>',
+  };
+  // YouTube or Vimeo address -> the privacy-friendly embed address (or null).
+  const embedUrl = u => {
+    const s = String(u || '').trim();
+    let m = s.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{6,20})/);
+    if (m) return `https://www.youtube-nocookie.com/embed/${m[1]}`;
+    m = s.match(/vimeo\.com\/(?:video\/)?(\d{4,12})/);
+    return m ? `https://player.vimeo.com/video/${m[1]}` : null;
+  };
+  const { cleanHtml, isRich, md } = window.Store;
+  function richEditor(ta, { productId, placeholder = '' } = {}) {
+    const wrap = document.createElement('div');
+    wrap.className = 'rte';
+    const btn = (cmd, icon, title) => `<button type="button" data-cmd="${cmd}" title="${title}" aria-label="${title}">${icon}</button>`;
+    wrap.innerHTML = `<div class="rte-bar" role="toolbar" aria-label="Formatting">
+        <select data-block title="Text style" aria-label="Text style"><option value="p">Normal</option><option value="h2">Heading 1</option><option value="h3">Heading 2</option><option value="h4">Heading 3</option><option value="blockquote">Quote</option></select><span class="sep"></span>
+        ${btn('bold', RI.b, 'Bold (Ctrl+B)')}${btn('italic', RI.i, 'Italic (Ctrl+I)')}${btn('underline', RI.u, 'Underline (Ctrl+U)')}${btn('strikeThrough', RI.s, 'Strikethrough')}<span class="sep"></span>
+        ${btn('link', RI.link, 'Link')}${productId ? btn('image', RI.img, 'Add a picture') : ''}${btn('video', RI.video, 'Add a YouTube or Vimeo video')}${btn('code', RI.code, 'Code')}<span class="sep"></span>
+        <label class="rte-col" title="Text colour">${RI.color}<i style="background:#f3b26c"></i><input type="color" data-color="foreColor" value="#f3b26c" aria-label="Text colour"></label>
+        <label class="rte-col" title="Highlight">${RI.mark}<i style="background:#5a3a12"></i><input type="color" data-color="hiliteColor" value="#5a3a12" aria-label="Highlight"></label><span class="sep"></span>
+        ${btn('justifyLeft', RI.left, 'Align left')}${btn('justifyCenter', RI.center, 'Centre')}${btn('justifyRight', RI.right, 'Align right')}<span class="sep"></span>
+        ${btn('insertOrderedList', RI.ol, 'Numbered list')}${btn('insertUnorderedList', RI.ul, 'Bullet list')}<span class="sep"></span>
+        ${btn('clear', RI.clear, 'Clear formatting')}
+      </div>
+      <div class="rte-body prose" contenteditable="true" data-placeholder="${esc(placeholder)}" role="textbox" aria-multiline="true" aria-label="Description"></div>
+      <div class="rte-foot"><span>${productId ? 'Paste or drop pictures straight in.' : 'You can add pictures after creating the product.'}</span><span data-count></span></div>`;
+    ta.hidden = true;
+    ta.after(wrap);
+    const ed = $('.rte-body', wrap), bar = $('.rte-bar', wrap);
+    const startHtml = ta.value.trim() ? (isRich(ta.value) ? cleanHtml(ta.value) : md(ta.value)) : '';
+    ed.innerHTML = startHtml;
+    const count = () => { const n = (ed.innerText.trim().match(/\S+/g) || []).length; $('[data-count]', wrap).textContent = n ? plural(n, 'word') : ''; };
+    count();
+    // Keep the hidden textarea in step and tell the form something changed (autosave listens for that).
+    const sync = () => {
+      const empty = !ed.textContent.trim() && !ed.querySelector('img, iframe');
+      ta.value = empty ? '' : cleanHtml(ed.innerHTML);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      count();
+    };
+    ed.addEventListener('input', e => { e.stopPropagation(); sync(); });
+    // Bold, italic and lists as plain tags (<b>, <i>, <ul>); only colours need inline styles.
+    try { document.execCommand('styleWithCSS', false, false); document.execCommand('defaultParagraphSeparator', false, 'p'); } catch {}
+
+    // The selection is lost when a dialog opens; keep the last one inside the editor.
+    let range = null;
+    const keep = () => { const s = getSelection(); if (s.rangeCount && ed.contains(s.anchorNode)) range = s.getRangeAt(0).cloneRange(); };
+    const restore = () => {
+      keep(); // the current selection, if it's in the editor
+      ed.focus();
+      if (!range || !ed.contains(range.startContainer)) { range = document.createRange(); range.selectNodeContents(ed); range.collapse(false); } // no cursor yet: add at the end
+      const s = getSelection(); s.removeAllRanges(); s.addRange(range);
+    };
+    const exec = (cmd, val = null) => {
+      restore();
+      const css = cmd === 'foreColor' || cmd === 'hiliteColor';
+      if (css) document.execCommand('styleWithCSS', false, true);
+      document.execCommand(cmd, false, val);
+      if (css) document.execCommand('styleWithCSS', false, false);
+      keep(); sync(); paint();
+    };
+    const insert = html => exec('insertHTML', html);
+    const paint = () => {
+      if (!ed.contains(getSelection().anchorNode)) return;
+      $$('[data-cmd]', bar).forEach(b => { try { b.classList.toggle('on', document.queryCommandState(b.dataset.cmd)); } catch {} });
+      let blk = ''; try { blk = String(document.queryCommandValue('formatBlock') || '').toLowerCase(); } catch {}
+      $('[data-block]', bar).value = ['h2', 'h3', 'h4', 'blockquote'].includes(blk) ? blk : 'p';
+    };
+    document.addEventListener('selectionchange', () => { if (!document.body.contains(ed)) return; keep(); paint(); });
+    // Toolbar buttons must not take focus away from the text.
+    bar.addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+
+    const uploadImages = async list => {
+      const imgs = [...list].filter(f => /^image\//.test(f.type));
+      if (!imgs.length) return;
+      if (!productId) return toast('Create the product first, then add pictures.', true);
+      for (const f of imgs) {
+        toast(`Uploading ${f.name || 'picture'}...`);
+        const fd = new FormData(); fd.append('cover', f);
+        try {
+          const r = await upload(`/api/admin/products/${productId}/description-image`, fd);
+          insert(`<img src="${esc(r.url)}" alt="${esc((f.name || '').replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 120))}"><p><br></p>`);
+        } catch (err) { toast(err.message, true); }
+      }
+    };
+    const picker = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', multiple: true, hidden: true });
+    wrap.append(picker);
+    picker.addEventListener('change', () => { uploadImages(picker.files); picker.value = ''; });
+
+    const linkDialog = () => {
+      const a = getSelection().anchorNode?.parentElement?.closest('a');
+      modal(`<h3>${a ? 'Edit link' : 'Add a link'}</h3><form id="rl" style="margin-top:14px">
+        <label class="field"><span>Link</span><input class="input" name="url" required placeholder="https://... or #/p/product-slug" value="${esc(a?.getAttribute('href') || '')}"></label>
+        <div class="actions">${a ? '<button type="button" class="btn" id="rl-remove">Remove link</button>' : ''}<button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Save</button></div></form>`, (m, close) => {
+        $('#rl-remove', m)?.addEventListener('click', () => { close(); restore(); if (a) { const s = getSelection(); const r = document.createRange(); r.selectNodeContents(a); s.removeAllRanges(); s.addRange(r); range = r; } exec('unlink'); });
+        $('#rl', m).addEventListener('submit', e => {
+          e.preventDefault();
+          let url = e.target.url.value.trim();
+          if (!/^(https?:\/\/|mailto:|#\/)/i.test(url)) url = /@/.test(url) && !/\//.test(url) ? 'mailto:' + url : 'https://' + url.replace(/^\/+/, '');
+          close();
+          if (a) { a.setAttribute('href', url); sync(); return; }
+          if (range && !range.collapsed) exec('createLink', url);
+          else insert(`<a href="${esc(url)}">${esc(url.replace(/^(https?:\/\/|mailto:)/, ''))}</a>&nbsp;`);
+        });
+      });
+    };
+    const videoDialog = () => modal(`<h3>Add a video</h3><p class="muted" style="margin:6px 0 0;font-size:13.5px">Paste a YouTube or Vimeo link. It plays right in the description.</p>
+      <form id="rv" style="margin-top:14px"><label class="field"><span>Video link</span><input class="input" name="url" required placeholder="https://www.youtube.com/watch?v=..."></label>
+      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">Add video</button></div></form>`, (m, close) => {
+      $('#rv', m).addEventListener('submit', e => {
+        e.preventDefault();
+        const src = embedUrl(e.target.url.value);
+        if (!src) return toast('That is not a YouTube or Vimeo link.', true);
+        close();
+        insert(`<div class="rt-video"><iframe src="${src}"></iframe></div><p><br></p>`);
+      });
+    });
+
+    bar.addEventListener('click', e => {
+      const b = e.target.closest('[data-cmd]'); if (!b) return;
+      const cmd = b.dataset.cmd;
+      if (cmd === 'link') return linkDialog();
+      if (cmd === 'image') return picker.click();
+      if (cmd === 'video') return videoDialog();
+      if (cmd === 'code') { const t = range && !range.collapsed ? range.toString() : ''; return insert(`<code>${esc(t || 'code')}</code>&nbsp;`); }
+      if (cmd === 'clear') { exec('removeFormat'); exec('unlink'); return exec('formatBlock', '<p>'); }
+      exec(cmd);
+    });
+    $('[data-block]', bar).addEventListener('change', e => exec('formatBlock', `<${e.target.value}>`));
+    $$('[data-color]', bar).forEach(inp => inp.addEventListener('input', () => {
+      inp.previousElementSibling.style.background = inp.value;
+      exec(inp.dataset.color, inp.value);
+    }));
+
+    // Pasting keeps the structure (headings, lists, links, bold) but not other sites' fonts and colours.
+    ed.addEventListener('paste', e => {
+      const cd = e.clipboardData;
+      if (cd.files?.length) { e.preventDefault(); return uploadImages(cd.files); }
+      const html = cd.getData('text/html');
+      if (!html) return; // plain text pastes as it is
+      e.preventDefault();
+      const box = document.createElement('div');
+      box.innerHTML = cleanHtml(html.replace(/<!--[\s\S]*?-->/g, ''));
+      box.querySelectorAll('[style]').forEach(el => el.removeAttribute('style'));
+      box.querySelectorAll('img').forEach(img => { if (!/^\/media\/covers\//.test(img.getAttribute('src'))) img.remove(); }); // pictures from other sites: upload them instead
+      document.execCommand('insertHTML', false, box.innerHTML);
+      sync();
+    });
+    ed.addEventListener('dragover', e => { if ([...(e.dataTransfer?.items || [])].some(i => i.kind === 'file')) e.preventDefault(); });
+    ed.addEventListener('drop', e => {
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault();
+      const pos = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+      if (pos && ed.contains(pos.startContainer)) range = pos;
+      uploadImages(e.dataTransfer.files);
+    });
+    ed.addEventListener('click', e => {
+      $$('img.sel', ed).forEach(i => i.classList.remove('sel'));
+      if (e.target.tagName === 'IMG') { e.target.classList.add('sel'); const r = document.createRange(); r.selectNode(e.target); const s = getSelection(); s.removeAllRanges(); s.addRange(r); range = r; }
+    });
+    return { el: ed, sync };
   }
 
   // ---------- categories ----------
