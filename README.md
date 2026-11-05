@@ -171,6 +171,7 @@ If you upload very large videos, raise your reverse proxy's body size limit too 
 The Description box on a product has a toolbar: text style (Normal, Heading 1 to 3, Quote), bold, italic, underline, strikethrough, link, picture, YouTube or Vimeo video, code, text colour, highlight, alignment, numbered and bullet lists, and clear formatting.
 
 - **Pictures:** use the picture button, or paste or drop them straight into the text. They're saved as web-friendly copies (at most 1600px wide) and are included in store backups.
+- **Cleanup:** once a day the store deletes pictures nothing uses any more (taken out of a description, or leftovers), so storage and backups don't grow forever. It keeps anything a product, a draft, a description or the share image uses, and never touches a file less than a week old. The log says "Cleanup: removed ..." when it deletes something.
 - **Pasting from Google Docs or Word** keeps headings, lists, links and bold, but not their fonts and colours, so the text matches the store.
 - **Safety:** what's shown on the product page is filtered, so only formatting, pictures and YouTube or Vimeo videos come through. Scripts, other sites' frames and the like are removed.
 - **Older descriptions:** descriptions written before the toolbar (with `## Heading`, `- bullet`, `**bold**`) still show as before. They open formatted in the editor and switch to the new format once you edit them.

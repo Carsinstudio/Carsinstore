@@ -1683,6 +1683,39 @@ async function shrinkExistingCovers() {
   }
   if (made) console.log(`Made smaller copies of ${made} cover image${made === 1 ? '' : 's'}`);
 }
+// Pictures nothing uses any more (taken out of a description, replaced covers that were missed) are deleted once a day.
+// In use: every product's covers (live and draft), pictures in descriptions (live and draft), the share image.
+// Only files older than a week go, so a picture you've just added is never caught before its draft saves.
+const SWEEP_AGE_MS = Number(process.env.COVER_SWEEP_AGE_HOURS ?? 168) * 3600 * 1000;
+function coversInUse() {
+  const used = new Set([getSettings().share_image]);
+  const inText = t => { for (const m of String(t || '').matchAll(/\/media\/covers\/([A-Za-z0-9._-]+)/g)) used.add(m[1]); };
+  for (const p of all('SELECT * FROM products')) {
+    const d = draftState(p);
+    for (const c of [...coversOf(p), ...d.covers, p.cover_path]) used.add(c);
+    inText(p.description); inText(d.description);
+  }
+  used.delete(null); used.delete(undefined); used.delete('');
+  return used;
+}
+async function sweepUnusedCovers() {
+  const used = coversInUse(), now = Date.now();
+  let removed = 0, bytes = 0;
+  for (const name of await fs.promises.readdir(COVERS_DIR)) {
+    const base = name.replace(/\.(card|big|og)\.(webp|jpg)(\.tmp)?$/, ''); // a smaller copy belongs to its original
+    if (used.has(base) || used.has(name)) continue;
+    const file = path.join(COVERS_DIR, name);
+    const st = await fs.promises.stat(file).catch(() => null);
+    if (!st || !st.isFile() || now - st.mtimeMs < SWEEP_AGE_MS) continue;
+    await fs.promises.rm(file, { force: true }); removed++; bytes += st.size;
+  }
+  if (removed) console.log(`Cleanup: removed ${removed} unused picture file${removed === 1 ? '' : 's'} (${(bytes / 1e6).toFixed(1)} MB)`);
+  return { removed, bytes };
+}
+const runSweep = () => sweepUnusedCovers().catch(e => console.error('Picture cleanup:', e.message));
+setTimeout(runSweep, Number(process.env.COVER_SWEEP_DELAY_SECONDS ?? 600) * 1000).unref();
+setInterval(runSweep, 24 * 3600 * 1000).unref();
+
 app.listen(PORT, () => {
   shrinkExistingCovers().catch(e => console.error('Cover resize:', e.message));
   console.log(`Carsinstore running at ${BASE_URL}`);

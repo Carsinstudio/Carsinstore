@@ -411,7 +411,7 @@
     const lockIco = `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`;
     const tabs = [
       { cap: ['Video Downloads', '<b>Keep them offline.</b> Download full-quality video files to watch on any device, or play them right on your download page.'],
-        html: `<div class="mock"><a class="mock-video has-video" href="#/p/pitch-deck-template1" aria-label="NeuronFlow AI Pitch Deck"><video data-src="/showcase/neuronflow-cover.mp4" muted loop playsinline preload="none"></video></a>
+        html: `<div class="mock"><a class="mock-video has-video" href="#/p/pitch-deck-template1" aria-label="NeuronFlow AI Pitch Deck"><video data-src="/showcase/neuronflow-cover.mp4" data-webm="/showcase/neuronflow-cover.webm" muted loop playsinline preload="none"></video></a>
           <div style="margin-top:12px;font-size:13px">NeuronFlow AI Pitch Deck <small class="dim">· MP4 · HD</small></div></div>` },
       { cap: ['Files & Bundles', '<b>Everything included.</b> PDFs, ZIP bundles, templates and documents. Download them whenever you need, as often as you like.'],
         html: `<div class="mock">${withFiles.slice(0, 4).map(p => row(p, filesLine(p), `<span class="dim">${I.down}</span>`)).join('')}</div>` },
@@ -427,7 +427,7 @@
       if (v) {
         const io = new IntersectionObserver(([e]) => {
           if (!v.isConnected) return io.disconnect();
-          if (e.isIntersecting) { if (!v.src) v.src = v.dataset.src; v.play().catch(() => {}); } else v.pause();
+          if (e.isIntersecting) { if (!v.src) v.src = v.dataset.webm && v.canPlayType('video/webm; codecs="vp9"') ? v.dataset.webm : v.dataset.src; v.play().catch(() => {}); } else v.pause();
         }, { rootMargin: '200px' });
         io.observe(v);
       }
