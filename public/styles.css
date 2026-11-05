@@ -794,3 +794,14 @@ a.bundle-row:hover { background: rgba(255,255,255,.025); }
 .prose [style*="color"] strong, .prose [style*="color"] b, .prose [style*="color"] a { color: inherit; }
 .prose b { color: var(--text); font-weight: 600; }
 .prose [style*="color"] b { color: inherit; }
+
+/* Dashboard: arrange the homepage Featured section */
+.fo-list { margin-top: 16px; display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.fo-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-3); cursor: grab; font-size: 14px; }
+.fo-row.dragging { opacity: .45; }
+.fo-row.drop-here { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+.fo-row .grow { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fo-row .thumb { width: 40px; height: 40px; flex-shrink: 0; border-radius: 8px; overflow: hidden; }
+.fo-row .thumb img, .fo-row .thumb video { width: 100%; height: 100%; object-fit: cover; }
+.fo-grip { color: var(--dim); letter-spacing: -3px; font-size: 13px; }
+.fo-n { width: 20px; text-align: center; color: var(--accent-2); font: 12px var(--mono); }

@@ -311,9 +311,9 @@
   // ---------- pages ----------
   async function home() {
     const s = S.store.settings;
-    const [featured, all, top] = await Promise.all([api('/api/products?featured=1&limit=6'), api('/api/products?limit=60'), api('/api/reviews/top').catch(() => ({ reviews: [] }))]);
+    const [featured, all, top] = await Promise.all([api('/api/products?featured=1&limit=8'), api('/api/products?limit=60'), api('/api/reviews/top').catch(() => ({ reviews: [] }))]);
     const free = all.filter(p => !p.price).slice(0, 3);
-    const highlight = (featured.length ? featured : all).slice(0, 6);
+    const highlight = (featured.length ? featured : all).slice(0, 8);
     const [t1, t2] = String(s.hero_title || '').split('|');
     const cats = S.store.categories;
     const catIcons = [I.playO, I.file, I.grid, I.book, I.bolt, I.gift];

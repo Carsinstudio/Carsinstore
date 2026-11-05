@@ -195,7 +195,8 @@
 
   async function products() {
     const list = await api('/api/admin/products');
-    layout('products', head('Products', `<button class="btn btn-primary" id="new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New product</button>`) + (list.length ? `
+    const canArrange = list.some(p => p.featured && p.published);
+    layout('products', head('Products', `${canArrange ? `<button class="btn" id="arrange">${A.up.replace('<svg', '<svg width="14" height="14"')} Arrange featured</button>` : ''}<button class="btn btn-primary" id="new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New product</button>`) + (list.length ? `
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Product</th><th>Price</th><th>Files</th><th>Sales</th><th>Status</th><th></th></tr>
       ${list.map(p => `<tr class="click" data-id="${p.id}"><td><div style="display:flex;gap:12px;align-items:center"><div class="thumb">${p.draftCover ? coverThumb(p.draftCover, p.draftCoverVideo) : coverHtml(p)}</div><div><div>${esc(p.name)}</div><small class="dim">${p.categories.length ? esc(p.categories.map(c => c.name).join(', ')) : 'No category'}${p.rating ? ` · ★ ${p.rating.avg} (${p.rating.count})` : ''}</small></div></div></td>
         <td>${p.price ? money(p.price) : '<span style="color:var(--amber)">Free</span>'}</td>
@@ -246,6 +247,7 @@
       location.hash = `#/p/${list.find(x => x.id === Number(r.dataset.id)).slug}?draft=1`;
     }));
     $('#new').addEventListener('click', newProduct);
+    $('#arrange')?.addEventListener('click', arrangeFeatured);
   }
 
   function newProduct() {
@@ -314,6 +316,7 @@
         <div class="panel"><h3>Status</h3>
           <p id="status-line" style="margin:-4px 0 14px;font-size:13px;line-height:1.6"></p>
           <label class="check"><span class="switch"><input type="checkbox" form="pf" name="featured" ${e0.featured ? 'checked' : ''}><i></i></span>Featured on the homepage</label>
+          <small class="dim" style="display:block;margin-top:8px;font-size:12px">Change their order with <a href="#/admin/products" style="color:var(--accent-2)">Products &gt; Arrange featured</a>.</small>
         </div>
         <div class="panel"><h3>Pricing</h3>
           <div class="row"><label class="field"><span>Price</span><input class="input" form="pf" name="price" inputmode="decimal" value="${dollars(e0.price_cents)}" placeholder="0 = free"></label>
@@ -678,6 +681,40 @@
       <button class="icon-btn" data-move-file="${f.id}:-1" ${i === 0 ? 'disabled' : ''} title="Move up">${A.up}</button><button class="icon-btn" data-move-file="${f.id}:1" ${i === count - 1 ? 'disabled' : ''} title="Move down">${A.dn}</button>
       <a class="icon-btn" href="/api/files/${f.id}?inline=1" target="_blank" title="Open">${A.eye}</a>
       <button class="icon-btn" data-ren-file="${f.id}" title="Rename">${A.edit}</button><button class="icon-btn" data-del-file="${f.id}" title="Delete">${A.trash}</button>${pages}</div>`;
+  }
+
+  // ---------- homepage Featured order ----------
+  // Drag the featured products (or use the arrows) into the order visitors see on the homepage.
+  async function arrangeFeatured() {
+    let items;
+    try { items = await api('/api/admin/featured'); } catch (err) { return toast(err.message, true); }
+    const draw = m => {
+      $('#fo-list', m).innerHTML = items.map((p, i) => `<div class="fo-row" draggable="true" data-i="${i}">
+        <span class="fo-grip" aria-hidden="true">⋮⋮</span><span class="fo-n">${i + 1}</span>
+        <div class="thumb">${p.cover ? coverThumb(p.cover, p.coverVideo) : coverHtml(p)}</div>
+        <span class="grow">${esc(p.title)}</span>
+        <button type="button" class="icon-btn" data-mv="${i}:-1" ${i === 0 ? 'disabled' : ''} title="Move up">${A.up}</button>
+        <button type="button" class="icon-btn" data-mv="${i}:1" ${i === items.length - 1 ? 'disabled' : ''} title="Move down">${A.dn}</button></div>`).join('');
+    };
+    const move = (from, to, m) => { if (to < 0 || to >= items.length || to === from) return; const [x] = items.splice(from, 1); items.splice(to, 0, x); draw(m); };
+    modal(`<h3>Arrange featured products</h3>
+      <p class="muted" style="margin:6px 0 0;font-size:13.5px">Drag them, or use the arrows, into the order you want on the homepage. The first one shows first, and the Featured section shows up to 8.</p>
+      <div id="fo-list" class="fo-list"></div>
+      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-primary" id="fo-save">Save order</button></div>`, (m, close) => {
+      m.style.maxWidth = '620px';
+      draw(m);
+      const listEl = $('#fo-list', m);
+      listEl.addEventListener('click', e => { const b = e.target.closest('[data-mv]'); if (!b) return; const [i, d] = b.dataset.mv.split(':').map(Number); move(i, i + d, m); });
+      let from = null;
+      listEl.addEventListener('dragstart', e => { const r = e.target.closest('.fo-row'); if (!r) return; from = Number(r.dataset.i); r.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'featured'); });
+      listEl.addEventListener('dragover', e => { if (from === null) return; e.preventDefault(); $$('.fo-row', m).forEach(r => r.classList.toggle('drop-here', r === e.target.closest('.fo-row') && Number(r.dataset.i) !== from)); });
+      listEl.addEventListener('drop', e => { e.preventDefault(); const r = e.target.closest('.fo-row'); const f = from; from = null; if (r && f !== null) move(f, Number(r.dataset.i), m); });
+      listEl.addEventListener('dragend', () => { from = null; $$('.fo-row', m).forEach(r => r.classList.remove('dragging', 'drop-here')); });
+      $('#fo-save', m).addEventListener('click', async () => {
+        try { await api('/api/admin/featured', { method: 'PUT', body: { order: items.map(p => p.id) } }); close(); toast('Homepage order saved'); }
+        catch (err) { toast(err.message, true); }
+      });
+    });
   }
 
   // ---------- description editor ----------

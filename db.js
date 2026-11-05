@@ -189,7 +189,8 @@ function migrate(db) {
   }
   if (!hasColumn(db, 'orders', 'commission_auto')) db.exec('ALTER TABLE orders ADD COLUMN commission_auto INTEGER NOT NULL DEFAULT 0'); // 1 = Paystack paid the partner directly
   if (!hasColumn(db, 'files', 'preview_pages')) db.exec('ALTER TABLE files ADD COLUMN preview_pages INTEGER NOT NULL DEFAULT 3'); // PDF previews show only this many pages
-  if (!hasColumn(db, 'files', 'url')) db.exec('ALTER TABLE files ADD COLUMN url TEXT'); // set for link files (e.g. a Google Drive folder); they have no stored_name
+  if (!hasColumn(db, 'products', 'featured_sort')) db.exec('ALTER TABLE products ADD COLUMN featured_sort INTEGER NOT NULL DEFAULT 0'); // order in the homepage Featured section (owner arranges it)
+  if (!hasColumn(db, 'files', 'url'))db.exec('ALTER TABLE files ADD COLUMN url TEXT'); // set for link files (e.g. a Google Drive folder); they have no stored_name
   if (!hasColumn(db, 'products', 'covers')) {
     db.exec("ALTER TABLE products ADD COLUMN covers TEXT NOT NULL DEFAULT '[]'"); // up to 4 cover images; cover_path mirrors the first
     db.exec('UPDATE products SET covers = json_array(cover_path) WHERE cover_path IS NOT NULL');

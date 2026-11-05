@@ -327,6 +327,8 @@ function publishProduct(p) {
     JSON.stringify(d.alt_prices), JSON.stringify(d.sales), JSON.stringify(d.covers), d.covers[0] || null, d.cover_ratio, JSON.stringify(d.cross_sells), JSON.stringify(d.bundle_items), p.id);
   run('DELETE FROM product_categories WHERE product_id = ?', p.id);
   d.category_ids.forEach((c, i) => run('INSERT INTO product_categories (product_id, category_id, sort) VALUES (?, ?, ?)', p.id, c, i));
+  // Newly featured products go to the end of the Featured section, after the ones already arranged.
+  if (d.featured && !p.featured) run('UPDATE products SET featured_sort = (SELECT COALESCE(MAX(featured_sort), 0) + 1 FROM products WHERE featured = 1 AND id != ?) WHERE id = ?', p.id, p.id);
   const fresh = one('SELECT * FROM products WHERE id = ?', p.id);
   dropUnusedCovers(fresh, before);
   return fresh;
@@ -674,7 +676,7 @@ app.get('/api/products', (req, res) => {
   };
   if (KIND_SQL[req.query.kind]) where.push(`EXISTS (SELECT 1 FROM files f WHERE f.product_id = p.id AND ${KIND_SQL[req.query.kind]})`);
   if (featured) where.push('p.featured = 1');
-  const order = { 'price-asc': 'p.price_cents ASC', 'price-desc': 'p.price_cents DESC', popular: 'students DESC' }[sort] || 'p.featured DESC, p.created_at DESC';
+  const order = { 'price-asc': 'p.price_cents ASC', 'price-desc': 'p.price_cents DESC', popular: 'students DESC' }[sort] || 'p.featured DESC, CASE WHEN p.featured = 1 THEN p.featured_sort ELSE 0 END ASC, p.created_at DESC';
   const rows = all(`SELECT p.*, (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id AND o.status IN ${ACCESS_STATUSES}) AS students
     FROM products p
     WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?`, ...params, Math.min(Number(limit) || 200, 200));
@@ -1291,6 +1293,18 @@ admin.delete('/files/:id', (req, res) => {
   if (f.stored_name) { fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {}); dropSamples(f); }
   run('DELETE FROM files WHERE id = ?', f.id);
   res.json({ ok: true });
+});
+// The homepage Featured section, in the order visitors see it; the owner drags them into any order.
+const FEATURED_SQL = `SELECT * FROM products WHERE featured = 1 AND published = 1 ORDER BY featured_sort ASC, created_at DESC`;
+admin.get('/featured', (_req, res) => res.json(all(FEATURED_SQL).map(p => ({ id: p.id, title: p.title, slug: p.slug, price: p.price_cents,
+  cover: p.cover_path ? `/media/covers/${coverFile(p.cover_path, 'card')}` : null, coverVideo: isVideoCover(p.cover_path) }))));
+admin.put('/featured', (req, res) => {
+  const ids = [...new Set((Array.isArray(req.body?.order) ? req.body.order : []).map(Number).filter(Number.isInteger))];
+  const current = all(FEATURED_SQL).map(p => p.id);
+  // Any featured product left out of the list keeps its place after the ones sent.
+  const order = [...ids.filter(id => current.includes(id)), ...current.filter(id => !ids.includes(id))];
+  order.forEach((id, i) => run('UPDATE products SET featured_sort = ? WHERE id = ?', i + 1, id));
+  res.json({ ok: true, order });
 });
 admin.get('/categories', (_req, res) => res.json(all(`SELECT c.*, (SELECT COUNT(*) FROM product_categories pc WHERE pc.category_id = c.id) AS count FROM categories c ORDER BY sort, name`)));
 admin.post('/categories', (req, res) => {
