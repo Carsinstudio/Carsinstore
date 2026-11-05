@@ -805,3 +805,14 @@ a.bundle-row:hover { background: rgba(255,255,255,.025); }
 .fo-row .thumb img, .fo-row .thumb video { width: 100%; height: 100%; object-fit: cover; }
 .fo-grip { color: var(--dim); letter-spacing: -3px; font-size: 13px; }
 .fo-n { width: 20px; text-align: center; color: var(--accent-2); font: 12px var(--mono); }
+
+/* Dashboard: crop a cover to the product's shape */
+.crop-stage { position: relative; width: 100%; margin: 16px auto 0; overflow: hidden; border-radius: 12px; background: #0b0b0b; cursor: grab; touch-action: none; user-select: none; border: 1px solid var(--line-2); }
+.crop-stage.grabbing { cursor: grabbing; }
+.crop-stage img { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; pointer-events: none; }
+.crop-grid { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
+  background: linear-gradient(to right, transparent calc(33.33% - .5px), rgba(255,255,255,.22) calc(33.33% - .5px), rgba(255,255,255,.22) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255,255,255,.22) calc(66.66% - .5px), rgba(255,255,255,.22) calc(66.66% + .5px), transparent calc(66.66% + .5px)),
+  linear-gradient(to bottom, transparent calc(33.33% - .5px), rgba(255,255,255,.22) calc(33.33% - .5px), rgba(255,255,255,.22) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255,255,255,.22) calc(66.66% - .5px), rgba(255,255,255,.22) calc(66.66% + .5px), transparent calc(66.66% + .5px)); }
+.crop-zoom { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.crop-zoom input { flex: 1; accent-color: var(--accent-2); }
+.ct-actions .icon-btn svg { width: 15px; height: 15px; }

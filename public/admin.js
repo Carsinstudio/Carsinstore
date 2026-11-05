@@ -502,6 +502,7 @@
 
     // ----- covers: up to 4 images or short videos, dragged to reorder, dropped in to upload -----
     const ratioHint = { '1:1': 'Square: 1080×1080 px', '4:3': 'Landscape: 1440×1080 px' };
+    const coverRatio = () => (RATIOS.includes($('#pf')?.elements.cover_ratio.value) ? $('#pf').elements.cover_ratio.value : '1:1');
     const drawRatio = () => {
       const r = RATIOS.includes($('#pf').elements.cover_ratio.value) ? $('#pf').elements.cover_ratio.value : '1:1';
       $('#covers').style.setProperty('--ratio', r.replace(':', '/'));
@@ -514,7 +515,7 @@
     const drawCovers = () => {
       $('#cover-count').textContent = `${covers.length} of 4`;
       $('#covers').innerHTML = covers.map((c, i) => `<div class="cover-thumb" draggable="true" data-i="${i}">${coverThumb(c, isVideoUrl(c))}${i === 0 ? '<span class="main-tag">Main</span>' : ''}${isVideoUrl(c) ? '<span class="vid-tag">Video</span>' : ''}
-          <div class="ct-actions">${i ? `<button type="button" class="btn btn-sm" data-cv-main="${i}">Make main</button>` : ''}<button type="button" class="icon-btn" data-cv-del="${i}" title="Remove">${A.trash}</button></div></div>`).join('')
+          <div class="ct-actions">${i ? `<button type="button" class="btn btn-sm" data-cv-main="${i}">Make main</button>` : ''}${isVideoUrl(c) || /\.gif$/i.test(c) ? '' : `<button type="button" class="icon-btn" data-cv-crop="${i}" title="Crop">${CROP_ICO}</button>`}<button type="button" class="icon-btn" data-cv-del="${i}" title="Remove">${A.trash}</button></div></div>`).join('')
         + (covers.length + uploadingCovers < 4 ? `<button type="button" class="cover-add ${covers.length ? '' : 'wide'}" id="cover-add">${I.plus}<span>${uploadingCovers ? 'Uploading…' : covers.length ? 'Add or drop' : 'Drop images or short videos here'}</span><small>or click to choose</small></button>` : '');
       $('#cover-add')?.addEventListener('click', () => $('#cover-in').click());
     };
@@ -529,14 +530,38 @@
       const room = 4 - covers.length - uploadingCovers;
       const picked = ok.slice(0, Math.max(0, room));
       if (ok.length > picked.length) toast(`Only ${plural(Math.max(0, room), 'more cover')} fit. You can have 4 in total.`, true);
-      for (const file of picked) {
+      for (let file of picked) {
+        // A picture that isn't the cover shape opens the crop window first (videos and GIFs go up as they are).
+        if (/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
+          const url = URL.createObjectURL(file), ratio = coverRatio();
+          const im = await loadImage(url).catch(() => null);
+          if (im && !fitsShape(im, ratio)) {
+            const r = await cropDialog({ src: url, ratio, name: file.name, type: file.type });
+            if (r === null) { URL.revokeObjectURL(url); continue; }
+            if (r !== 'whole') file = r;
+          }
+          URL.revokeObjectURL(url);
+        }
         uploadingCovers++; if (here()) drawCovers();
         const fd = new FormData(); fd.append('cover', file);
         try { const r = await upload(`/api/admin/products/${id}/cover`, fd); uploadingCovers--; coversChanged(r); }
         catch (err) { uploadingCovers--; toast(err.message, true); if (here()) drawCovers(); }
       }
     };
+    // Re-crop a cover already uploaded (from its original, so you can crop it differently again later).
+    const recrop = async i => {
+      const url = covers[i];
+      const ext = (url.split('.').pop() || 'jpg').toLowerCase();
+      const r = await cropDialog({ src: url, ratio: coverRatio(), name: `cover.${ext}`, type: ext === 'png' || ext === 'webp' ? 'image/png' : 'image/jpeg', offerWhole: false });
+      if (!(r instanceof File)) return;
+      uploadingCovers++; if (here()) drawCovers();
+      const fd = new FormData(); fd.append('replace', url.split('/').pop()); fd.append('cover', r);
+      try { const res = await upload(`/api/admin/products/${id}/cover`, fd); uploadingCovers--; coversChanged(res); toast('Cover cropped'); }
+      catch (err) { uploadingCovers--; toast(err.message, true); if (here()) drawCovers(); }
+    };
     $('#covers').addEventListener('click', e => {
+      const crop = e.target.closest('[data-cv-crop]');
+      if (crop) return recrop(Number(crop.dataset.cvCrop));
       const main = e.target.closest('[data-cv-main]'), del = e.target.closest('[data-cv-del]');
       if (main) { const i = Number(main.dataset.cvMain); setCoverOrder([covers[i], ...covers.filter((_, j) => j !== i)]); }
       if (del) setCoverOrder(covers.filter((_, j) => j !== Number(del.dataset.cvDel)));
@@ -682,6 +707,76 @@
       <a class="icon-btn" href="/api/files/${f.id}?inline=1" target="_blank" title="Open">${A.eye}</a>
       <button class="icon-btn" data-ren-file="${f.id}" title="Rename">${A.edit}</button><button class="icon-btn" data-del-file="${f.id}" title="Delete">${A.trash}</button>${pages}</div>`;
   }
+
+  // ---------- cover cropping ----------
+  // Shows a picture inside a frame of the product's cover shape. Drag to move it, zoom with the slider or the
+  // mouse wheel. Resolves with the cropped File, 'whole' (use the picture as it is), or null (cancelled).
+  const CROP_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/></svg>';
+  const loadImage = src => new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => fail(new Error('That picture could not be opened.')); im.src = src; });
+  function cropDialog({ src, ratio = '1:1', name = 'cover.jpg', type = 'image/jpeg', offerWhole = true }) {
+    const [rw, rh] = ratio.split(':').map(Number);
+    return new Promise(async resolve => {
+      let im;
+      try { im = await loadImage(src); } catch (err) { toast(err.message, true); return resolve(null); }
+      let done = false;
+      const finish = v => { if (!done) { done = true; resolve(v); } };
+      modal(`<h3>Crop cover</h3>
+        <p class="muted" style="margin:6px 0 0;font-size:13.5px">${ratio === '1:1' ? 'Square' : 'Landscape (4:3)'}, the shape this product's covers use. Drag the picture to move it and use the slider to zoom.</p>
+        <div class="crop-stage" style="aspect-ratio:${rw}/${rh};width:min(100%, calc(52vh * ${(rw / rh).toFixed(4)}))"><img alt="" draggable="false"><div class="crop-grid"></div></div>
+        <div class="crop-zoom"><span class="dim">−</span><input type="range" min="1" max="4" step="0.01" value="1" aria-label="Zoom"><span class="dim">+</span></div>
+        <div class="actions">${offerWhole ? '<button type="button" class="btn" data-whole style="margin-right:auto">Use without cropping</button>' : ''}<button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-primary" data-crop>Crop and save</button></div>`,
+      (m, close) => {
+        m.style.maxWidth = '640px';
+        const stage = $('.crop-stage', m), img = $('img', stage), zoomEl = $('input[type=range]', m);
+        img.src = src;
+        let W = 0, H = 0, base = 1, zoom = 1, x = 0, y = 0;
+        const scale = () => base * zoom;
+        const clamp = () => { const s = scale(); x = Math.min(0, Math.max(W - im.naturalWidth * s, x)); y = Math.min(0, Math.max(H - im.naturalHeight * s, y)); };
+        const paint = () => { const s = scale(); img.style.width = `${im.naturalWidth * s}px`; img.style.height = `${im.naturalHeight * s}px`; img.style.transform = `translate(${x}px, ${y}px)`; };
+        const layout = () => {
+          // clientWidth ignores the dialog's opening animation (a scale), unlike getBoundingClientRect.
+          const cx = W ? (W / 2 - x) / scale() : im.naturalWidth / 2, cy = H ? (H / 2 - y) / scale() : im.naturalHeight / 2;
+          W = stage.clientWidth; H = stage.clientHeight;
+          if (!W || !H) return; base = Math.max(W / im.naturalWidth, H / im.naturalHeight);
+          x = W / 2 - cx * scale(); y = H / 2 - cy * scale(); clamp(); paint();
+        };
+        // Zoom keeps the point at the centre of the frame (or under the mouse) where it is.
+        const setZoom = (z, px = W / 2, py = H / 2) => {
+          z = Math.min(4, Math.max(1, z)); const ix = (px - x) / scale(), iy = (py - y) / scale();
+          zoom = z; x = px - ix * scale(); y = py - iy * scale(); clamp(); paint(); zoomEl.value = z;
+        };
+        requestAnimationFrame(layout);
+        const ro = new ResizeObserver(() => layout()); ro.observe(stage);
+        zoomEl.addEventListener('input', () => setZoom(Number(zoomEl.value)));
+        stage.addEventListener('wheel', e => { e.preventDefault(); const r = stage.getBoundingClientRect(); setZoom(zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+        let drag = null;
+        stage.addEventListener('pointerdown', e => { drag = { px: e.clientX, py: e.clientY, x, y }; stage.setPointerCapture(e.pointerId); stage.classList.add('grabbing'); });
+        stage.addEventListener('pointermove', e => { if (!drag) return; x = drag.x + e.clientX - drag.px; y = drag.y + e.clientY - drag.py; clamp(); paint(); });
+        const up = () => { drag = null; stage.classList.remove('grabbing'); };
+        stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', up);
+        $('[data-whole]', m)?.addEventListener('click', () => { ro.disconnect(); finish('whole'); close(); });
+        $('[data-crop]', m).addEventListener('click', () => {
+          const s = scale(), sx = -x / s, sy = -y / s, sw = W / s, sh = H / s;
+          // Saved at the picture's own detail, at most 2000px wide, never enlarged.
+          const outW = Math.round(Math.min(sw, 2000)), outH = Math.round(outW * rh / rw);
+          const c = Object.assign(document.createElement('canvas'), { width: outW, height: outH });
+          const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
+          const png = /png|webp/.test(type);
+          if (!png) { g.fillStyle = '#111'; g.fillRect(0, 0, outW, outH); }
+          g.drawImage(im, sx, sy, sw, sh, 0, 0, outW, outH);
+          const outType = png ? 'image/png' : 'image/jpeg';
+          c.toBlob(b => {
+            ro.disconnect();
+            if (!b) toast('Cropping failed. Try another picture.', true);
+            finish(b ? new File([b], name.replace(/\.[^.]+$/, '') + (png ? '.png' : '.jpg'), { type: outType }) : null);
+            close();
+          }, outType, 0.92);
+        });
+      }, () => finish(null));
+    });
+  }
+  // Does a picture already have the cover shape? (within 2%)
+  const fitsShape = (im, ratio) => { const [rw, rh] = ratio.split(':').map(Number); return Math.abs(im.naturalWidth / im.naturalHeight - rw / rh) / (rw / rh) < 0.02; };
 
   // ---------- homepage Featured order ----------
   // Drag the featured products (or use the arrows) into the order visitors see on the homepage.

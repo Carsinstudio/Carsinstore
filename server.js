@@ -1221,6 +1221,14 @@ admin.post('/products/:id/cover', upload.single('cover'), (req, res) => {
   if (video && !isVideoCover(req.file.filename)) return drop('Use an MP4, WebM or MOV video.');
   if (video && req.file.size > MAX_COVER_VIDEO_MB * 1024 * 1024) return drop(`Cover videos must be under ${MAX_COVER_VIDEO_MB} MB. Keep them short.`);
   const list = draftState(p).covers;
+  // A re-cropped cover takes the place of the one it was cropped from.
+  const replace = path.basename(String(req.body?.replace || ''));
+  if (replace && list.includes(replace)) {
+    const fresh = saveDraft(p, { covers: list.map(c => (c === replace ? req.file.filename : c)) });
+    dropUnusedCovers(fresh, [replace]);
+    makeVariants(req.file.filename).catch(e => console.error('Cover resize failed:', e.message));
+    return res.json({ covers: draftState(fresh).covers.map(c => `/media/covers/${c}`), changes: hasChanges(fresh) });
+  }
   if (list.length >= MAX_COVERS) return drop(`You can have up to ${MAX_COVERS} covers. Remove one first.`);
   const fresh = saveDraft(p, { covers: [...list, req.file.filename] });
   makeVariants(req.file.filename).catch(e => console.error('Cover resize failed:', e.message));

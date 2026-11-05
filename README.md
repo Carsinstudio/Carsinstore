@@ -161,6 +161,11 @@ Everything (database plus uploaded files) lives in `storage/` (or `DATA_DIR`). *
 
 If you upload very large videos, raise your reverse proxy's body size limit too (e.g. Nginx `client_max_body_size 5G;`).
 
+## Covers: cropping, and the homepage order
+
+- **Cropping:** covers use the product's shape (Square or 4:3). Upload a picture of another shape and a crop window opens. Drag to move it, zoom with the slider or mouse wheel, then **Crop and save**, or **Use without cropping** to let the store centre it. To crop an uploaded cover again, hover over it and press the crop button. You can do this after switching shape too.
+- **Featured order:** on the Products page, **Arrange featured** lets you drag the featured products into the order they show on the homepage. Products you feature later go to the end.
+
 ## Product descriptions (formatting, pictures, videos)
 
 The Description box on a product has a toolbar: text style (Normal, Heading 1 to 3, Quote), bold, italic, underline, strikethrough, link, picture, YouTube or Vimeo video, code, text colour, highlight, alignment, numbered and bullet lists, and clear formatting.
