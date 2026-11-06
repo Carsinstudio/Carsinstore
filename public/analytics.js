@@ -59,8 +59,20 @@
   }
 
   // Called on every route change (Plausible's hash script counts pages itself).
+  // The store's own visits counter (dashboard Overview): the page, and where the visitor came from.
+  // Download links are private, so their token is never sent.
+  let firstPing = true;
+  function ping(path) {
+    try {
+      const q = new URLSearchParams(location.search || (location.hash.split('?')[1] || ''));
+      const body = { path: path.replace(/(#\/(download|d)\/)[^/?#]+/, '$1x').slice(0, 200), ref: firstPing ? document.referrer.slice(0, 300) : '', utm: firstPing ? (q.get('utm_source') || '').slice(0, 30) : '' };
+      firstPing = false;
+      fetch('/api/visit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true, credentials: 'same-origin' }).catch(() => {});
+    } catch {}
+  }
   function page() {
     const path = location.pathname + location.hash;
+    ping(path);
     if (on.ga) gtag('event', 'page_view', { page_location: location.href, page_path: path, page_title: document.title });
     if (on.pixel) fbq('track', 'PageView');
     if (on.tiktok) ttq.page();

@@ -189,6 +189,12 @@ function migrate(db) {
   }
   if (!hasColumn(db, 'orders', 'commission_auto')) db.exec('ALTER TABLE orders ADD COLUMN commission_auto INTEGER NOT NULL DEFAULT 0'); // 1 = Paystack paid the partner directly
   if (!hasColumn(db, 'files', 'preview_pages')) db.exec('ALTER TABLE files ADD COLUMN preview_pages INTEGER NOT NULL DEFAULT 3'); // PDF previews show only this many pages
+  // Visits counter: daily totals only. No cookies, no addresses kept: a visitor is a hash that changes every day,
+  // and those hashes are deleted after two days.
+  db.exec(`CREATE TABLE IF NOT EXISTS visits_daily (day TEXT PRIMARY KEY, visitors INTEGER NOT NULL DEFAULT 0, views INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS visit_seen (day TEXT NOT NULL, vid TEXT NOT NULL, PRIMARY KEY (day, vid));
+    CREATE TABLE IF NOT EXISTS visit_products (day TEXT NOT NULL, product_id INTEGER NOT NULL, views INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, product_id));
+    CREATE TABLE IF NOT EXISTS visit_sources (day TEXT NOT NULL, source TEXT NOT NULL, visitors INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, source));`);
   if (!hasColumn(db, 'products', 'featured_sort')) db.exec('ALTER TABLE products ADD COLUMN featured_sort INTEGER NOT NULL DEFAULT 0'); // order in the homepage Featured section (owner arranges it)
   if (!hasColumn(db, 'files', 'url'))db.exec('ALTER TABLE files ADD COLUMN url TEXT'); // set for link files (e.g. a Google Drive folder); they have no stored_name
   if (!hasColumn(db, 'products', 'covers')) {

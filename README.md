@@ -103,6 +103,15 @@ The designs are built by `emails/build.js` (open `emails/dist/preview-*.html` to
 - **Customer list (Customers page):** everyone who bought or downloaded something, with the products they have. Filter by paying buyers, free downloads, or people who started checkout but never paid, then **Export** to a CSV for Mailchimp, Brevo, Kit or a WhatsApp broadcast list. Give people a way to unsubscribe from anything you send.
 - **Extra currencies:** tick a currency (e.g. USD) under "Also sell in", then set that price on each product. Buyers see a currency switch on the product page. Percent-off codes work in any currency; fixed-amount codes only in the store currency. Your Paystack account must be enabled for each currency.
 
+## Visitors (dashboard Overview)
+
+The store counts its own visits, no setup needed. The Overview shows visitors today, over 7 and 30 days, pages viewed, a 30-day chart, the most viewed products (with orders and the rate per 100 views) and where visitors came from.
+
+- **A visitor** is one person (one browser) per day. Someone who comes back on 3 days counts 3 times in the 7-day total.
+- **Not counted:** your own visits while signed in, search engine robots and link-preview bots.
+- **Where they came from** uses the site that sent them (Instagram, Google...) or a `?utm_source=` tag on your link. Links opened from WhatsApp chats and most apps don't say where they came from, so they show as Direct. Tip: share `https://carsin.store/?utm_source=whatsapp` in WhatsApp to see those visits by name.
+- **Privacy:** no cookies, and no addresses kept. A visitor is a scrambled code that changes every day and is deleted after two days, so nobody can be followed over time. Only daily totals are stored.
+
 ## Analytics (Store settings → Analytics)
 
 Optional. Paste a **Plausible** domain, a **Google Analytics 4** Measurement ID (`G-…`) a **Meta Pixel** ID and/or a **TikTok Pixel** ID to switch each one on. Both pixels get the same shopping events (product viewed, checkout started, purchase with its amount, free download), so Meta and TikTok ads can optimise for real sales.

@@ -943,6 +943,48 @@ app.get('/api/order/:token', limit({ name: 'order', max: 120, windowMs: 60 * 100
   });
 }));
 
+// ----- visits counter (shown on the dashboard) -----
+// Each store page sends one small ping. A visitor is counted once a day, by a hash of their address and browser
+// mixed with a secret that changes daily, so nobody can be followed from one day to the next. No cookies.
+const BOT_UA = /bot|crawl|spider|slurp|facebookexternalhit|embedly|preview|headless|lighthouse|pagespeed|curl|wget|python|node-fetch|axios|monitor|uptime/i;
+const SOURCES = [
+  [/(^|\.)instagram\.com$/, 'Instagram'], [/(^|\.)(facebook\.com|fb\.com|fb\.me)$/, 'Facebook'], [/(^|\.)(whatsapp\.com|wa\.me)$/, 'WhatsApp'],
+  [/(^|\.)(tiktok\.com)$/, 'TikTok'], [/(^|\.)(t\.co|twitter\.com|x\.com)$/, 'X'], [/(^|\.)(linkedin\.com|lnkd\.in)$/, 'LinkedIn'],
+  [/(^|\.)(youtube\.com|youtu\.be)$/, 'YouTube'], [/(^|\.)google\.[a-z.]+$/, 'Google'], [/(^|\.)bing\.com$/, 'Bing'],
+  [/(^|\.)(pinterest\.[a-z.]+|pin\.it)$/, 'Pinterest'], [/(^|\.)(gumroad\.com)$/, 'Gumroad'],
+];
+function visitSource(ref, utm) {
+  const u = String(utm || '').trim().toLowerCase().replace(/[^a-z0-9 ._-]/g, '').slice(0, 30);
+  if (u) { const hit = SOURCES.find(([, n]) => n.toLowerCase() === u || (u === 'ig' && n === 'Instagram') || (u === 'fb' && n === 'Facebook') || (u === 'wa' && n === 'WhatsApp')); return hit ? hit[1] : u; }
+  let host = '';
+  try { host = new URL(String(ref || '')).hostname.replace(/^(www|m|l|lm)\./, '').toLowerCase(); } catch {}
+  if (!host) return 'Direct';
+  if (host === new URL(BASE_URL).hostname.replace(/^www\./, '')) return null; // moving around the store itself
+  const hit = SOURCES.find(([re]) => re.test(host));
+  return hit ? hit[1] : host.slice(0, 60);
+}
+const visitDay = () => new Date().toISOString().slice(0, 10);
+app.post('/api/visit', limit({ name: 'visit', max: 120, windowMs: 60 * 1000 }), (req, res) => {
+  try { countVisit(req); } catch (e) { console.error('Visit count:', e.message); }
+  res.status(204).end();
+});
+function countVisit(req) {
+  if (req.user?.is_admin || BOT_UA.test(req.get('user-agent') || '') || !req.get('user-agent')) return;
+  const day = visitDay();
+  const ip = String(req.get('x-real-ip') || (req.get('x-forwarded-for') || '').split(',').pop() || req.ip || '').trim();
+  const vid = crypto.createHmac('sha256', SECRET).update(`visit:${day}:${ip}:${req.get('user-agent')}`).digest('base64url').slice(0, 22);
+  const fresh = run('INSERT OR IGNORE INTO visit_seen (day, vid) VALUES (?, ?)', day, vid).changes > 0;
+  run(`INSERT INTO visits_daily (day, visitors, views) VALUES (?, ?, 1) ON CONFLICT(day) DO UPDATE SET visitors = visitors + excluded.visitors, views = views + 1`, day, fresh ? 1 : 0);
+  if (fresh) {
+    const src = visitSource(req.body?.ref, req.body?.utm);
+    if (src) run('INSERT INTO visit_sources (day, source, visitors) VALUES (?, ?, 1) ON CONFLICT(day, source) DO UPDATE SET visitors = visitors + 1', day, src);
+    run("DELETE FROM visit_seen WHERE day < date('now', '-1 day')");
+  }
+  const slug = String(req.body?.path || '').match(/^\/?#?\/?p\/([\w-]{1,120})/)?.[1];
+  const p = slug && one('SELECT id FROM products WHERE slug = ? AND published = 1', slug);
+  if (p) run('INSERT INTO visit_products (day, product_id, views) VALUES (?, ?, 1) ON CONFLICT(day, product_id) DO UPDATE SET views = views + 1', day, p.id);
+}
+
 // A buyer rates the product (1 to 5 stars) and can add a review. One per order; sending again updates it.
 app.post('/api/reviews', limit({ name: 'reviews', max: 20, windowMs: 60 * 60 * 1000 }), (req, res) => {
   const o = one(`SELECT o.*, u.name AS buyer FROM orders o JOIN users u ON u.id = o.user_id WHERE o.access_token = ? AND o.status IN ${ACCESS_STATUSES}`, String(req.body?.token || ''));
@@ -1057,7 +1099,18 @@ admin.get('/stats', (_req, res) => {
     LEFT JOIN orders o ON o.product_id = p.id AND o.status IN ${ACCESS_STATUSES} GROUP BY p.id ORDER BY sales DESC LIMIT 5`, main);
   const recent = all(`SELECT o.*, u.email, u.name, p.title FROM orders o JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id
     WHERE o.status IN ${ACCESS_STATUSES} ORDER BY o.id DESC LIMIT 8`);
-  res.json({ currency: main, revenue: money.revenue, sales: money.sales, otherCurrencies, free, customers, products: products.n, live: products.live || 0, days, top, recent });
+  // Visits: per day for the chart, totals, the most viewed products (with how many of those turned into orders), where people came from.
+  const vSum = from => one(`SELECT COALESCE(SUM(visitors),0) AS visitors, COALESCE(SUM(views),0) AS views FROM visits_daily WHERE day >= date('now', ?)`, from);
+  const visits = {
+    days: all(`SELECT day, visitors, views FROM visits_daily WHERE day >= date('now','-29 days') ORDER BY day`),
+    today: vSum('-0 days'), week: vSum('-6 days'), month: vSum('-29 days'),
+    since: one('SELECT MIN(day) AS d FROM visits_daily').d,
+    products: all(`SELECT p.title, p.slug, SUM(v.views) AS views,
+        (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id AND o.status IN ${ACCESS_STATUSES} AND o.created_at >= date('now','-29 days')) AS orders
+      FROM visit_products v JOIN products p ON p.id = v.product_id WHERE v.day >= date('now','-29 days') GROUP BY p.id ORDER BY views DESC LIMIT 8`),
+    sources: all(`SELECT source, SUM(visitors) AS visitors FROM visit_sources WHERE day >= date('now','-29 days') GROUP BY source ORDER BY visitors DESC LIMIT 8`),
+  };
+  res.json({ currency: main, revenue: money.revenue, sales: money.sales, otherCurrencies, free, customers, products: products.n, live: products.live || 0, days, top, recent, visits });
 });
 
 const productLink = p => `${BASE_URL}/p/${p.slug}`;

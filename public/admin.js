@@ -57,6 +57,35 @@
   }
 
   // ---------- overview ----------
+  // Visits, from the store's own counter: one visitor per person per day; your own visits aren't counted.
+  function visitsHtml(v) {
+    if (!v) return '';
+    const n = x => Number(x || 0).toLocaleString('en-GB');
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
+      days.push({ d, ...(v.days.find(x => x.day === d) || { visitors: 0, views: 0 }) });
+    }
+    const max = Math.max(1, ...days.map(d => d.visitors));
+    const since = v.since ? new Date(v.since + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+    const pct = (a, b) => (!b ? '' : !a ? '0%' : `${((a / b) * 100).toFixed(a / b < 0.1 ? 1 : 0)}%`);
+    return `<div class="stats" style="margin-top:22px">
+        <div class="stat"><small>Visitors today</small><b>${n(v.today.visitors)}</b><div class="muted" style="font-size:12.5px;margin-top:4px">${plural(v.today.views, 'page')} viewed</div></div>
+        <div class="stat"><small>Visitors, last 7 days</small><b>${n(v.week.visitors)}</b></div>
+        <div class="stat"><small>Visitors, last 30 days</small><b>${n(v.month.visitors)}</b></div>
+        <div class="stat"><small>Pages viewed, 30 days</small><b>${n(v.month.views)}</b></div>
+      </div>
+      <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Visitors · last 30 days</h3><span class="muted" style="font-size:13px">${since ? `Counting since ${since}. ` : ''}Your own visits aren't counted.</span></div>
+        ${v.month.visitors ? `<div class="chart">${days.map(d => `<div class="b" style="height:${(d.visitors / max) * 100}%" data-t="${d.d.slice(5)} · ${plural(d.visitors, 'visitor')} · ${plural(d.views, 'page')}"></div>`).join('')}</div>`
+          : '<p class="muted" style="padding:20px;margin:0">Visits will show up here as people open the store.</p>'}</div>
+      ${v.products.length || v.sources.length ? `<div class="row">
+        <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Most viewed products</h3><span class="muted" style="font-size:13px">30 days</span></div>
+          ${v.products.length ? `<table class="tbl"><tr><th>Product</th><th>Views</th><th>Orders</th><th title="Orders for every 100 views">Rate</th></tr>${v.products.map(p => `<tr><td>${esc(p.title)}</td><td>${n(p.views)}</td><td>${n(p.orders)}</td><td class="muted">${pct(p.orders, p.views)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No product pages viewed yet.</p>'}</div>
+        <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Where visitors come from</h3><span class="muted" style="font-size:13px">30 days</span></div>
+          ${v.sources.length ? `<table class="tbl">${v.sources.map(x => `<tr><td>${esc(x.source === 'Direct' ? 'Direct (typed, WhatsApp chats, apps)' : x.source)}</td><td style="text-align:right">${plural(x.visitors, 'visitor')}</td><td class="muted" style="text-align:right;width:1%">${pct(x.visitors, v.month.visitors)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">Sources will show up here.</p>'}</div>
+      </div>` : ''}`;
+  }
+
   async function overview() {
     const s = await api('/api/admin/stats');
     const days = [];
@@ -74,6 +103,7 @@
       </div>
       <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Revenue · last 30 days</h3><span class="muted" style="font-size:13px">${s.live}/${s.products} products live</span></div>
         <div class="chart">${days.map(d => `<div class="b" style="height:${(d.revenue / max) * 100}%" data-t="${d.d.slice(5)} · ${money(d.revenue)}"></div>`).join('')}</div></div>
+      ${visitsHtml(s.visits)}
       <div class="row">
         <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Top products</h3></div>
           ${s.top.length ? `<table class="tbl"><tr><th>Product</th><th>Sales</th><th>Revenue</th></tr>${s.top.map(t => `<tr><td>${esc(t.title)}</td><td>${t.sales}</td><td>${money(t.revenue)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No products yet.</p>'}</div>
