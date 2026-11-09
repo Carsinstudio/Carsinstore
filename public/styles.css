@@ -816,3 +816,8 @@ a.bundle-row:hover { background: rgba(255,255,255,.025); }
 .crop-zoom { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .crop-zoom input { flex: 1; accent-color: var(--accent-2); }
 .ct-actions .icon-btn svg { width: 15px; height: 15px; }
+
+/* Dashboard: Recent activity shows the first few, then more on request */
+.tbl tr[hidden] { display: none; }
+.recent-more { display: flex; justify-content: center; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+.recent-more [hidden] { display: none; }

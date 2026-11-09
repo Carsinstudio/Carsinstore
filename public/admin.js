@@ -108,9 +108,26 @@
         <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Top products</h3></div>
           ${s.top.length ? `<table class="tbl"><tr><th>Product</th><th>Sales</th><th>Revenue</th></tr>${s.top.map(t => `<tr><td>${esc(t.title)}</td><td>${t.sales}</td><td>${money(t.revenue)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No products yet.</p>'}</div>
         <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Recent activity</h3><a class="btn btn-sm btn-ghost" href="#/admin/orders">All orders</a></div>
-          ${s.recent.length ? `<table class="tbl">${s.recent.map(o => `<tr><td><div>${esc(o.name || o.email)}</div><small class="dim">${esc(o.title)}</small></td><td>${statusPill(o.status)}</td><td style="text-align:right">${o.amount_cents ? money(o.amount_cents) : 'Free'}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">Sales will show up here.</p>'}</div>
+          ${s.recent.length ? `<table class="tbl" id="recent">${s.recent.map((o, i) => `<tr${i >= RECENT_FIRST ? ' hidden' : ''}><td><div>${esc(o.name || o.email)}</div><small class="dim">${esc(o.title)}</small></td><td>${statusPill(o.status)}</td><td style="text-align:right">${o.amount_cents ? money(o.amount_cents, o.currency) : 'Free'}</td></tr>`).join('')}</table>
+            ${s.recent.length > RECENT_FIRST ? `<div class="recent-more"><button type="button" class="btn btn-sm" id="recent-more"></button><button type="button" class="btn btn-sm btn-ghost" id="recent-less" hidden>Show less</button></div>` : ''}`
+            : '<p class="muted" style="padding:20px;margin:0">Sales will show up here.</p>'}</div>
       </div>`);
+    // Recent activity: the first few buyers, then more on request (10 at a time).
+    const moreBtn = $('#recent-more'), lessBtn = $('#recent-less');
+    if (moreBtn) {
+      const rows = $$('#recent tr');
+      const label = () => {
+        const hidden = rows.filter(r => r.hidden).length;
+        moreBtn.hidden = !hidden;
+        moreBtn.textContent = `Show ${Math.min(RECENT_STEP, hidden)} more`;
+        lessBtn.hidden = rows.filter(r => !r.hidden).length <= RECENT_FIRST;
+      };
+      moreBtn.addEventListener('click', () => { rows.filter(r => r.hidden).slice(0, RECENT_STEP).forEach(r => (r.hidden = false)); label(); });
+      lessBtn.addEventListener('click', () => { rows.forEach((r, i) => (r.hidden = i >= RECENT_FIRST)); label(); });
+      label();
+    }
   }
+  const RECENT_FIRST = 5, RECENT_STEP = 10;
 
   // ---------- products ----------
   const dots = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';

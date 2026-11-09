@@ -1098,7 +1098,7 @@ admin.get('/stats', (_req, res) => {
   const top = all(`SELECT p.title, p.slug, COUNT(o.id) AS sales, COALESCE(SUM(CASE WHEN o.status = 'paid' AND o.currency = ? THEN o.amount_cents END),0) AS revenue FROM products p
     LEFT JOIN orders o ON o.product_id = p.id AND o.status IN ${ACCESS_STATUSES} GROUP BY p.id ORDER BY sales DESC LIMIT 5`, main);
   const recent = all(`SELECT o.*, u.email, u.name, p.title FROM orders o JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id
-    WHERE o.status IN ${ACCESS_STATUSES} ORDER BY o.id DESC LIMIT 8`);
+    WHERE o.status IN ${ACCESS_STATUSES} ORDER BY o.id DESC LIMIT 50`);
   // Visits: per day for the chart, totals, the most viewed products (with how many of those turned into orders), where people came from.
   const vSum = from => one(`SELECT COALESCE(SUM(visitors),0) AS visitors, COALESCE(SUM(views),0) AS views FROM visits_daily WHERE day >= date('now', ?)`, from);
   const visits = {
