@@ -279,7 +279,11 @@
   function shell(content, { active, bare, wa } = {}) {
     const s = S.store.settings;
     const fab = s.whatsapp ? `<a class="wa-fab${wa ? ' lift' : ''}" href="${waLink(wa)}" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp" data-wa>${waIcon}<span>Chat with us</span></a>` : '';
-    app.innerHTML = nav(active) + `<main>${content}</main>` + (bare ? '' : footer()) + fab;
+    // A new page appears already at the top (with a short fade); re-drawing the same page keeps its scroll.
+    const fresh = pageChange;
+    if (fresh) { jumpTop(); pageChange = false; }
+    app.innerHTML = nav(active) + `<main${fresh ? ' class="page-in"' : ''}>${content}</main>` + (bare ? '' : footer()) + fab;
+    if (scrollAfter && fresh) { const sel = scrollAfter; scrollAfter = null; requestAnimationFrame(() => $(sel)?.scrollIntoView({ block: 'start' })); }
     wireChrome();
     $('[data-wa]')?.addEventListener('click', () => window.Analytics?.track('contact', { channel: 'whatsapp' }));
   }
@@ -303,7 +307,12 @@
     });
     $('#menu-btn')?.addEventListener('click', () => $('#nav-links').classList.toggle('open'));
     $('#logout')?.addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }); await loadStore(); location.hash = '#/'; toast('Signed out'); });
-    $$('[data-faq]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); location.hash = '#/'; setTimeout(() => $('#faq')?.scrollIntoView(), 120); }));
+    // FAQ link: on the homepage, glide down to it; from another page, open the homepage and go there once it's drawn.
+    $$('[data-faq]').forEach(a => a.addEventListener('click', e => {
+      e.preventDefault();
+      if ($('#faq')) return $('#faq').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      scrollAfter = '#faq'; location.hash = '#/';
+    }));
     observeReveal();
   }
   document.addEventListener('click', () => $$('.dropdown.open').forEach(o => o.classList.remove('open')));
@@ -988,6 +997,15 @@
   }
 
   // ---------- router ----------
+  let pageChange = false, scrollAfter = null; // scrollAfter: a section to show once the next page is drawn
+  // Straight to the top with no animation (the page is otherwise set to scroll smoothly, for in-page links).
+  function jumpTop() {
+    const root = document.documentElement, was = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    void getComputedStyle(root).scrollBehavior; // apply it now, before scrolling
+    try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch { window.scrollTo(0, 0); }
+    root.style.scrollBehavior = was;
+  }
   async function loadStore() { S.store = await api('/api/store'); }
   async function route() {
     const raw = location.hash.slice(1) || '/';
@@ -995,7 +1013,8 @@
     const parts = pathPart.split('/').filter(Boolean);
     const q = new URLSearchParams(qs || '');
     document.title = S.store.settings.store_name;
-    scrollTo(0, 0);
+    // The current page stays put while the next one loads; it then appears at the top (see shell).
+    pageChange = true;
     // Count visitors' pages, not the owner's own dashboard visits or partners checking their stats.
     if (!['admin', 'login', 'account', 'affiliate', 'forgot', 'reset'].includes(parts[0]) && !S.store.user?.isAdmin) setTimeout(() => window.Analytics?.page(), 0);
     try {
@@ -1016,6 +1035,7 @@
         default: return notFound();
       }
     } catch (e) { console.error(e); toast(e.message || 'Something went wrong', true); }
+    finally { if (pageChange) { pageChange = false; jumpTop(); } } // pages drawn without shell (dashboard, not found)
   }
 
   window.Store = { api, upload, esc, money, size, plural, date, md, cleanHtml, isRich, richText, I, toast, modal, confirmDialog, coverHtml, loadStore, S, route, $, $$, kindLabel, extOf, spinner, passwordToggles };
