@@ -9,13 +9,19 @@
 //   META_CONFIG_ID                          Facebook Login for Business configuration (newer Meta apps)
 //   LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET
 //   X_CLIENT_ID, X_CLIENT_SECRET
+//   PINTEREST_APP_ID, PINTEREST_APP_SECRET
+// Besides the morning product post there is an evening post each day: a research question for one of the store's
+// audiences (what frustrates them, what they repeat, what they'd pay to simplify) or a useful tip / short how-to
+// taken from a product, as a teaser for the full product.
 // Each platform's app must allow the redirect URL  <BASE_URL>/api/social/callback/<meta|linkedin|x>
 const crypto = require('crypto');
 const Anthropic = require('@anthropic-ai/sdk');
 
-const PLATFORMS = ['x', 'linkedin', 'facebook', 'instagram'];
-const NAMES = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram' };
-const STAGGER = { x: 0, linkedin: 10, facebook: 20, instagram: 30 }; // minutes after the posting hour
+const PLATFORMS = ['x', 'linkedin', 'facebook', 'instagram', 'pinterest'];
+const NAMES = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest' };
+const STAGGER = { x: 0, linkedin: 10, facebook: 20, instagram: 30, pinterest: 40 }; // minutes after the posting hour
+const FEATURED = 'Grab it from the Featured section on my profile.';
+const AUDIENCES = ['freelancers', 'job seekers', 'graphic designers and creatives', 'small business owners', 'content creators', 'parents and teachers'];
 const GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || 'v23.0'}`;
 const LI_VERSION = process.env.LINKEDIN_VERSION || '202605';
 const MODEL = process.env.SOCIAL_MODEL || 'claude-opus-5-5';
@@ -26,6 +32,7 @@ const configured = {
   meta: () => !!(env('META_APP_ID') && env('META_APP_SECRET')),
   linkedin: () => !!(env('LINKEDIN_CLIENT_ID') && env('LINKEDIN_CLIENT_SECRET')),
   x: () => !!(env('X_CLIENT_ID') && env('X_CLIENT_SECRET')),
+  pinterest: () => !!(env('PINTEREST_APP_ID') && env('PINTEREST_APP_SECRET')),
 };
 // X counts every link as 23 characters, however long it is.
 const xLength = t => String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length;
@@ -80,6 +87,11 @@ module.exports = function setupSocial({ app, admin, one, all, run, getSettings, 
       run('INSERT INTO social_oauth (state, platform, verifier) VALUES (?, ?, ?)', state, p, verifier);
       return res.json({ url: `https://x.com/i/oauth2/authorize?${form({ response_type: 'code', client_id: env('X_CLIENT_ID'), redirect_uri: redirectUri('x'), scope: 'tweet.read tweet.write users.read offline.access', state, code_challenge: challenge, code_challenge_method: 'S256' })}` });
     }
+    if (p === 'pinterest') {
+      if (!configured.pinterest()) return bad(res, 'Add PINTEREST_APP_ID and PINTEREST_APP_SECRET in Railway first.');
+      run('INSERT INTO social_oauth (state, platform) VALUES (?, ?)', state, p);
+      return res.json({ url: `https://www.pinterest.com/oauth/?${form({ client_id: env('PINTEREST_APP_ID'), redirect_uri: redirectUri('pinterest'), response_type: 'code', scope: 'boards:read,boards:write,pins:read,pins:write,user_accounts:read', state })}` });
+    }
     bad(res, 'Unknown platform.', 404);
   });
 
@@ -97,6 +109,7 @@ module.exports = function setupSocial({ app, admin, one, all, run, getSettings, 
       if (p === 'meta') await connectMeta(code);
       else if (p === 'linkedin') await connectLinkedIn(code);
       else if (p === 'x') await connectX(code, st.verifier);
+      else if (p === 'pinterest') await connectPinterest(code);
       else return back('error=Unknown%20platform');
       back('connected=' + p);
     } catch (e) {
@@ -156,6 +169,34 @@ module.exports = function setupSocial({ app, admin, one, all, run, getSettings, 
     return { ...a, data };
   }
 
+  // Pinterest: pins go to a board called after the store (made on first connect if it doesn't exist).
+  const PIN_API = 'https://api.pinterest.com/v5';
+  const pinBasic = () => 'Basic ' + Buffer.from(`${env('PINTEREST_APP_ID')}:${env('PINTEREST_APP_SECRET')}`).toString('base64');
+  async function connectPinterest(code) {
+    const tok = (await http(`${PIN_API}/oauth/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: pinBasic() },
+      body: form({ grant_type: 'authorization_code', code, redirect_uri: redirectUri('pinterest') }) }, 'Pinterest sign-in')).data;
+    const h = { Authorization: `Bearer ${tok.access_token}` };
+    const me = (await http(`${PIN_API}/user_account`, { headers: h }, 'Pinterest profile')).data;
+    const name = getSettings().store_name || 'Carsin Store';
+    const boards = (await http(`${PIN_API}/boards?page_size=100`, { headers: h }, 'Pinterest boards')).data.items || [];
+    let board = boards.find(b => b.name.toLowerCase() === name.toLowerCase()) || boards.find(b => /carsin/i.test(b.name));
+    if (!board) board = (await http(`${PIN_API}/boards`, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: 'Templates, guides, video courses and printables from ' + name, privacy: 'PUBLIC' }) }, 'Pinterest board')).data;
+    saveAccount('pinterest', { token: tok.access_token, refresh: tok.refresh_token, board_id: board.id, board: board.name, username: me.username },
+      '@' + me.username + ' · ' + board.name, sqlTime(new Date(Date.now() + (Number(tok.expires_in) || 2592000) * 1000)));
+  }
+  async function pinterestToken() {
+    const a = account('pinterest');
+    if (!a) throw new Error('Pinterest is not connected.');
+    if (a.expires_at && fromSql(a.expires_at) > new Date(Date.now() + 3600e3)) return a;
+    if (!a.data.refresh) throw new Error('Pinterest needs reconnecting.');
+    const tok = (await http(`${PIN_API}/oauth/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: pinBasic() },
+      body: form({ grant_type: 'refresh_token', refresh_token: a.data.refresh }) }, 'Pinterest token refresh')).data;
+    const data = { ...a.data, token: tok.access_token, refresh: tok.refresh_token || a.data.refresh };
+    saveAccount('pinterest', data, a.name, sqlTime(new Date(Date.now() + (Number(tok.expires_in) || 2592000) * 1000)));
+    return { ...a, data };
+  }
+
   admin.delete('/social/accounts/:platform', (req, res) => {
     const p = req.params.platform;
     if (p === 'facebook' || p === 'meta') run("DELETE FROM social_accounts WHERE platform IN ('facebook', 'instagram')");
@@ -171,6 +212,14 @@ module.exports = function setupSocial({ app, admin, one, all, run, getSettings, 
       const a = await xToken();
       const r = (await http('https://api.x.com/2/tweets', { method: 'POST', headers: { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: post.text }) }, 'X post')).data;
       return `https://x.com/${a.data.username}/status/${r.data.id}`;
+    }
+    if (post.platform === 'pinterest') {
+      const a = await pinterestToken();
+      if (!post.image_url) throw new Error('Pins need a picture.');
+      const r = (await http(`${PIN_API}/pins`, { method: 'POST', headers: { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ board_id: a.data.board_id, title: String(post.title || '').slice(0, 100), description: String(post.text).slice(0, 500),
+          link: post.link || undefined, alt_text: String(post.title || '').slice(0, 500), media_source: { source_type: 'image_url', url: post.image_url } }) }, 'Pinterest pin')).data;
+      return `https://www.pinterest.com/pin/${r.id}/`;
     }
     if (post.platform === 'facebook') {
       const a = account('facebook'); if (!a) throw new Error('Facebook is not connected.');
@@ -271,8 +320,9 @@ module.exports = function setupSocial({ app, admin, one, all, run, getSettings, 
   }
   const SCHEMA = {
     type: 'object', additionalProperties: false, required: ['posts'],
-    properties: { posts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['day', 'x', 'linkedin', 'facebook', 'instagram'],
-      properties: { day: { type: 'integer' }, x: { type: 'string' }, linkedin: { type: 'string' }, facebook: { type: 'string' }, instagram: { type: 'string' } } } } },
+    properties: { posts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['day', 'x', 'linkedin', 'facebook', 'instagram', 'pinterest_title', 'pinterest'],
+      properties: { day: { type: 'integer' }, x: { type: 'string' }, linkedin: { type: 'string' }, facebook: { type: 'string' }, instagram: { type: 'string' },
+        pinterest_title: { type: 'string' }, pinterest: { type: 'string' } } } } },
   };
   async function writePosts(days, s) {
     const sale = s.announcement && s.announcement_style === 'promo' ? `${s.announcement_tag ? s.announcement_tag + ': ' : ''}${s.announcement}` : '';
@@ -285,9 +335,11 @@ About the store and its voice: ${s.social_voice}
 
 For each day you get one product. Write one post per platform about it, each in that platform's own style:
 - x: under 230 characters. Punchy and conversational, one idea. At most one hashtag. No link (it is added after your text).
-- linkedin: 60 to 160 words, first person from the founder, professional and warm. Open with a line that earns the click, share a useful point drawn from the product, end with a soft invitation. At most 3 hashtags at the end. No link (it is added after your text).
+- linkedin: 60 to 160 words, first person from the founder, professional and warm. Open with a line that earns the click, share a useful point drawn from the product, end by telling people to grab it from the Featured section on your profile. At most 3 hashtags at the end. No link.
 - facebook: 40 to 110 words, friendly and plain, a few emoji at most. No link (it is added after your text).
 - instagram: 60 to 150 words, a strong first line, short paragraphs, end with "Link in bio" and 5 to 8 relevant hashtags. No links.
+- pinterest_title: up to 90 characters, search-friendly, says what it is and who it helps.
+- pinterest: 150 to 400 characters, a keyword-rich description of what's inside and who it's for. No hashtags, no link.
 
 Vary the angle across the week: a problem it solves, a quick tip taken from it, who it is for, what is inside, a behind-the-scenes note. Do not open every post the same way.
 
@@ -323,11 +375,121 @@ Rules, because these posts must never mislead anyone:
     if (t.length > room) t = t.slice(0, room - 1).replace(/\s+\S*$/, '') + '…';
     return `${t} ${link}`;
   };
+  // Product posts get the product link (X and Facebook), LinkedIn points to the Featured section instead.
+  // Question posts get no link at all.
   function finalText(platform, text, p) {
     const t = String(text || '').trim();
+    if (!p) return platform === 'x' ? t.slice(0, 280) : t;
     if (platform === 'x') return fitX(t, productUrl(p, 'x'));
     if (platform === 'instagram') return t.slice(0, 2150);
+    if (platform === 'pinterest') return t.slice(0, 500);
+    if (platform === 'linkedin') return /featured/i.test(t) ? t : `${t}\n\n${FEATURED}`;
     return `${t}\n\n👉 ${productUrl(p, platform)}`;
+  }
+  // Older LinkedIn drafts carried the product link; switch them to the Featured section line.
+  for (const post of all("SELECT id, text FROM social_posts WHERE platform = 'linkedin' AND status IN ('draft', 'approved') AND text LIKE '%👉 http%'")) {
+    run('UPDATE social_posts SET text = ? WHERE id = ?', post.text.replace(/\n*👉 https?:\/\/\S+\s*$/, '').trim() + '\n\n' + FEATURED, post.id);
+  }
+
+  // ---------- evening posts: research questions and tips ----------
+  const EVENING_SCHEMA = {
+    type: 'object', additionalProperties: false, required: ['posts'],
+    properties: { posts: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['day', 'x', 'linkedin', 'facebook', 'instagram', 'pinterest_title', 'pinterest', 'morning_pinterest_title', 'morning_pinterest'],
+      properties: { day: { type: 'integer' }, x: { type: 'string' }, linkedin: { type: 'string' }, facebook: { type: 'string' }, instagram: { type: 'string' },
+        pinterest_title: { type: 'string' }, pinterest: { type: 'string' }, morning_pinterest_title: { type: 'string' }, morning_pinterest: { type: 'string' } } } } },
+  };
+  async function claudeJson(system, user, schema) {
+    const client = new (Anthropic.default || Anthropic)();
+    let res;
+    try {
+      res = await client.beta.messages.create({
+        model: MODEL, max_tokens: 16000, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
+        output_config: { effort: 'medium', format: { type: 'json_schema', schema } },
+        system, messages: [{ role: 'user', content: user }],
+      });
+    } catch (e) {
+      const A = Anthropic.default || Anthropic;
+      if (e instanceof A.AuthenticationError) throw new Error('The Anthropic API key was not accepted. Check ANTHROPIC_API_KEY in Railway.');
+      if (e instanceof A.RateLimitError) throw new Error('Anthropic is rate limiting right now. Try again in a few minutes.');
+      if (e instanceof A.APIError) throw new Error(`Anthropic API error ${e.status}: ${e.message}`);
+      throw e;
+    }
+    if (res.stop_reason === 'refusal') throw new Error('Claude declined to write these posts.');
+    if (res.stop_reason === 'max_tokens') throw new Error('The posts came back cut off. Try again.');
+    return JSON.parse(res.content.filter(b => b.type === 'text').map(b => b.text).join('')).posts;
+  }
+  async function writeEvenings(days, s) {
+    const brief = days.map((d, i) => ({
+      day: i + 1, date: d.date, kind: d.kind,
+      ...(d.kind === 'question' ? { audience: d.audience } : { product: d.tip.title, free: !d.tip.price_cents, subtitle: plain(d.tip.subtitle), about: shortText(plain(d.tip.description), 1200) }),
+      ...(d.morning ? { morning_product: d.morning.title, morning_about: shortText(plain(d.morning.subtitle) || plain(d.morning.description), 400) } : {}),
+    }));
+    const system = `You write evening social media posts for ${s.store_name} (${BASE_URL.replace(/^https?:\/\//, '')}). They are not adverts: they build trust and conversation.
+About the store and its voice: ${s.social_voice}
+
+Each day is one of two kinds:
+- question: a research question for the given audience, to learn what they struggle with. Ask about their frustrations, the repetitive tasks they hate, what slows them down, what they would happily pay to have done or automated, what they wish someone had told them. One clear question, with one or two warm lines of context from shared experience. Invite replies in the comments. Never ask what product they want, never mention the store or any product, no link, no selling.
+- tip: a genuinely useful tip or a short step-by-step (3 to 5 numbered steps) drawn only from the given product's details, as a teaser. Give real value, then say the full version is in the product, by name. Do not invent steps, numbers or claims that the product details don't support.
+
+Platform styles:
+- x: under 230 characters (tip) or under 270 (question). Conversational. No hashtags on questions, at most one on tips. No link (added after tips automatically).
+- linkedin: 60 to 170 words, first person from the founder. For tips, end by saying the full version is in the Featured section on your profile. At most 3 hashtags, none on questions. No link.
+- facebook: 40 to 120 words, friendly. No link.
+- instagram: tips only: 60 to 150 words, end with "Link in bio" and 5 to 8 hashtags. For questions return an empty string.
+- pinterest_title / pinterest: tips only: a how-to title up to 90 characters and a 150 to 400 character description. For questions return empty strings.
+- morning_pinterest_title / morning_pinterest: if the day has a morning_product, a search-friendly pin title (up to 90 characters) and description (150 to 400 characters) for that product; otherwise empty strings.
+
+Rules: no invented results, numbers, reviews or statistics; no promises of jobs, income or clients; no prices; no fake urgency. Plain English, no markdown, no asterisks.`;
+    return claudeJson(system, `Write the evening posts for these ${days.length} days:\n${JSON.stringify(brief, null, 1)}`, EVENING_SCHEMA);
+  }
+  const atHour = (day, hour, platform) => { const at = new Date(day + 'T00:00:00Z'); at.setUTCHours(hour - 1, STAGGER[platform], 0, 0); return at; }; // WAT is UTC+1
+  // Adds evening posts (and Pinterest pins for the morning product) to every upcoming day that has a morning post but
+  // no evening one yet. Alternates tips and questions; tips use a different product from that morning's.
+  async function fillEvenings() {
+    const s = getSettings();
+    const platforms = activePlatforms(s);
+    if (s.social_evening === '0' || !platforms.length) return 0;
+    const hour = Math.min(Math.max(Number(s.social_evening_hour) || 19, 0), 23);
+    const morningHour = Math.min(Math.max(Number(s.social_hour) || 10, 0), 23);
+    const days = all(`SELECT substr(scheduled_at, 1, 10) AS day, MIN(product_id) AS product_id FROM social_posts
+      WHERE slot = 'morning' AND status IN ('draft', 'approved') GROUP BY day ORDER BY day`)
+      .filter(d => atHour(d.day, hour, 'x') > new Date(Date.now() + 15 * 60e3))
+      .filter(d => !one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ?", d.day));
+    if (!days.length) return 0;
+    const pool = pickProducts(14);
+    const past = one("SELECT COUNT(*) AS n FROM social_posts WHERE slot = 'evening' AND platform = 'x'").n;
+    const plan = days.map((d, i) => {
+      const n = past + i;
+      const morning = one('SELECT * FROM products WHERE id = ?', d.product_id);
+      const needPin = platforms.includes('pinterest') && morning && !one("SELECT 1 FROM social_posts WHERE platform = 'pinterest' AND slot = 'morning' AND substr(scheduled_at, 1, 10) = ?", d.day);
+      if (n % 2 === 1) return { date: d.day, kind: 'question', audience: AUDIENCES[Math.floor(n / 2) % AUDIENCES.length], morning: needPin ? morning : null };
+      const tip = pool.find(p => p.id !== d.product_id && !days.some((x, j) => j < i && x.tipId === p.id)) || pool[0];
+      d.tipId = tip.id;
+      return { date: d.day, kind: 'tip', tip, morning: needPin ? morning : null };
+    });
+    const posts = await writeEvenings(plan, s);
+    let created = 0;
+    for (const e of posts) {
+      const d = plan[e.day - 1]; if (!d) continue;
+      for (const platform of platforms) {
+        const text = String(e[platform] || '').trim();
+        if (!text) continue;
+        if (d.kind === 'question' && ['instagram', 'pinterest'].includes(platform)) continue;
+        const p = d.kind === 'tip' ? d.tip : null;
+        run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'evening', ?)`,
+          platform, p?.id ?? null, finalText(platform, text, p), platform === 'pinterest' ? String(e.pinterest_title || p?.title || '').slice(0, 100) : null,
+          p ? imageFor(p, s) : null, p ? productUrl(p, platform) : null, sqlTime(atHour(d.date, hour, platform)), d.kind);
+        created++;
+      }
+      if (d.morning && String(e.morning_pinterest || '').trim()) {
+        run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES ('pinterest', ?, ?, ?, ?, ?, ?, 'morning', 'product')`,
+          d.morning.id, finalText('pinterest', e.morning_pinterest, d.morning), String(e.morning_pinterest_title || d.morning.title).slice(0, 100),
+          imageFor(d.morning, s), productUrl(d.morning, 'pinterest'), sqlTime(atHour(d.date, morningHour, 'pinterest')));
+        created++;
+      }
+    }
+    return created;
   }
 
   let generating = false;
@@ -340,7 +502,7 @@ Rules, because these posts must never mislead anyone:
     generating = true;
     try {
       const hour = Math.min(Math.max(Number(s.social_hour) || 10, 0), 23);
-      const last = one("SELECT MAX(scheduled_at) AS t FROM social_posts WHERE status IN ('draft', 'approved', 'posted')").t;
+      const last = one("SELECT MAX(scheduled_at) AS t FROM social_posts WHERE slot = 'morning' AND status IN ('draft', 'approved', 'posted')").t;
       const start = new Date(); start.setUTCHours(0, 0, 0, 0); start.setUTCDate(start.getUTCDate() + 1);
       if (last && fromSql(last) >= start) { const l = fromSql(last); l.setUTCHours(0, 0, 0, 0); l.setUTCDate(l.getUTCDate() + 1); start.setTime(l.getTime()); }
       if (!force && start > new Date(Date.now() + 3 * 864e5)) return { created: 0 }; // 3+ days still queued
@@ -354,11 +516,13 @@ Rules, because these posts must never mislead anyone:
         for (const platform of platforms) {
           if (!String(d[platform] || '').trim()) continue;
           const at = new Date(day.date); at.setUTCHours(hour - 1, STAGGER[platform], 0, 0); // WAT is UTC+1
-          run('INSERT INTO social_posts (platform, product_id, text, image_url, link, scheduled_at) VALUES (?, ?, ?, ?, ?, ?)',
-            platform, day.product.id, finalText(platform, d[platform], day.product), imageFor(day.product, s), productUrl(day.product, platform), sqlTime(at));
+          run("INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'morning', 'product')",
+            platform, day.product.id, finalText(platform, d[platform], day.product), platform === 'pinterest' ? String(d.pinterest_title || day.product.title).slice(0, 100) : null,
+            imageFor(day.product, s), productUrl(day.product, platform), sqlTime(at));
           created++;
         }
       }
+      created += await fillEvenings().catch(e => { console.error('Evening posts:', e.message); return 0; });
       if (created && mailer.enabled) {
         await mailer.sendOwnerNote({
           to: s.notify_email || supportEmail(s), store: s.store_name, label: 'Social posts', heading: `${created} posts are ready for you to approve`,
@@ -375,6 +539,10 @@ Rules, because these posts must never mislead anyone:
     if (generating || s.social_enabled === '0' || !configured.ai() || !activePlatforms(s).length) return;
     const r = await generateWeek();
     if (r.created) console.log(`Social: wrote ${r.created} posts`);
+    else if (!generating) {
+      generating = true;
+      try { const n = await fillEvenings(); if (n) console.log(`Social: wrote ${n} evening posts`); } finally { generating = false; }
+    }
   }
 
   // ---------- the Social page ----------
@@ -382,14 +550,15 @@ Rules, because these posts must never mislead anyone:
     const s = getSettings();
     const accounts = Object.fromEntries(all('SELECT platform, name, expires_at, connected_at, data FROM social_accounts').map(a => {
       const d = JSON.parse(a.data || '{}');
-      return [a.platform, { name: a.name, expires_at: a.platform === 'linkedin' ? a.expires_at : null, connected_at: a.connected_at,
+      return [a.platform, { name: a.name, expires_at: a.platform === 'linkedin' ? a.expires_at : null, connected_at: a.connected_at, ...(a.platform === 'pinterest' ? { board: d.board } : {}),
         ...(a.platform === 'facebook' ? { page_id: d.page_id, pages: (d.pages || []).map(p => ({ id: p.id, name: p.name, ig: p.ig?.username || null })) } : {}) }];
     }));
     res.json({
-      ready: { ai: configured.ai(), meta: configured.meta(), linkedin: configured.linkedin(), x: configured.x(), email: mailer.enabled },
-      redirects: { meta: redirectUri('meta'), linkedin: redirectUri('linkedin'), x: redirectUri('x') },
+      ready: { ai: configured.ai(), meta: configured.meta(), linkedin: configured.linkedin(), x: configured.x(), pinterest: configured.pinterest(), email: mailer.enabled },
+      redirects: { meta: redirectUri('meta'), linkedin: redirectUri('linkedin'), x: redirectUri('x'), pinterest: redirectUri('pinterest') },
       accounts,
-      settings: { social_enabled: s.social_enabled, social_hour: s.social_hour, social_platforms: s.social_platforms, social_voice: s.social_voice },
+      settings: { social_enabled: s.social_enabled, social_hour: s.social_hour, social_platforms: s.social_platforms, social_voice: s.social_voice,
+        social_evening: s.social_evening, social_evening_hour: s.social_evening_hour },
       queue: all(`SELECT sp.*, p.title AS product FROM social_posts sp LEFT JOIN products p ON p.id = sp.product_id
         WHERE sp.status IN ('draft', 'approved', 'posting', 'failed') AND sp.scheduled_at >= datetime('now', '-2 days') ORDER BY sp.scheduled_at, sp.platform`),
       history: all(`SELECT sp.id, sp.platform, sp.status, sp.scheduled_at, sp.posted_at, sp.remote_url, sp.error, p.title AS product FROM social_posts sp
@@ -405,7 +574,8 @@ Rules, because these posts must never mislead anyone:
     if (!text) return bad(res, 'The post is empty.');
     if (post.platform === 'x' && xLength(text) > 280) return bad(res, 'X posts can be at most 280 characters (each link counts as 23).');
     const status = ['draft', 'approved', 'skipped'].includes(b.status) ? b.status : post.status === 'failed' ? 'approved' : post.status;
-    run('UPDATE social_posts SET text = ?, status = ?, error = NULL WHERE id = ?', text, status, post.id);
+    const title = b.title != null ? String(b.title).trim().slice(0, 100) : post.title;
+    run('UPDATE social_posts SET text = ?, title = ?, status = ?, error = NULL WHERE id = ?', text, title, status, post.id);
     res.json({ ok: true });
   });
   admin.post('/social/approve-all', (_req, res) => {
@@ -421,7 +591,15 @@ Rules, because these posts must never mislead anyone:
     r.ok ? res.json(r) : bad(res, r.error);
   }));
   admin.post('/social/generate', wrap(async (_req, res) => {
-    try { res.json(await generateWeek({ force: true })); } catch (e) { bad(res, e.message); }
+    try {
+      if (!configured.ai()) throw new Error('Add ANTHROPIC_API_KEY in Railway first.');
+      if (generating) throw new Error('Already writing posts. Give it a minute.');
+      generating = true;
+      let evenings = 0;
+      try { evenings = await fillEvenings(); } finally { generating = false; }
+      if (evenings) return res.json({ created: evenings, evenings: true });
+      res.json(await generateWeek({ force: true }));
+    } catch (e) { bad(res, e.message); }
   }));
 
   setInterval(() => publishDue().catch(e => console.error('Social publish:', e.message)), Number(process.env.SOCIAL_PUBLISH_SECONDS || 120) * 1000).unref();

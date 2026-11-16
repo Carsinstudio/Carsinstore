@@ -330,10 +330,11 @@
   async function social() {
     const d = await api('/api/admin/social');
     const q = new URLSearchParams(location.hash.split('?')[1] || '');
-    if (q.get('connected')) toast(`Connected ${{ meta: 'Facebook and Instagram', linkedin: 'LinkedIn', x: 'X' }[q.get('connected')] || ''}.`);
+    if (q.get('connected')) toast(`Connected ${{ meta: 'Facebook and Instagram', linkedin: 'LinkedIn', x: 'X', pinterest: 'Pinterest' }[q.get('connected')] || ''}.`);
     if (q.get('error')) toast(q.get('error'), true);
     if (q.get('connected') || q.get('error')) history.replaceState(null, '', '#/admin/social');
-    const NAME = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram' };
+    const NAME = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest' };
+    const KIND = { product: 'Product', question: 'Evening · Question', tip: 'Evening · Tip' };
     const xLen = t => String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length; // X counts each link as 23
     const s = d.settings, on = String(s.social_platforms || '').split(',');
     const acct = p => d.accounts[p];
@@ -352,11 +353,11 @@
     for (const post of queue) (byDay[post.scheduled_at.slice(0, 10)] ||= []).push(post);
     const drafts = queue.filter(p => p.status === 'draft').length;
     const card = p => `<div class="panel" style="padding:14px;margin:0" data-post="${p.id}">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>${p.kind && p.kind !== 'product' ? `<span class="status pending" style="font-size:9.5px">${KIND[p.kind]}</span>` : ''}
           <span class="status ${p.status === 'approved' ? 'live' : p.status === 'failed' ? 'draft' : 'pending'}" style="margin-left:auto">${p.status}</span></div>
         <div style="display:flex;gap:12px;align-items:flex-start">
           ${p.image_url && p.platform !== 'x' ? `<img src="${esc(p.image_url)}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:8px;flex:none">` : ''}
-          <textarea class="input" rows="${p.platform === 'x' ? 3 : 6}" style="flex:1;font-size:13px;line-height:1.5" data-text="${p.id}">${esc(p.text)}</textarea>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">${p.platform === 'pinterest' ? `<input class="input" style="font-size:13px" maxlength="100" value="${esc(p.title || '')}" data-title="${p.id}" placeholder="Pin title">` : ''}<textarea class="input" rows="${p.platform === 'x' ? 3 : 6}" style="font-size:13px;line-height:1.5" data-text="${p.id}">${esc(p.text)}</textarea></div>
         </div>
         ${p.error ? `<p style="color:#ff8b7a;font-size:12.5px;margin:8px 0 0">${esc(p.error)}</p>` : ''}
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
@@ -370,14 +371,16 @@
       <p class="muted" style="margin:-6px 0 16px;font-size:13px;max-width:780px">Each week Claude drafts one post a day for every connected account, each about one of your products, and emails you when they're ready. Skim, edit and approve them here. Only approved posts go out, at the time you set; drafts you don't approve are skipped.</p>
       ${!d.ready.ai ? '<div class="panel" style="border-color:rgba(255,139,122,.35)"><b style="font-weight:500">Writing posts needs an Anthropic API key.</b><p class="muted" style="font-size:13px;margin:6px 0 0">Add <code>ANTHROPIC_API_KEY</code> in Railway → Variables. It costs a few cents a week.</p></div>' : ''}
       <div class="panel tbl-wrap" style="padding:0;margin-bottom:18px"><div class="box-head"><h3 style="font-size:18px">Accounts</h3></div>
-        <table class="tbl">${row('x', d.ready.x, 'x', 'X_CLIENT_ID, X_CLIENT_SECRET')}${row('linkedin', d.ready.linkedin, 'linkedin', 'LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET')}${row('facebook', d.ready.meta, 'meta', 'META_APP_ID, META_APP_SECRET')}${row('instagram', d.ready.meta, 'meta', '')}</table>
+        <table class="tbl">${row('x', d.ready.x, 'x', 'X_CLIENT_ID, X_CLIENT_SECRET')}${row('linkedin', d.ready.linkedin, 'linkedin', 'LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET')}${row('facebook', d.ready.meta, 'meta', 'META_APP_ID, META_APP_SECRET')}${row('instagram', d.ready.meta, 'meta', '')}${row('pinterest', d.ready.pinterest, 'pinterest', 'PINTEREST_APP_ID, PINTEREST_APP_SECRET')}</table>
         ${fb?.pages?.length > 1 ? `<div style="padding:12px 16px"><label class="field" style="margin:0"><span>Facebook Page to post on</span><select class="input" id="so-page">${fb.pages.map(p => `<option value="${p.id}" ${p.id === fb.page_id ? 'selected' : ''}>${esc(p.name)}${p.ig ? ` (Instagram @${esc(p.ig)})` : ''}</option>`).join('')}</select></label></div>` : ''}
-        <details style="padding:12px 16px;font-size:12.5px"><summary class="muted" style="cursor:pointer">Redirect links for the developer apps</summary><p class="muted" style="margin:8px 0 0;line-height:1.8">Meta: <code>${esc(d.redirects.meta)}</code><br>LinkedIn: <code>${esc(d.redirects.linkedin)}</code><br>X: <code>${esc(d.redirects.x)}</code></p></details>
+        <details style="padding:12px 16px;font-size:12.5px"><summary class="muted" style="cursor:pointer">Redirect links for the developer apps</summary><p class="muted" style="margin:8px 0 0;line-height:1.8">Meta: <code>${esc(d.redirects.meta)}</code><br>LinkedIn: <code>${esc(d.redirects.linkedin)}</code><br>X: <code>${esc(d.redirects.x)}</code><br>Pinterest: <code>${esc(d.redirects.pinterest)}</code></p></details>
       </div>
       <form class="panel" id="so-set" style="margin-bottom:18px"><h3>Settings</h3>
         <label class="check" style="margin-bottom:12px"><span class="switch"><input type="checkbox" id="so-on" ${s.social_enabled !== '0' ? 'checked' : ''}><i></i></span>Write a new week of posts when the queue runs low</label>
-        <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:12px">${['x', 'linkedin', 'facebook', 'instagram'].map(p => `<label class="check" style="font-size:13px"><input type="checkbox" data-plat="${p}" ${on.includes(p) ? 'checked' : ''} style="accent-color:var(--accent)">${NAME[p]}</label>`).join('')}</div>
-        <label class="field"><span>Post at (Nigeria time)</span><select class="input" id="so-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_hour || 10) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>X first, then LinkedIn, Facebook and Instagram ten minutes apart.</small></label>
+        <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:12px">${['x', 'linkedin', 'facebook', 'instagram', 'pinterest'].map(p => `<label class="check" style="font-size:13px"><input type="checkbox" data-plat="${p}" ${on.includes(p) ? 'checked' : ''} style="accent-color:var(--accent)">${NAME[p]}</label>`).join('')}</div>
+        <label class="field"><span>Post at (Nigeria time)</span><select class="input" id="so-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_hour || 10) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Product posts. X first, then LinkedIn, Facebook, Instagram and Pinterest ten minutes apart.</small></label>
+        <label class="check" style="margin:4px 0 8px"><span class="switch"><input type="checkbox" id="so-eve" ${s.social_evening !== '0' ? 'checked' : ''}><i></i></span>Evening posts too: research questions and helpful tips</label>
+        <label class="field"><span>Evening posts at (Nigeria time)</span><select class="input" id="so-eve-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_evening_hour || 19) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Alternates a question for one of your audiences (what frustrates them, what they'd pay to simplify) with a tip or short how-to taken from a product. Replies tell you what to make next.</small></label>
         <label class="field"><span>About your brand and voice</span><textarea class="input" id="so-voice" rows="4" maxlength="1500">${esc(s.social_voice || '')}</textarea><small>Claude reads this every time it writes. Say who you help, how you sound, and anything to avoid.</small></label>
         <button class="btn btn-primary btn-sm" id="so-save" type="button">Save settings</button>
       </form>
@@ -399,13 +402,14 @@
     $('#so-save').addEventListener('click', async () => {
       await api('/api/admin/settings', { method: 'PUT', body: {
         social_enabled: $('#so-on').checked ? '1' : '0', social_hour: $('#so-hour').value, social_voice: $('#so-voice').value,
+        social_evening: $('#so-eve').checked ? '1' : '0', social_evening_hour: $('#so-eve-hour').value,
         social_platforms: $$('[data-plat]').filter(i => i.checked).map(i => i.dataset.plat).join(','),
       } });
       toast('Settings saved');
     });
     $('#so-gen').addEventListener('click', async e => {
       e.target.disabled = true; e.target.textContent = 'Writing… (about a minute)';
-      try { const r = await api('/api/admin/social/generate', { method: 'POST' }); toast(r.created ? `${r.created} posts written. Review them below.` : 'Nothing new to write.'); social(); }
+      try { const r = await api('/api/admin/social/generate', { method: 'POST' }); toast(r.created ? `${r.created} ${r.evenings ? 'evening ' : ''}posts written. Review them below.` : 'Nothing new to write.'); social(); }
       catch (err) { toast(err.message, true); e.target.disabled = false; e.target.textContent = "Write next week's posts"; }
     });
     $('#so-all')?.addEventListener('click', async () => { const r = await api('/api/admin/social/approve-all', { method: 'POST' }); toast(`Approved ${plural(r.approved, 'post')}`); social(); });
@@ -417,10 +421,10 @@
         try {
           if (b.dataset.act === 'now') {
             if (!(await confirmDialog('Post this now?', 'It goes out straight away instead of at its scheduled time.', 'Post now'))) { b.disabled = false; return; }
-            await api(`/api/admin/social/posts/${id}`, { method: 'PUT', body: { text: ta.value } });
+            await api(`/api/admin/social/posts/${id}`, { method: 'PUT', body: { text: ta.value, title: $(`[data-title="${id}"]`, c)?.value } });
             const r = await api(`/api/admin/social/posts/${id}/publish`, { method: 'POST' }); toast('Posted'); if (r.url) window.open(r.url, '_blank', 'noopener');
           } else {
-            await api(`/api/admin/social/posts/${id}`, { method: 'PUT', body: { text: ta.value, status: b.dataset.act } });
+            await api(`/api/admin/social/posts/${id}`, { method: 'PUT', body: { text: ta.value, title: $(`[data-title="${id}"]`, c)?.value, status: b.dataset.act } });
             toast({ approved: 'Approved', draft: 'Moved back to drafts', skipped: 'Skipped' }[b.dataset.act]);
           }
           social();

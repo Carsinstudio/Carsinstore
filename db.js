@@ -133,7 +133,9 @@ const DEFAULT_SETTINGS = {
   recommend_first: '',            // product id the owner wants suggested before anything else (empty = automatic)
   social_enabled: '1',            // social auto-poster: drafts a week of posts when the queue runs low (needs ANTHROPIC_API_KEY and a connected account)
   social_hour: '10',              // posting hour, Nigeria time (WAT, UTC+1)
-  social_platforms: 'x,linkedin,facebook,instagram',
+  social_platforms: 'x,linkedin,facebook,instagram,pinterest',
+  social_evening: '1',            // also an evening post each day: a research question or a helpful tip / teaser from a product
+  social_evening_hour: '19',      // evening posting hour, Nigeria time
   social_voice: 'Carsin Store sells practical digital products (templates, guides, video courses, printables) made by a designer for creatives, job seekers and small business owners in Nigeria and beyond. Friendly, direct and useful; plain words, no hype.',
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '', tiktok_pixel_id: '',   // analytics, all optional
@@ -303,6 +305,7 @@ function migrate(db) {
     PRIMARY KEY (user_id, product_id)
   )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_rec_sent ON recommendations(sent_at)');
+  // (social tables are created below; their later columns are added after them)
   // Social auto-poster: connected accounts (tokens never leave the server), the post queue, and OAuth handshakes.
   db.exec(`CREATE TABLE IF NOT EXISTS social_accounts (
     platform TEXT PRIMARY KEY,                     -- 'x' | 'linkedin' | 'facebook' | 'instagram'
@@ -332,6 +335,12 @@ function migrate(db) {
     verifier TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );`);
+  // Morning posts are about a product; evening posts are a research question or a tip. Pinterest pins have a title.
+  if (!hasColumn(db, 'social_posts', 'slot')) {
+    db.exec("ALTER TABLE social_posts ADD COLUMN slot TEXT NOT NULL DEFAULT 'morning'");
+    db.exec("ALTER TABLE social_posts ADD COLUMN kind TEXT NOT NULL DEFAULT 'product'"); // 'product' | 'question' | 'tip'
+    db.exec('ALTER TABLE social_posts ADD COLUMN title TEXT');
+  }
 }
 
 let db;
