@@ -334,9 +334,9 @@ module.exports = function setupSocial({ app, admin, one, all, run, getSettings, 
 About the store and its voice: ${s.social_voice}
 
 For each day you get one product. Write one post per platform about it, each in that platform's own style:
-- x: under 230 characters. Punchy and conversational, one idea. At most one hashtag. No link (it is added after your text).
-- linkedin: 60 to 160 words, first person from the founder, professional and warm. Open with a line that earns the click, share a useful point drawn from the product, end by telling people to grab it from the Featured section on your profile. At most 3 hashtags at the end. No link.
-- facebook: 40 to 110 words, friendly and plain, a few emoji at most. No link (it is added after your text).
+- x: under 230 characters. Punchy and conversational, one idea. No hashtags. No link (it is added after your text).
+- linkedin: 60 to 160 words, first person from the founder, professional and warm. Open with a line that earns the click, share a useful point drawn from the product, end by telling people to grab it from the Featured section on your profile. No hashtags. No link.
+- facebook: 40 to 110 words, friendly and plain, a few emoji at most. No hashtags. No link (it is added after your text).
 - instagram: 60 to 150 words, a strong first line, short paragraphs, end with "Link in bio" and 5 to 8 relevant hashtags. No links.
 - pinterest_title: up to 90 characters, search-friendly, says what it is and who it helps.
 - pinterest: 150 to 400 characters, a keyword-rich description of what's inside and who it's for. No hashtags, no link.
@@ -375,16 +375,28 @@ Rules, because these posts must never mislead anyone:
     if (t.length > room) t = t.slice(0, room - 1).replace(/\s+\S*$/, '') + '…';
     return `${t} ${link}`;
   };
+  // Hashtags only on Instagram: removed from every other platform's text, whatever the writer returns.
+  const stripTags = s => String(s)
+    .replace(/(?<=^|[\s(])#[\p{L}][\p{L}\p{N}_]*/gu, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   // Product posts get the product link (X and Facebook), LinkedIn points to the Featured section instead.
   // Question posts get no link at all.
   function finalText(platform, text, p) {
-    const t = String(text || '').trim();
+    const t = platform === 'instagram' ? String(text || '').trim() : stripTags(text || '');
     if (!p) return platform === 'x' ? t.slice(0, 280) : t;
     if (platform === 'x') return fitX(t, productUrl(p, 'x'));
     if (platform === 'instagram') return t.slice(0, 2150);
     if (platform === 'pinterest') return t.slice(0, 500);
     if (platform === 'linkedin') return /featured/i.test(t) ? t : `${t}\n\n${FEATURED}`;
     return `${t}\n\n👉 ${productUrl(p, platform)}`;
+  }
+  for (const post of all("SELECT id, text FROM social_posts WHERE platform != 'instagram' AND status IN ('draft', 'approved', 'failed') AND text LIKE '%#%'")) {
+    const clean = stripTags(post.text);
+    if (clean !== post.text) run('UPDATE social_posts SET text = ? WHERE id = ?', clean, post.id);
   }
   // Older LinkedIn drafts carried the product link; switch them to the Featured section line.
   for (const post of all("SELECT id, text FROM social_posts WHERE platform = 'linkedin' AND status IN ('draft', 'approved') AND text LIKE '%👉 http%'")) {
@@ -433,9 +445,9 @@ Each day is one of two kinds:
 - tip: a genuinely useful tip or a short step-by-step (3 to 5 numbered steps) drawn only from the given product's details, as a teaser. Give real value, then say the full version is in the product, by name. Do not invent steps, numbers or claims that the product details don't support.
 
 Platform styles:
-- x: under 230 characters (tip) or under 270 (question). Conversational. No hashtags on questions, at most one on tips. No link (added after tips automatically).
-- linkedin: 60 to 170 words, first person from the founder. For tips, end by saying the full version is in the Featured section on your profile. At most 3 hashtags, none on questions. No link.
-- facebook: 40 to 120 words, friendly. No link.
+- x: under 230 characters (tip) or under 270 (question). Conversational. No hashtags. No link (added after tips automatically).
+- linkedin: 60 to 170 words, first person from the founder. For tips, end by saying the full version is in the Featured section on your profile. No hashtags. No link.
+- facebook: 40 to 120 words, friendly. No hashtags. No link.
 - instagram: tips only: 60 to 150 words, end with "Link in bio" and 5 to 8 hashtags. For questions return an empty string.
 - pinterest_title / pinterest: tips only: a how-to title up to 90 characters and a 150 to 400 character description. For questions return empty strings.
 - morning_pinterest_title / morning_pinterest: if the day has a morning_product, a search-friendly pin title (up to 90 characters) and description (150 to 400 characters) for that product; otherwise empty strings.
