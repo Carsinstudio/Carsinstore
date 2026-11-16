@@ -6,6 +6,7 @@
 // Needs, as Railway variables:
 //   ANTHROPIC_API_KEY                       writes the posts
 //   META_APP_ID, META_APP_SECRET            Facebook Page + Instagram (one connection covers both)
+//   META_CONFIG_ID                          Facebook Login for Business configuration (newer Meta apps)
 //   LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET
 //   X_CLIENT_ID, X_CLIENT_SECRET
 // Each platform's app must allow the redirect URL  <BASE_URL>/api/social/callback/<meta|linkedin|x>
@@ -62,8 +63,11 @@ module.exports = function setupSocial({ app, admin, one, all, run, getSettings, 
     if (p === 'meta') {
       if (!configured.meta()) return bad(res, 'Add META_APP_ID and META_APP_SECRET in Railway first.');
       run('INSERT INTO social_oauth (state, platform) VALUES (?, ?)', state, p);
+      // Newer Meta apps sign in with a Facebook Login for Business configuration (META_CONFIG_ID) that lists the
+      // permissions; older ones take the permissions as a scope.
       const scope = 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management,instagram_basic,instagram_content_publish';
-      return res.json({ url: `https://www.facebook.com/${GRAPH.split('/').pop()}/dialog/oauth?${form({ client_id: env('META_APP_ID'), redirect_uri: redirectUri('meta'), state, scope, response_type: 'code' })}` });
+      const how = env('META_CONFIG_ID') ? { config_id: env('META_CONFIG_ID'), override_default_response_type: 'true' } : { scope };
+      return res.json({ url: `https://www.facebook.com/${GRAPH.split('/').pop()}/dialog/oauth?${form({ client_id: env('META_APP_ID'), redirect_uri: redirectUri('meta'), state, response_type: 'code', ...how })}` });
     }
     if (p === 'linkedin') {
       if (!configured.linkedin()) return bad(res, 'Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in Railway first.');
