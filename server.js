@@ -1809,6 +1809,12 @@ admin.post('/restore', restoreUpload.single('backup'), wrap(async (req, res) => 
   }
 }));
 
+// Social auto-poster (social.js): weekly drafts by Claude, approved by the owner, posted on schedule.
+require('./social')({
+  app, admin, one, all, run, getSettings, BASE_URL, mailer, wrap, bad,
+  coversOf: p => coversOf(p), coverFile: (n, k) => coverFile(n, k), isVideoCover: n => isVideoCover(n),
+  plain: s => plain(s), shortText: (s, n) => shortText(s, n), shareImage: s => shareImage(s), supportEmail: s => supportEmail(s),
+});
 app.use('/api/admin', admin);
 app.use('/api', (_req, res) => bad(res, 'Not found', 404));
 

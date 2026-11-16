@@ -19,11 +19,12 @@
     dn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>',
     bank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>',
     mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>',
+    share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.4M8.2 13.2l7.6 4.4"/></svg>',
     eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   };
 
   function layout(active, content) {
-    const items = [['', 'Overview', A.dash], ['products', 'Products', A.box], ['categories', 'Categories', A.tag], ['orders', 'Orders', A.receipt], ['payouts', 'Payouts', A.bank], ['customers', 'Customers', I.users], ['coupons', 'Discounts', A.pct], ['affiliates', 'Affiliates', A.link], ['settings', 'Store settings', A.gear]];
+    const items = [['', 'Overview', A.dash], ['products', 'Products', A.box], ['categories', 'Categories', A.tag], ['orders', 'Orders', A.receipt], ['payouts', 'Payouts', A.bank], ['customers', 'Customers', I.users], ['social', 'Social', A.share], ['coupons', 'Discounts', A.pct], ['affiliates', 'Affiliates', A.link], ['settings', 'Store settings', A.gear]];
     app.innerHTML = `<div class="admin">
       <aside class="admin-side">
         <a class="brand" href="#/" style="border:0"><img class="brand-logo" src="/brand/logo-horizontal.svg" alt="${esc(S.store.settings.store_name)}"></a>
@@ -322,6 +323,109 @@
           close(); toast(r.sendAt ? `Scheduled for ${people(r.total)}.` : `Sending to ${people(r.total)}.`); done?.();
         } catch (err) { toast(err.message, true); e.target.disabled = false; }
       });
+    });
+  }
+
+  // Social auto-poster: connect accounts, set the voice and time, and approve the week's drafts.
+  async function social() {
+    const d = await api('/api/admin/social');
+    const q = new URLSearchParams(location.hash.split('?')[1] || '');
+    if (q.get('connected')) toast(`Connected ${{ meta: 'Facebook and Instagram', linkedin: 'LinkedIn', x: 'X' }[q.get('connected')] || ''}.`);
+    if (q.get('error')) toast(q.get('error'), true);
+    if (q.get('connected') || q.get('error')) history.replaceState(null, '', '#/admin/social');
+    const NAME = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram' };
+    const xLen = t => String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length; // X counts each link as 23
+    const s = d.settings, on = String(s.social_platforms || '').split(',');
+    const acct = p => d.accounts[p];
+    const days = n => Math.ceil((new Date(n.replace(' ', 'T') + 'Z') - Date.now()) / 864e5);
+    const when = t => new Date(t.replace(' ', 'T') + 'Z').toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    const row = (p, envOk, connectKey, envNames) => {
+      const a = acct(p);
+      const warn = a?.expires_at && days(a.expires_at) <= 10 ? ` <small style="color:#ff8b7a">access ends in ${plural(Math.max(0, days(a.expires_at)), 'day')}, reconnect soon</small>` : '';
+      return `<tr><td><b style="font-weight:500">${NAME[p]}</b></td>
+        <td>${a ? `<span class="status live">connected</span> <span class="muted">${esc(a.name)}</span>${warn}` : envOk ? '<span class="status draft">not connected</span>' : `<span class="status draft">needs setup</span> <small class="dim">${envNames}</small>`}</td>
+        <td style="text-align:right">${p === 'instagram' ? (a ? '' : '<small class="dim">Comes with Facebook</small>') : envOk ? `<button class="btn btn-sm" data-connect="${connectKey}">${a ? 'Reconnect' : 'Connect'}</button>` : ''}${a && p !== 'instagram' ? ` <button class="btn btn-sm btn-ghost" data-disconnect="${p}">Disconnect</button>` : ''}</td></tr>`;
+    };
+    const fb = acct('facebook');
+    const queue = d.queue;
+    const byDay = {};
+    for (const post of queue) (byDay[post.scheduled_at.slice(0, 10)] ||= []).push(post);
+    const drafts = queue.filter(p => p.status === 'draft').length;
+    const card = p => `<div class="panel" style="padding:14px;margin:0" data-post="${p.id}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>
+          <span class="status ${p.status === 'approved' ? 'live' : p.status === 'failed' ? 'draft' : 'pending'}" style="margin-left:auto">${p.status}</span></div>
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          ${p.image_url && p.platform !== 'x' ? `<img src="${esc(p.image_url)}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:8px;flex:none">` : ''}
+          <textarea class="input" rows="${p.platform === 'x' ? 3 : 6}" style="flex:1;font-size:13px;line-height:1.5" data-text="${p.id}">${esc(p.text)}</textarea>
+        </div>
+        ${p.error ? `<p style="color:#ff8b7a;font-size:12.5px;margin:8px 0 0">${esc(p.error)}</p>` : ''}
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <small class="dim" data-count="${p.id}">${p.platform === 'x' ? xLen(p.text) : p.text.length} characters${p.platform === 'x' ? ' of 280' : ''}</small>
+          <span style="margin-left:auto"></span>
+          <button class="btn btn-sm btn-ghost" data-act="skipped">Skip</button>
+          <button class="btn btn-sm btn-ghost" data-act="now">Post now</button>
+          ${p.status === 'approved' ? '<button class="btn btn-sm" data-act="draft">Unapprove</button>' : '<button class="btn btn-sm btn-primary" data-act="approved">Approve</button>'}
+        </div></div>`;
+    layout('social', head('Social', `<button class="btn" id="so-gen">Write next week's posts</button>${drafts ? `<button class="btn btn-primary" id="so-all">Approve all ${drafts}</button>` : ''}`) + `
+      <p class="muted" style="margin:-6px 0 16px;font-size:13px;max-width:780px">Each week Claude drafts one post a day for every connected account, each about one of your products, and emails you when they're ready. Skim, edit and approve them here. Only approved posts go out, at the time you set; drafts you don't approve are skipped.</p>
+      ${!d.ready.ai ? '<div class="panel" style="border-color:rgba(255,139,122,.35)"><b style="font-weight:500">Writing posts needs an Anthropic API key.</b><p class="muted" style="font-size:13px;margin:6px 0 0">Add <code>ANTHROPIC_API_KEY</code> in Railway → Variables. It costs a few cents a week.</p></div>' : ''}
+      <div class="panel tbl-wrap" style="padding:0;margin-bottom:18px"><div class="box-head"><h3 style="font-size:18px">Accounts</h3></div>
+        <table class="tbl">${row('x', d.ready.x, 'x', 'X_CLIENT_ID, X_CLIENT_SECRET')}${row('linkedin', d.ready.linkedin, 'linkedin', 'LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET')}${row('facebook', d.ready.meta, 'meta', 'META_APP_ID, META_APP_SECRET')}${row('instagram', d.ready.meta, 'meta', '')}</table>
+        ${fb?.pages?.length > 1 ? `<div style="padding:12px 16px"><label class="field" style="margin:0"><span>Facebook Page to post on</span><select class="input" id="so-page">${fb.pages.map(p => `<option value="${p.id}" ${p.id === fb.page_id ? 'selected' : ''}>${esc(p.name)}${p.ig ? ` (Instagram @${esc(p.ig)})` : ''}</option>`).join('')}</select></label></div>` : ''}
+        <details style="padding:12px 16px;font-size:12.5px"><summary class="muted" style="cursor:pointer">Redirect links for the developer apps</summary><p class="muted" style="margin:8px 0 0;line-height:1.8">Meta: <code>${esc(d.redirects.meta)}</code><br>LinkedIn: <code>${esc(d.redirects.linkedin)}</code><br>X: <code>${esc(d.redirects.x)}</code></p></details>
+      </div>
+      <form class="panel" id="so-set" style="margin-bottom:18px"><h3>Settings</h3>
+        <label class="check" style="margin-bottom:12px"><span class="switch"><input type="checkbox" id="so-on" ${s.social_enabled !== '0' ? 'checked' : ''}><i></i></span>Write a new week of posts when the queue runs low</label>
+        <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:12px">${['x', 'linkedin', 'facebook', 'instagram'].map(p => `<label class="check" style="font-size:13px"><input type="checkbox" data-plat="${p}" ${on.includes(p) ? 'checked' : ''} style="accent-color:var(--accent)">${NAME[p]}</label>`).join('')}</div>
+        <label class="field"><span>Post at (Nigeria time)</span><select class="input" id="so-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_hour || 10) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>X first, then LinkedIn, Facebook and Instagram ten minutes apart.</small></label>
+        <label class="field"><span>About your brand and voice</span><textarea class="input" id="so-voice" rows="4" maxlength="1500">${esc(s.social_voice || '')}</textarea><small>Claude reads this every time it writes. Say who you help, how you sound, and anything to avoid.</small></label>
+        <button class="btn btn-primary btn-sm" id="so-save" type="button">Save settings</button>
+      </form>
+      <div class="box-head" style="padding:0 0 10px"><h3 style="font-size:18px">Coming up</h3></div>
+      ${queue.length ? Object.entries(byDay).map(([day, posts]) => `<h4 style="margin:18px 0 10px;font-weight:500">${new Date(day + 'T12:00:00Z').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} <span class="dim" style="font-weight:400">· ${esc(posts[0].product || '')}</span></h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px">${posts.map(card).join('')}</div>`).join('')
+        : `<div class="empty"><h3>No posts queued</h3><p>${Object.keys(d.accounts).length && d.ready.ai ? 'Press "Write next week\'s posts", or wait: a new week is written automatically when the queue runs low.' : 'Connect an account and add the API key, then the first week is written automatically.'}</p></div>`}
+      ${d.history.length ? `<div class="panel tbl-wrap" style="padding:0;margin-top:22px"><div class="box-head"><h3 style="font-size:18px">History</h3></div><table class="tbl"><tr><th>When</th><th>Where</th><th>Product</th><th>Result</th></tr>
+        ${d.history.map(h => `<tr><td class="muted">${when(h.posted_at || h.scheduled_at)}</td><td>${NAME[h.platform]}</td><td class="muted">${esc(h.product || '')}</td><td>${h.status === 'posted' ? `<a href="${esc(h.remote_url)}" target="_blank" rel="noopener">View post</a>` : `<span class="dim">${h.status === 'expired' ? 'not approved in time' : h.status}</span>`}</td></tr>`).join('')}</table></div>` : ''}`);
+
+    $$('[data-connect]').forEach(b => b.addEventListener('click', async () => {
+      try { const r = await api(`/api/admin/social/connect/${b.dataset.connect}`); location.href = r.url; } catch (err) { toast(err.message, true); }
+    }));
+    $$('[data-disconnect]').forEach(b => b.addEventListener('click', async () => {
+      if (!(await confirmDialog('Disconnect?', 'Posts for this account stop going out until you connect it again.', 'Disconnect', true))) return;
+      await api(`/api/admin/social/accounts/${b.dataset.disconnect}`, { method: 'DELETE' }); social();
+    }));
+    $('#so-page')?.addEventListener('change', async e => { await api('/api/admin/social/facebook-page', { method: 'POST', body: { id: e.target.value } }); toast('Page changed'); social(); });
+    $('#so-save').addEventListener('click', async () => {
+      await api('/api/admin/settings', { method: 'PUT', body: {
+        social_enabled: $('#so-on').checked ? '1' : '0', social_hour: $('#so-hour').value, social_voice: $('#so-voice').value,
+        social_platforms: $$('[data-plat]').filter(i => i.checked).map(i => i.dataset.plat).join(','),
+      } });
+      toast('Settings saved');
+    });
+    $('#so-gen').addEventListener('click', async e => {
+      e.target.disabled = true; e.target.textContent = 'Writing… (about a minute)';
+      try { const r = await api('/api/admin/social/generate', { method: 'POST' }); toast(r.created ? `${r.created} posts written. Review them below.` : 'Nothing new to write.'); social(); }
+      catch (err) { toast(err.message, true); e.target.disabled = false; e.target.textContent = "Write next week's posts"; }
+    });
+    $('#so-all')?.addEventListener('click', async () => { const r = await api('/api/admin/social/approve-all', { method: 'POST' }); toast(`Approved ${plural(r.approved, 'post')}`); social(); });
+    $$('[data-post]').forEach(c => {
+      const id = c.dataset.post, ta = $(`[data-text="${id}"]`, c);
+      ta.addEventListener('input', () => { const isX = c.querySelector('b').textContent === 'X'; $(`[data-count="${id}"]`, c).textContent = `${isX ? xLen(ta.value) : ta.value.length} characters${isX ? ' of 280' : ''}`; });
+      $$('[data-act]', c).forEach(b => b.addEventListener('click', async () => {
+        b.disabled = true;
+        try {
+          if (b.dataset.act === 'now') {
+            if (!(await confirmDialog('Post this now?', 'It goes out straight away instead of at its scheduled time.', 'Post now'))) { b.disabled = false; return; }
+            await api(`/api/admin/social/posts/${id}`, { method: 'PUT', body: { text: ta.value } });
+            const r = await api(`/api/admin/social/posts/${id}/publish`, { method: 'POST' }); toast('Posted'); if (r.url) window.open(r.url, '_blank', 'noopener');
+          } else {
+            await api(`/api/admin/social/posts/${id}`, { method: 'PUT', body: { text: ta.value, status: b.dataset.act } });
+            toast({ approved: 'Approved', draft: 'Moved back to drafts', skipped: 'Skipped' }[b.dataset.act]);
+          }
+          social();
+        } catch (err) { toast(err.message, true); b.disabled = false; }
+      }));
     });
   }
 
@@ -1595,7 +1699,7 @@
       app.innerHTML = spinner();
       const [section, id] = parts;
       if (section === 'products' && id) return editor(id);
-      return ({ products, categories, orders, payouts, customers, coupons, affiliates, settings }[section] || overview)();
+      return ({ products, categories, orders, payouts, customers, social, coupons, affiliates, settings }[section] || overview)();
     },
   };
 })();

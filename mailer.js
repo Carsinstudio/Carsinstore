@@ -129,7 +129,7 @@ async function sendInline({ alias, to, subject, vars, message, unsubscribePost, 
   const text = fill(t.text, String(message), String);
   const data = await post({
     from: FROM, to: [to], subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}),
-    headers: { 'List-Unsubscribe': `<${unsubscribePost}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+    ...(unsubscribePost ? { headers: { 'List-Unsubscribe': `<${unsubscribePost}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } } : {}),
   }, key);
   console.log(`Email "${alias}" sent to ${to} (${data.id})`);
   return data.id;
@@ -149,4 +149,11 @@ function sendBroadcast({ to, store, name, subject, label, heading, message, imag
       UNSUBSCRIBE_URL: unsubscribeUrl, SITE_URL: siteUrl, SUPPORT_EMAIL: support } });
 }
 
-module.exports = { enabled, sendPick, sendBroadcast, sendAnnouncement, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };
+// A short note to the owner (e.g. "next week's social posts are ready"), in the store-news look. No unsubscribe.
+function sendOwnerNote({ to, store, label, heading, message, ctaUrl, ctaLabel, settingsUrl, siteUrl, support, key }) {
+  return sendInline({ alias: 'store-news', to, subject: heading, message, key,
+    vars: { STORE_NAME: store, BUYER_NAME: 'there', LABEL: label, HEADING: heading, IMAGE_URL: '', CTA_URL: ctaUrl, CTA_LABEL: ctaLabel,
+      UNSUBSCRIBE_URL: settingsUrl, SITE_URL: siteUrl, SUPPORT_EMAIL: support } });
+}
+
+module.exports = { enabled, sendPick, sendBroadcast, sendOwnerNote, sendAnnouncement, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };

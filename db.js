@@ -131,6 +131,10 @@ const DEFAULT_SETTINGS = {
   recommend_every_days: '14',     // then at most one every this many days
   recommend_max: '6',             // stop after this many per person
   recommend_first: '',            // product id the owner wants suggested before anything else (empty = automatic)
+  social_enabled: '1',            // social auto-poster: drafts a week of posts when the queue runs low (needs ANTHROPIC_API_KEY and a connected account)
+  social_hour: '10',              // posting hour, Nigeria time (WAT, UTC+1)
+  social_platforms: 'x,linkedin,facebook,instagram',
+  social_voice: 'Carsin Store sells practical digital products (templates, guides, video courses, printables) made by a designer for creatives, job seekers and small business owners in Nigeria and beyond. Friendly, direct and useful; plain words, no hype.',
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '', tiktok_pixel_id: '',   // analytics, all optional
   whatsapp: '',                   // number for the "Chat on WhatsApp" button, e.g. 2348012345678. Empty hides the button
@@ -299,6 +303,35 @@ function migrate(db) {
     PRIMARY KEY (user_id, product_id)
   )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_rec_sent ON recommendations(sent_at)');
+  // Social auto-poster: connected accounts (tokens never leave the server), the post queue, and OAuth handshakes.
+  db.exec(`CREATE TABLE IF NOT EXISTS social_accounts (
+    platform TEXT PRIMARY KEY,                     -- 'x' | 'linkedin' | 'facebook' | 'instagram'
+    data TEXT NOT NULL DEFAULT '{}',               -- tokens and ids (JSON)
+    name TEXT NOT NULL DEFAULT '',
+    expires_at TEXT,
+    connected_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS social_posts (
+    id INTEGER PRIMARY KEY,
+    platform TEXT NOT NULL,
+    product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    text TEXT NOT NULL,
+    image_url TEXT,
+    link TEXT,
+    scheduled_at TEXT NOT NULL,                    -- UTC
+    status TEXT NOT NULL DEFAULT 'draft',          -- 'draft' | 'approved' | 'posted' | 'failed' | 'skipped' | 'expired'
+    remote_url TEXT,
+    error TEXT,
+    posted_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_social_due ON social_posts(status, scheduled_at);
+  CREATE TABLE IF NOT EXISTS social_oauth (
+    state TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,
+    verifier TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );`);
 }
 
 let db;
