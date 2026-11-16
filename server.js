@@ -1811,7 +1811,7 @@ admin.post('/restore', restoreUpload.single('backup'), wrap(async (req, res) => 
 
 // Social auto-poster (social.js): weekly drafts by Claude, approved by the owner, posted on schedule.
 require('./social')({
-  app, admin, one, all, run, getSettings, BASE_URL, mailer, wrap, bad,
+  app, admin, one, all, run, getSettings, BASE_URL, mailer, wrap, bad, DATA_DIR, COVERS_DIR, PUBLIC_DIR: path.join(__dirname, 'public'),
   coversOf: p => coversOf(p), coverFile: (n, k) => coverFile(n, k), isVideoCover: n => isVideoCover(n),
   plain: s => plain(s), shortText: (s, n) => shortText(s, n), shareImage: s => shareImage(s), supportEmail: s => supportEmail(s),
 });
@@ -1914,6 +1914,7 @@ app.get('/', (_req, res) => sendHome(res));
 for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find']) app.get(`/${page}`, (_req, res) => sendHome(res));
 
 // Covers are only ever pictures or videos: opened directly, they can't run anything.
+app.use('/media/social', express.static(path.join(DATA_DIR, 'social-cards'), { maxAge: '30d' }));
 app.use('/media/covers', express.static(COVERS_DIR, { maxAge: '7d', setHeaders: res => res.setHeader('Content-Security-Policy', SANDBOX + "; media-src 'self'") }));
 app.use(['/media', '/api'], (_req, res) => res.status(404).json({ error: 'Not found.' })); // never fall through to the store page
 // The store's scripts and styles are re-checked on every visit (a quick "not changed" reply when they're the same),

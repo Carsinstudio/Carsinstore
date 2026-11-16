@@ -16,6 +16,9 @@
 // Each platform's app must allow the redirect URL  <BASE_URL>/api/social/callback/<meta|linkedin|x>
 const crypto = require('crypto');
 const Anthropic = require('@anthropic-ai/sdk');
+const fs = require('fs');
+const path = require('path');
+const { renderCard } = require('./cards');
 
 const PLATFORMS = ['x', 'linkedin', 'facebook', 'instagram', 'pinterest'];
 const NAMES = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest' };
@@ -39,7 +42,7 @@ const xLength = t => String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length
 const sqlTime = d => d.toISOString().slice(0, 19).replace('T', ' ');
 const fromSql = s => new Date(String(s).replace(' ', 'T') + 'Z');
 
-module.exports = function setupSocial({ app, admin, one, all, run, getSettings, BASE_URL, mailer, coversOf, coverFile, isVideoCover, plain, shortText, shareImage, supportEmail, wrap, bad }) {
+module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, admin, one, all, run, getSettings, BASE_URL, mailer, coversOf, coverFile, isVideoCover, plain, shortText, shareImage, supportEmail, wrap, bad }) {
   const redirectUri = p => `${BASE_URL}/api/social/callback/${p}`;
   const account = p => { const a = one('SELECT * FROM social_accounts WHERE platform = ?', p); return a && { ...a, data: JSON.parse(a.data || '{}') }; };
   const saveAccount = (p, data, name, expiresAt = null) => run(`INSERT INTO social_accounts (platform, data, name, expires_at, connected_at) VALUES (?, ?, ?, ?, datetime('now'))
@@ -407,8 +410,9 @@ Rules, because these posts must never mislead anyone:
   const EVENING_SCHEMA = {
     type: 'object', additionalProperties: false, required: ['posts'],
     properties: { posts: { type: 'array', items: { type: 'object', additionalProperties: false,
-      required: ['day', 'x', 'linkedin', 'facebook', 'instagram', 'pinterest_title', 'pinterest', 'morning_pinterest_title', 'morning_pinterest'],
+      required: ['day', 'x', 'linkedin', 'facebook', 'instagram', 'pinterest_title', 'pinterest', 'morning_pinterest_title', 'morning_pinterest', 'card_title', 'card_points'],
       properties: { day: { type: 'integer' }, x: { type: 'string' }, linkedin: { type: 'string' }, facebook: { type: 'string' }, instagram: { type: 'string' },
+        card_title: { type: 'string' }, card_points: { type: 'array', items: { type: 'string' } },
         pinterest_title: { type: 'string' }, pinterest: { type: 'string' }, morning_pinterest_title: { type: 'string' }, morning_pinterest: { type: 'string' } } } } },
   };
   async function claudeJson(system, user, schema) {
@@ -448,13 +452,86 @@ Platform styles:
 - x: under 230 characters (tip) or under 270 (question). Conversational. No hashtags. No link (added after tips automatically).
 - linkedin: 60 to 170 words, first person from the founder. For tips, end by saying the full version is in the Featured section on your profile. No hashtags. No link.
 - facebook: 40 to 120 words, friendly. No hashtags. No link.
-- instagram: tips only: 60 to 150 words, end with "Link in bio" and 5 to 8 hashtags. For questions return an empty string.
+- instagram: tips: 60 to 150 words, end with "Link in bio" and 5 to 8 hashtags. Questions: 40 to 120 words inviting answers in the comments, with 3 to 6 hashtags at the end, no "link in bio".
+- card_title / card_points: the text for the post's image card. Questions: card_title is the question itself, at most 110 characters, card_points is an empty list. Tips: card_title is a short headline (at most 70 characters) and card_points are the 3 to 5 steps, each at most 90 characters, written to be read at a glance.
 - pinterest_title / pinterest: tips only: a how-to title up to 90 characters and a 150 to 400 character description. For questions return empty strings.
 - morning_pinterest_title / morning_pinterest: if the day has a morning_product, a search-friendly pin title (up to 90 characters) and description (150 to 400 characters) for that product; otherwise empty strings.
 
 Rules: no invented results, numbers, reviews or statistics; no promises of jobs, income or clients; no prices; no fake urgency. Plain English, no markdown, no asterisks.`;
     return claudeJson(system, `Write the evening posts for these ${days.length} days:\n${JSON.stringify(brief, null, 1)}`, EVENING_SCHEMA);
   }
+  // ---------- image cards ----------
+  const CARD_DIR = path.join(DATA_DIR, 'social-cards');
+  const coverFileOf = p => { const c = p && coversOf(p).find(x => !isVideoCover(x)); return c ? path.join(COVERS_DIR, c) : null; };
+  const labelFor = d => (d.kind === 'question' ? `For ${d.audience || 'you'}` : 'Quick tip');
+  async function saveCard(spec, size, tag) {
+    fs.mkdirSync(CARD_DIR, { recursive: true });
+    const name = `${tag}-${crypto.randomBytes(6).toString('hex')}.jpg`;
+    fs.writeFileSync(path.join(CARD_DIR, name), await renderCard({ ...spec, publicDir: PUBLIC_DIR, site: BASE_URL.replace(/^https?:\/\//, '') }, size));
+    return `${BASE_URL}/media/social/${name}`;
+  }
+  async function makeCards(d, e, p, platforms) {
+    if (!String(e.card_title || '').trim()) return {};
+    const spec = { kind: d.kind, label: labelFor(d), title: e.card_title, points: e.card_points || [], product: p ? { title: p.title, coverFile: coverFileOf(p) } : null };
+    const tag = `${d.date}-${d.kind}`;
+    return {
+      square: await saveCard(spec, { width: 1080, height: 1350 }, tag),
+      tall: d.kind === 'tip' && platforms.includes('pinterest') ? await saveCard(spec, { width: 1000, height: 1500 }, tag + '-pin') : null,
+    };
+  }
+  // Evening posts written before cards existed: write card text (and Instagram copy) for them, draw the cards,
+  // and put them on LinkedIn, Facebook and Instagram. Runs once per day that needs it.
+  const CARD_SCHEMA = {
+    type: 'object', additionalProperties: false, required: ['posts'],
+    properties: { posts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['day', 'card_title', 'card_points', 'instagram'],
+      properties: { day: { type: 'integer' }, card_title: { type: 'string' }, card_points: { type: 'array', items: { type: 'string' } }, instagram: { type: 'string' } } } } },
+  };
+  async function cardify() {
+    const s = getSettings();
+    const platforms = activePlatforms(s);
+    const days = all(`SELECT substr(scheduled_at, 1, 10) AS day, MAX(kind) AS kind, MAX(product_id) AS product_id FROM social_posts
+      WHERE slot = 'evening' AND status IN ('draft', 'approved') AND scheduled_at > datetime('now', '+10 minutes') GROUP BY day ORDER BY day`)
+      .filter(d => !one(`SELECT 1 FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND image_url LIKE '%/media/social/%'`, d.day));
+    if (!days.length) return 0;
+    const brief = days.map((d, i) => {
+      const x = one("SELECT text FROM social_posts WHERE slot = 'evening' AND platform IN ('linkedin', 'x', 'facebook') AND substr(scheduled_at, 1, 10) = ? ORDER BY platform = 'linkedin' DESC LIMIT 1", d.day);
+      const p = d.product_id && one('SELECT title, subtitle, description FROM products WHERE id = ?', d.product_id);
+      return { day: i + 1, kind: d.kind, existing_post: String(x?.text || '').replace(/https?:\/\/\S+/g, '').slice(0, 1500),
+        ...(p ? { product: p.title, about: shortText(plain(p.subtitle) || plain(p.description), 600) } : {}) };
+    });
+    const system = `You prepare image cards for evening social posts of ${s.store_name} that were already written.
+For each day, read the existing post and return:
+- card_title: questions: the question itself, at most 110 characters. Tips: a short headline, at most 70 characters.
+- card_points: tips: the 3 to 5 steps from the post, each at most 90 characters, readable at a glance. Questions: an empty list.
+- instagram: an Instagram caption for the same post. Tips: 60 to 150 words ending with "Link in bio" and 5 to 8 hashtags. Questions: 40 to 120 words inviting answers in the comments, with 3 to 6 hashtags.
+Keep exactly to what the existing post says. Plain English, no markdown.`;
+    const res = await claudeJson(system, `Days:\n${JSON.stringify(brief, null, 1)}`, CARD_SCHEMA);
+    let changed = 0;
+    for (const e of res) {
+      const d = days[e.day - 1]; if (!d) continue;
+      const p = d.product_id ? one('SELECT * FROM products WHERE id = ?', d.product_id) : null;
+      const audience = d.kind === 'question' ? (AUDIENCES.find(a => brief[e.day - 1].existing_post.toLowerCase().includes(a.split(' ')[0])) || 'you') : null;
+      const cards = await makeCards({ date: d.day, kind: d.kind, audience }, e, p, platforms);
+      if (!cards.square) continue;
+      changed += Number(run(`UPDATE social_posts SET image_url = ? WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND platform IN ('linkedin', 'facebook', 'instagram') AND status IN ('draft', 'approved')`, cards.square, d.day).changes);
+      if (cards.tall) run(`UPDATE social_posts SET image_url = ? WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND platform = 'pinterest' AND status IN ('draft', 'approved')`, cards.tall, d.day);
+      const hasIg = one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND platform = 'instagram' AND substr(scheduled_at, 1, 10) = ?", d.day);
+      if (platforms.includes('instagram') && !hasIg && String(e.instagram || '').trim()) {
+        const hour = Math.min(Math.max(Number(s.social_evening_hour) || 19, 0), 23);
+        run(`INSERT INTO social_posts (platform, product_id, text, image_url, link, scheduled_at, slot, kind) VALUES ('instagram', ?, ?, ?, ?, ?, 'evening', ?)`,
+          p?.id ?? null, finalText('instagram', e.instagram, p), cards.square, p ? productUrl(p, 'instagram') : null, sqlTime(atHour(d.day, hour, 'instagram')), d.kind);
+        changed++;
+      }
+    }
+    return changed;
+  }
+  admin.post('/social/cards', wrap(async (_req, res) => {
+    if (!configured.ai()) return bad(res, 'Add ANTHROPIC_API_KEY in Railway first.');
+    if (generating) return bad(res, 'Already writing posts. Give it a minute.');
+    generating = true;
+    try { res.json({ updated: await cardify() }); } catch (e) { bad(res, e.message); } finally { generating = false; }
+  }));
+
   const atHour = (day, hour, platform) => { const at = new Date(day + 'T00:00:00Z'); at.setUTCHours(hour - 1, STAGGER[platform], 0, 0); return at; }; // WAT is UTC+1
   // Adds evening posts (and Pinterest pins for the morning product) to every upcoming day that has a morning post but
   // no evening one yet. Alternates tips and questions; tips use a different product from that morning's.
@@ -484,14 +561,17 @@ Rules: no invented results, numbers, reviews or statistics; no promises of jobs,
     let created = 0;
     for (const e of posts) {
       const d = plan[e.day - 1]; if (!d) continue;
+      const p = d.kind === 'tip' ? d.tip : null;
+      const cards = await makeCards(d, e, p, platforms).catch(err => { console.error('Card failed:', err.message); return {}; });
       for (const platform of platforms) {
         const text = String(e[platform] || '').trim();
         if (!text) continue;
-        if (d.kind === 'question' && ['instagram', 'pinterest'].includes(platform)) continue;
-        const p = d.kind === 'tip' ? d.tip : null;
+        if (d.kind === 'question' && platform === 'pinterest') continue;
+        if (platform === 'instagram' && !cards.square && !p) continue; // Instagram needs a picture
+        const image = platform === 'pinterest' ? (cards.tall || (p && imageFor(p, s))) : platform === 'x' ? (p ? imageFor(p, s) : null) : (cards.square || (p ? imageFor(p, s) : null));
         run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'evening', ?)`,
           platform, p?.id ?? null, finalText(platform, text, p), platform === 'pinterest' ? String(e.pinterest_title || p?.title || '').slice(0, 100) : null,
-          p ? imageFor(p, s) : null, p ? productUrl(p, platform) : null, sqlTime(atHour(d.date, hour, platform)), d.kind);
+          image, p ? productUrl(p, platform) : null, sqlTime(atHour(d.date, hour, platform)), d.kind);
         created++;
       }
       if (d.morning && String(e.morning_pinterest || '').trim()) {
@@ -553,7 +633,10 @@ Rules: no invented results, numbers, reviews or statistics; no promises of jobs,
     if (r.created) console.log(`Social: wrote ${r.created} posts`);
     else if (!generating) {
       generating = true;
-      try { const n = await fillEvenings(); if (n) console.log(`Social: wrote ${n} evening posts`); } finally { generating = false; }
+      try {
+        const n = await fillEvenings(); if (n) console.log(`Social: wrote ${n} evening posts`);
+        const c = await cardify(); if (c) console.log(`Social: added cards to ${c} posts`);
+      } finally { generating = false; }
     }
   }
 
