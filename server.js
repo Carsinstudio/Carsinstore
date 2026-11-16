@@ -545,6 +545,29 @@ function announceEmail(a, p, u, s) {
     siteUrl: BASE_URL, support: supportEmail(s), replyTo: supportEmail(s),
   };
 }
+// Store-wide emails go to everyone in the group who hasn't unsubscribed (no product to leave anyone out for).
+const storeAudience = audience => all(`SELECT u.id FROM users u WHERE u.is_admin = 0 AND u.unsubscribed_at IS NULL AND ${AUDIENCE_SQL[audience] || AUDIENCE_SQL.all} ORDER BY u.id`);
+// A link from the email: store paths become full links, and every link gets the email's campaign tag for analytics.
+function emailLink(link, campaign) {
+  let url;
+  try { url = new URL(String(link || '/#/shop'), BASE_URL + '/'); } catch { url = new URL(BASE_URL + '/#/shop'); }
+  if (!/^https?:$/.test(url.protocol)) url = new URL(BASE_URL + '/#/shop');
+  if (url.origin === new URL(BASE_URL).origin) {
+    url.searchParams.set('utm_source', 'email'); url.searchParams.set('utm_medium', 'broadcast'); url.searchParams.set('utm_campaign', campaign);
+  }
+  return url.toString();
+}
+const absUrl = link => (!link ? '' : /^https:\/\//.test(link) ? link : link.startsWith('/') ? BASE_URL + link : '');
+function broadcastEmail(a, u, s) {
+  const tok = unsubToken(u.id);
+  const campaign = String(a.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'news';
+  return {
+    to: u.email, store: s.store_name, name: u.name, subject: a.subject, label: a.label || s.store_name, heading: a.title, message: a.message,
+    imageUrl: absUrl(a.image_url), ctaUrl: emailLink(a.cta_url, campaign), ctaLabel: a.cta_label || 'Visit the store',
+    unsubscribeUrl: `${BASE_URL}/#/unsubscribe/${tok}`, unsubscribePost: `${BASE_URL}/api/unsubscribe/${tok}`,
+    siteUrl: BASE_URL, support: supportEmail(s), replyTo: supportEmail(s),
+  };
+}
 const announceKey = (a, u) => 'ann-' + crypto.createHash('sha256').update(`${a.id}:${a.created_at}:${u.email}`).digest('hex').slice(0, 24);
 // Announcements and "Picked for you" emails share one daily limit, so receipts always have room.
 const sentToday = () => one("SELECT COUNT(*) AS n FROM announcement_recipients WHERE status IN ('sent', 'failed') AND sent_at >= datetime('now', '-1 day')").n
@@ -555,6 +578,12 @@ async function sendAnnouncements() {
   announcing = true;
   try {
     const s = getSettings();
+    // Scheduled store-wide emails whose time has come: work out who gets them now, so late sign-ups are included.
+    for (const a of all("SELECT * FROM announcements WHERE status = 'scheduled' AND send_at <= datetime('now')")) {
+      const people = storeAudience(a.audience);
+      for (const u of people) run('INSERT OR IGNORE INTO announcement_recipients (announcement_id, user_id) VALUES (?, ?)', a.id, u.id);
+      run('UPDATE announcements SET status = ? WHERE id = ?', people.length ? 'sending' : 'done', a.id);
+    }
     const room = Math.min(Math.max(1, Number(s.announce_daily_limit) || 80) - sentToday(), 20);
     const due = room > 0 ? all(`SELECT r.* FROM announcement_recipients r JOIN announcements a ON a.id = r.announcement_id
       WHERE r.status = 'queued' AND a.status = 'sending' ORDER BY r.announcement_id, r.user_id LIMIT ?`, room) : [];
@@ -562,11 +591,12 @@ async function sendAnnouncements() {
       const a = one('SELECT * FROM announcements WHERE id = ?', r.announcement_id);
       if (a.status !== 'sending') continue; // stopped while this batch was going out
       const u = one('SELECT * FROM users WHERE id = ?', r.user_id);
-      const p = a.product_id && one('SELECT * FROM products WHERE id = ? AND published = 1', a.product_id);
+      const store = a.kind === 'store';
+      const p = !store && a.product_id && one('SELECT * FROM products WHERE id = ? AND published = 1', a.product_id);
       const where = 'WHERE announcement_id = ? AND user_id = ?';
-      if (!u || u.unsubscribed_at || !p) { run(`UPDATE announcement_recipients SET status = 'skipped' ${where}`, r.announcement_id, r.user_id); continue; }
+      if (!u || u.unsubscribed_at || (!store && !p)) { run(`UPDATE announcement_recipients SET status = 'skipped' ${where}`, r.announcement_id, r.user_id); continue; }
       run(`UPDATE announcement_recipients SET status = 'sent', sent_at = datetime('now') ${where}`, r.announcement_id, r.user_id); // mark first: never twice
-      try { await mailer.sendAnnouncement({ ...announceEmail(a, p, u, s), key: announceKey(a, u) }); }
+      try { await (store ? mailer.sendBroadcast({ ...broadcastEmail(a, u, s), key: announceKey(a, u) }) : mailer.sendAnnouncement({ ...announceEmail(a, p, u, s), key: announceKey(a, u) })); }
       catch (e) { run(`UPDATE announcement_recipients SET status = 'failed' ${where}`, r.announcement_id, r.user_id); console.error('Announcement failed:', e.message); }
       await new Promise(ok => setTimeout(ok, 600)); // stay under Resend's rate limit
     }
@@ -620,6 +650,7 @@ let recommending = false;
 async function sendRecommendations() {
   const s = getSettings();
   if (recommending || s.recommend_emails === '0' || !mailer.enabled) return;
+  if (one("SELECT 1 FROM announcements WHERE status = 'sending' OR (status = 'scheduled' AND send_at <= datetime('now', '+1 day'))")) return;
   recommending = true;
   try {
     const first = clampNum(s.recommend_first_days, 1, 90, 7), every = clampNum(s.recommend_every_days, 3, 180, 14), max = clampNum(s.recommend_max, 1, 50, 6);
@@ -1330,8 +1361,52 @@ admin.post('/recommendations/test', wrap(async (req, res) => {
   await mailer.sendPick({ ...pickEmail(p, { id: 0, email: to, name: req.user.name }, s), key: `pick-test-${Date.now()}` });
   res.json({ ok: true, to, title: p.title });
 }));
+// "Email everyone": a store-wide email (a sale, news) to past customers, now or at a set time.
+admin.get('/broadcast', (_req, res) => {
+  const s = getSettings();
+  res.json({
+    emails: mailer.enabled, counts: Object.fromEntries(Object.keys(AUDIENCE_SQL).map(k => [k, storeAudience(k).length])),
+    limit: Math.max(1, Number(s.announce_daily_limit) || 80), sentToday: sentToday(), testTo: s.notify_email || supportEmail(s),
+  });
+});
+admin.post('/broadcast', wrap(async (req, res) => {
+  if (!mailer.enabled) return bad(res, 'Email is not set up on this store.', 503);
+  const b = req.body || {};
+  const clip = (v, n) => String(v || '').replace(/\r\n/g, '\n').trim().slice(0, n);
+  const d = {
+    subject: clip(b.subject, 150), heading: clip(b.heading, 150), label: clip(b.label, 40), message: clip(b.message, 3000),
+    cta_label: clip(b.cta_label, 40) || 'Visit the store', cta_url: clip(b.cta_url, 500) || '/#/shop', image_url: clip(b.image_url, 500),
+    audience: AUDIENCE_SQL[b.audience] ? b.audience : 'all',
+  };
+  if (!d.subject) return bad(res, 'Add a subject line.');
+  if (!d.heading) return bad(res, 'Add a headline.');
+  if (!d.message) return bad(res, 'Add a message.');
+  if (d.image_url && !absUrl(d.image_url)) return bad(res, 'The picture link must start with https:// or /.');
+  let sendAt = null;
+  if (b.send_at) {
+    const t = new Date(b.send_at);
+    if (isNaN(t)) return bad(res, 'That send time is not valid.');
+    if (t < new Date(Date.now() - 60000)) return bad(res, 'That send time is in the past.');
+    if (t > new Date(Date.now() + 60 * 864e5)) return bad(res, 'Pick a time within the next 60 days.');
+    sendAt = t.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  const s = getSettings();
+  if (b.test) {
+    const to = s.notify_email || supportEmail(s);
+    const draft = { id: 0, created_at: String(Date.now()), kind: 'store', ...d, title: d.heading, subject: `[Test] ${d.subject}` };
+    await mailer.sendBroadcast({ ...broadcastEmail(draft, { id: 0, email: to, name: req.user.name }, s), key: announceKey(draft, { email: to }) });
+    return res.json({ ok: true, test: true, to });
+  }
+  const total = storeAudience(d.audience).length;
+  if (!total) return bad(res, 'Nobody in this group to send to.');
+  const id = Number(run(`INSERT INTO announcements (kind, product_id, title, subject, message, audience, label, image_url, cta_label, cta_url, send_at, status)
+    VALUES ('store', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`, d.heading, d.subject, d.message, d.audience, d.label, d.image_url, d.cta_label, d.cta_url,
+    sendAt || new Date().toISOString().slice(0, 19).replace('T', ' ')).lastInsertRowid);
+  sendAnnouncements().catch(e => console.error('Announcements:', e.message));
+  res.json({ ok: true, id, total, sendAt, limit: Math.max(1, Number(s.announce_daily_limit) || 80) });
+}));
 admin.post('/announcements/:id/stop', (req, res) => {
-  run("UPDATE announcements SET status = 'stopped' WHERE id = ? AND status = 'sending'", req.params.id);
+  run("UPDATE announcements SET status = 'stopped' WHERE id = ? AND status IN ('sending', 'scheduled')", req.params.id);
   run("UPDATE announcement_recipients SET status = 'skipped' WHERE announcement_id = ? AND status = 'queued'", req.params.id);
   res.json({ ok: true });
 });

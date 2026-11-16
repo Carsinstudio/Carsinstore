@@ -256,6 +256,12 @@ function migrate(db) {
     PRIMARY KEY (announcement_id, user_id)
   )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_ann_queue ON announcement_recipients(status, announcement_id)');
+  // Store-wide emails (a sale, news) share the announcement queue: kind 'store' has no product, its own heading, picture
+  // and button, and can wait for send_at (UTC) with status 'scheduled'.
+  if (!hasColumn(db, 'announcements', 'kind')) {
+    db.exec("ALTER TABLE announcements ADD COLUMN kind TEXT NOT NULL DEFAULT 'product'");
+    for (const col of ['label', 'image_url', 'cta_label', 'cta_url', 'send_at']) db.exec(`ALTER TABLE announcements ADD COLUMN ${col} TEXT`);
+  }
   if (!hasColumn(db, 'products', 'bundle_items')) db.exec("ALTER TABLE products ADD COLUMN bundle_items TEXT NOT NULL DEFAULT '[]'");
   // A product can be in several categories; products.category_id stays as the first one.
   db.exec(`CREATE TABLE IF NOT EXISTS product_categories (

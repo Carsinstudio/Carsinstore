@@ -116,21 +116,37 @@ function sendAnnouncement({ to, store, name, title, message, price, coverUrl, pr
   });
 }
 
-// "Picked for you": an automatic product suggestion. Built from emails/build.js and sent as finished HTML, so it
-// needs no template in Resend. Same look, same unsubscribe link and one-click headers as announcements.
-let pickTemplate;
-function sendPick({ to, store, name, title, message, price, coverUrl, productUrl, unsubscribeUrl, unsubscribePost, siteUrl, support, key, replyTo }) {
+// Emails the server fills in itself from emails/build.js and sends as finished HTML, so they need no template in
+// Resend. All carry the one-click unsubscribe headers. MESSAGE is plain text: escaped, with line breaks kept.
+let built;
+async function sendInline({ alias, to, subject, vars, message, unsubscribePost, key, replyTo }) {
   if (!enabled) return null;
-  pickTemplate ||= require('./emails/build').templates['product-pick'];
-  const vars = { STORE_NAME: store, BUYER_NAME: firstName(name), PRODUCT_TITLE: title, PRICE: price, COVER_URL: coverUrl, PRODUCT_URL: productUrl,
-    UNSUBSCRIBE_URL: unsubscribeUrl, SITE_URL: siteUrl, SUPPORT_EMAIL: support };
+  built ||= require('./emails/build').templates;
+  const t = built[alias];
   const fill = (s, msg, safe) => s.replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => (k === 'MESSAGE' ? msg : safe(vars[k] ?? '')));
-  const html = fill(pickTemplate.html, esc(message).replace(/\r?\n/g, '<br>'), esc);
-  const text = fill(pickTemplate.text, String(message), String);
-  return post({
-    from: FROM, to: [to], subject: `Picked for you: ${title}`, html, text, ...(replyTo ? { reply_to: replyTo } : {}),
+  let html = fill(t.html, esc(message).replace(/\r?\n/g, '<br>'), esc);
+  if (!vars.IMAGE_URL) html = html.replace(/<!--IMG-->[\s\S]*?<!--\/IMG-->/g, '');
+  const text = fill(t.text, String(message), String);
+  const data = await post({
+    from: FROM, to: [to], subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}),
     headers: { 'List-Unsubscribe': `<${unsubscribePost}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
-  }, key).then(data => { console.log(`Email "product-pick" sent to ${to} (${data.id})`); return data.id; });
+  }, key);
+  console.log(`Email "${alias}" sent to ${to} (${data.id})`);
+  return data.id;
 }
 
-module.exports = { enabled, sendPick, sendAnnouncement, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };
+// "Picked for you": an automatic product suggestion. Same look and unsubscribe link as announcements.
+function sendPick({ to, store, name, title, message, price, coverUrl, productUrl, unsubscribeUrl, unsubscribePost, siteUrl, support, key, replyTo }) {
+  return sendInline({ alias: 'product-pick', to, subject: `Picked for you: ${title}`, message, unsubscribePost, key, replyTo,
+    vars: { STORE_NAME: store, BUYER_NAME: firstName(name), PRODUCT_TITLE: title, PRICE: price, COVER_URL: coverUrl, PRODUCT_URL: productUrl,
+      UNSUBSCRIBE_URL: unsubscribeUrl, SITE_URL: siteUrl, SUPPORT_EMAIL: support } });
+}
+
+// Store-wide email (a sale, news) written by the owner in the dashboard.
+function sendBroadcast({ to, store, name, subject, label, heading, message, imageUrl, ctaUrl, ctaLabel, unsubscribeUrl, unsubscribePost, siteUrl, support, key, replyTo }) {
+  return sendInline({ alias: 'store-news', to, subject, message, unsubscribePost, key, replyTo,
+    vars: { STORE_NAME: store, BUYER_NAME: firstName(name), LABEL: label, HEADING: heading, IMAGE_URL: imageUrl, CTA_URL: ctaUrl, CTA_LABEL: ctaLabel,
+      UNSUBSCRIBE_URL: unsubscribeUrl, SITE_URL: siteUrl, SUPPORT_EMAIL: support } });
+}
+
+module.exports = { enabled, sendPick, sendBroadcast, sendAnnouncement, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };

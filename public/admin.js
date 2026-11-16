@@ -270,6 +270,61 @@
     });
   }
 
+  // "Email everyone": a store-wide email (a sale, news) to past customers, sent now or at a time you pick.
+  async function broadcastModal(done) {
+    const a = await api('/api/admin/broadcast');
+    if (!a.emails) return toast("Email isn't set up on this store, so emails can't be sent.", true);
+    const AUD = [['all', 'Everyone with a product'], ['paid', 'Paying buyers'], ['free', 'Free downloads only']];
+    const room = Math.max(0, a.limit - a.sentToday);
+    const local = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const tomorrow9 = new Date(); tomorrow9.setDate(tomorrow9.getDate() + 1); tomorrow9.setHours(9, 0, 0, 0);
+    modal(`<h3>Email everyone</h3>
+      <p class="muted" style="margin:0 0 16px;font-size:13.5px">One email to your past customers about a sale or news. People who unsubscribed are left out, and every email has an unsubscribe link.</p>
+      <label class="field"><span>Send to</span><select class="input" id="bc-aud">${AUD.map(([k, l]) => `<option value="${k}">${l} (${a.counts[k]})</option>`).join('')}</select></label>
+      <label class="field"><span>Subject</span><input class="input" id="bc-sub" maxlength="150" placeholder="What they see in their inbox"></label>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:0 12px">
+        <label class="field"><span>Small label</span><input class="input" id="bc-label" maxlength="40" placeholder="e.g. Black Friday"></label>
+        <label class="field"><span>Headline</span><input class="input" id="bc-head" maxlength="150" placeholder="The big line at the top"></label>
+      </div>
+      <label class="field"><span>Message</span><textarea class="input" id="bc-msg" rows="6" maxlength="3000"></textarea><small>Starts with "Hi [their first name],".</small></label>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:0 12px">
+        <label class="field"><span>Button text</span><input class="input" id="bc-cta" maxlength="40" value="Visit the store"></label>
+        <label class="field"><span>Button link</span><input class="input" id="bc-url" maxlength="500" value="/#/shop"><small>A page of your store (starts with /) or a full link.</small></label>
+      </div>
+      <label class="field"><span>Picture (optional)</span><input class="input" id="bc-img" maxlength="500" placeholder="https://... or /brand/..."><small>Shown above the message. Leave empty for none.</small></label>
+      <label class="field"><span>When</span><select class="input" id="bc-when"><option value="now">Now</option><option value="later">At a set time</option></select></label>
+      <label class="field hidden" id="bc-at-wrap"><span>Send at (your time)</span><input class="input" type="datetime-local" id="bc-at" value="${local(tomorrow9)}" min="${local(new Date())}"></label>
+      <p class="muted" id="bc-note" style="font-size:12.5px;margin:2px 0 0"></p>
+      <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn" id="bc-test">Send me a test</button><button class="btn btn-primary" id="bc-send"></button></div>`, (m, close) => {
+      const n = () => a.counts[$('#bc-aud', m).value];
+      const later = () => $('#bc-when', m).value === 'later';
+      const draw = () => {
+        $('#bc-at-wrap', m).classList.toggle('hidden', !later());
+        const b = $('#bc-send', m); b.textContent = later() ? `Schedule for ${people(n())}` : `Send to ${people(n())}`; b.disabled = !n();
+        $('#bc-note', m).textContent = !n() ? 'Nobody in this group to send to.'
+          : n() > (later() ? a.limit : room) ? `Up to ${a.limit} go out a day, to leave room for receipts, so the rest follow over the next ${plural(Math.ceil(n() / a.limit), 'day')}.`
+          : later() ? 'They all go out within a few minutes of the time you pick.' : 'They go out over the next few minutes.';
+      };
+      ['#bc-aud', '#bc-when'].forEach(s => $(s, m).addEventListener('change', draw)); draw();
+      const body = test => ({ audience: $('#bc-aud', m).value, subject: $('#bc-sub', m).value, label: $('#bc-label', m).value, heading: $('#bc-head', m).value,
+        message: $('#bc-msg', m).value, cta_label: $('#bc-cta', m).value, cta_url: $('#bc-url', m).value, image_url: $('#bc-img', m).value,
+        send_at: !test && later() && $('#bc-at', m).value ? new Date($('#bc-at', m).value).toISOString() : null, test });
+      $('#bc-test', m).addEventListener('click', async e => {
+        e.target.disabled = true;
+        try { const r = await api('/api/admin/broadcast', { method: 'POST', body: body(true) }); toast(`Test sent to ${r.to}. Check your inbox.`); }
+        catch (err) { toast(err.message, true); } finally { e.target.disabled = false; }
+      });
+      $('#bc-send', m).addEventListener('click', async e => {
+        if (later() && !$('#bc-at', m).value) return toast('Pick a time.', true);
+        e.target.disabled = true;
+        try {
+          const r = await api('/api/admin/broadcast', { method: 'POST', body: body(false) });
+          close(); toast(r.sendAt ? `Scheduled for ${people(r.total)}.` : `Sending to ${people(r.total)}.`); done?.();
+        } catch (err) { toast(err.message, true); e.target.disabled = false; }
+      });
+    });
+  }
+
   // What Paystack has paid into your bank, and what's on the way. Money is never held in the store.
   async function payouts(page = 1) {
     const intro = '<p class="muted" style="margin:-12px 0 22px;font-size:13.5px;max-width:700px">Paystack collects each payment, takes its fee, and pays the rest into the bank account on your Paystack account automatically, usually the next business day. There is nothing to withdraw: this page shows those payouts.</p>';
@@ -1177,17 +1232,18 @@
     const pick = k => (k === 'all' ? everyone.filter(u => u.kind !== 'unfinished') : everyone.filter(u => u.kind === k));
     const list = pick(filter);
     const count = k => pick(k).length;
-    layout('customers', head('Customers', `<select class="input" id="cust-filter" style="width:auto;min-width:220px">${GROUPS.map(([k, l]) => `<option value="${k}" ${k === filter ? 'selected' : ''}>${l} (${count(k)})</option>`).join('')}</select><button class="btn" id="csv" ${list.length ? '' : 'disabled'}>${I.down} Export ${plural(list.length, 'contact')}</button>`) + `
+    layout('customers', head('Customers', `<select class="input" id="cust-filter" style="width:auto;min-width:220px">${GROUPS.map(([k, l]) => `<option value="${k}" ${k === filter ? 'selected' : ''}>${l} (${count(k)})</option>`).join('')}</select><button class="btn" id="bc-open">Email everyone</button><button class="btn" id="csv" ${list.length ? '' : 'disabled'}>${I.down} Export ${plural(list.length, 'contact')}</button>`) + `
       <p class="muted" style="margin:-6px 0 16px;font-size:13px;max-width:760px">Everyone who bought or downloaded something from your store. Export the list as a spreadsheet (CSV) to import into an email tool like Mailchimp, Brevo or Kit, or a WhatsApp broadcast list. Or tell them about a new product from here: open a product's <b style="color:var(--text);font-weight:500">⋯</b> menu on the Products page and choose <b style="color:var(--text);font-weight:500">Email past buyers</b>.</p>
-      ${sent.length ? `<div class="panel tbl-wrap" style="padding:0;margin-bottom:18px"><div class="box-head"><h3 style="font-size:18px">Product announcements</h3><span class="muted" style="font-size:12.5px">${people(everyone.filter(u => u.unsubscribed_at).length)} unsubscribed</span></div>
-        <table class="tbl"><tr><th>Product</th><th>Subject</th><th>Started</th><th>Sent</th><th>Status</th><th></th></tr>
-        ${sent.map(a => `<tr><td>${esc(a.title)}</td><td class="muted">${esc(a.subject)}</td><td class="muted">${date(a.created_at)}</td><td>${a.sent} of ${a.total}${a.failed ? ` <small style="color:#ff8b7a">${a.failed} failed</small>` : ''}</td>
-          <td>${a.status === 'sending' ? `<span class="status pending">sending</span>${a.queued ? ` <small class="dim">${a.queued} waiting</small>` : ''}` : a.status === 'done' ? '<span class="status live">sent</span>' : '<span class="status draft">stopped</span>'}</td>
-          <td style="text-align:right">${a.status === 'sending' ? `<button class="btn btn-sm btn-ghost" data-stop="${a.id}">Stop</button>` : ''}</td></tr>`).join('')}</table></div>` : ''}` + (list.length ? `
+      ${sent.length ? `<div class="panel tbl-wrap" style="padding:0;margin-bottom:18px"><div class="box-head"><h3 style="font-size:18px">Emails to customers</h3><span class="muted" style="font-size:12.5px">${people(everyone.filter(u => u.unsubscribed_at).length)} unsubscribed</span></div>
+        <table class="tbl"><tr><th>About</th><th>Subject</th><th>Started</th><th>Sent</th><th>Status</th><th></th></tr>
+        ${sent.map(a => `<tr><td>${a.kind === 'store' ? '<span class="dim">Store-wide:</span> ' : ''}${esc(a.title)}</td><td class="muted">${esc(a.subject)}</td><td class="muted">${date(a.send_at || a.created_at)}</td><td>${a.sent} of ${a.total}${a.failed ? ` <small style="color:#ff8b7a">${a.failed} failed</small>` : ''}</td>
+          <td>${a.status === 'scheduled' ? `<span class="status pending">scheduled</span> <small class="dim">${new Date(a.send_at.replace(' ', 'T') + 'Z').toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</small>` : a.status === 'sending' ? `<span class="status pending">sending</span>${a.queued ? ` <small class="dim">${a.queued} waiting</small>` : ''}` : a.status === 'done' ? '<span class="status live">sent</span>' : '<span class="status draft">stopped</span>'}</td>
+          <td style="text-align:right">${['sending', 'scheduled'].includes(a.status) ? `<button class="btn btn-sm btn-ghost" data-stop="${a.id}">${a.status === 'scheduled' ? 'Cancel' : 'Stop'}</button>` : ''}</td></tr>`).join('')}</table></div>` : ''}` + (list.length ? `
       <div class="panel tbl-wrap" style="padding:0"><table class="tbl"><tr><th>Name</th><th>Email</th><th>Phone</th><th>Products</th><th>Last order</th><th>Spent</th></tr>
       ${list.map(u => `<tr><td>${esc(u.name || 'No name')}</td><td class="muted">${esc(u.email)}${u.unsubscribed_at ? ' <span class="status draft" title="Unsubscribed from product announcements">unsubscribed</span>' : ''}</td><td class="muted">${esc(u.phone || '')}</td><td>${u.titles.length ? `<span title="${esc(u.titles.join('\n'))}">${esc(u.titles[0])}${u.titles.length > 1 ? ` <small class="dim">+${u.titles.length - 1}</small>` : ''}</span>` : '<span class="dim">None yet</span>'}</td><td class="muted">${u.last_at ? date(u.last_at) : date(u.created_at)}</td><td>${u.spent ? money(u.spent) : '<span class="dim">Free</span>'}</td></tr>`).join('')}</table></div>`
       : `<div class="empty"><h3>Nobody here yet</h3><p>${filter === 'unfinished' ? 'People who start paying but don\'t finish show up here.' : 'Everyone who buys or grabs a free product shows up here with their name and email.'}</p></div>`));
     $('#cust-filter').addEventListener('change', e => customers(e.target.value));
+    $('#bc-open').addEventListener('click', () => broadcastModal(() => customers(filter)));
     $$('[data-stop]').forEach(b => b.addEventListener('click', async () => {
       if (!(await confirmDialog('Stop sending?', 'Emails already sent stay sent. Nobody else in this announcement gets it.', 'Stop sending', true))) return;
       await api(`/api/admin/announcements/${b.dataset.stop}/stop`, { method: 'POST' }); toast('Stopped'); customers(filter);

@@ -295,6 +295,40 @@ Unsubscribe from emails like this (your download links keep working): {{{UNSUBSC
 {{{STORE_NAME}}}
 `,
   },
+  // Store-wide email to past customers (a sale, news), written in the dashboard, sent now or at a set time.
+  // The server fills this one in itself (mailer.sendBroadcast); the picture block is dropped when there's no image.
+  'store-news': {
+    name: 'Store-wide email (sales and news)',
+    subject: '{{{HEADING}}}',
+    vars: ['STORE_NAME:string:Carsinstore', 'BUYER_NAME:string:there', 'LABEL:string', 'HEADING:string', 'MESSAGE:string', 'IMAGE_URL:string', 'CTA_URL:string', 'CTA_LABEL:string', 'UNSUBSCRIBE_URL:string', 'SITE_URL:string', 'SUPPORT_EMAIL:string'],
+    html: layout({
+      unsubscribe: true,
+      preheader: '{{{HEADING}}}',
+      label: '{{{LABEL}}}',
+      heading: '{{{HEADING}}}',
+      sub: 'Hi {{{BUYER_NAME}}},',
+      before: `<!--IMG--><a href="{{{CTA_URL}}}" target="_blank" style="display:block;text-decoration:none;padding-bottom:24px;"><img src="{{{IMAGE_URL}}}" width="500" alt="{{{HEADING}}}" style="display:block;width:100%;max-width:500px;height:auto;border:0;border-radius:12px;"></a><!--/IMG-->
+        <div class="t-text" style="font-family:${SANS};font-size:15px;line-height:1.7;color:${C.text};">${keep('{{{MESSAGE}}}')}</div>`,
+      cta: { href: '{{{CTA_URL}}}', label: '{{{CTA_LABEL}}}' },
+      secondary: 'Questions? Just reply to this email.',
+    }),
+    text: `Hi {{{BUYER_NAME}}},
+
+{{{HEADING}}}
+
+{{{MESSAGE}}}
+
+{{{CTA_LABEL}}}:
+{{{CTA_URL}}}
+
+Questions? Just reply to this email.
+
+You're getting this because you bought or downloaded something from {{{STORE_NAME}}}.
+Unsubscribe from emails like this (your download links keep working): {{{UNSUBSCRIBE_URL}}}
+
+{{{STORE_NAME}}}
+`,
+  },
   // To the owner, from "Forgot password?" on the sign-in page.
   'password-reset': {
     name: 'Password reset (to owner)',
