@@ -130,6 +130,7 @@ const DEFAULT_SETTINGS = {
   recommend_first_days: '7',      // first one this many days after their latest order
   recommend_every_days: '14',     // then at most one every this many days
   recommend_max: '6',             // stop after this many per person
+  recommend_first: '',            // product id the owner wants suggested before anything else (empty = automatic)
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '', tiktok_pixel_id: '',   // analytics, all optional
   whatsapp: '',                   // number for the "Chat on WhatsApp" button, e.g. 2348012345678. Empty hides the button

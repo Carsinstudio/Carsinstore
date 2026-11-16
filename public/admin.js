@@ -1456,6 +1456,7 @@
           <label class="field"><span>Then every</span><select class="input" name="recommend_every_days">${[7, 14, 21, 30, 45, 60].map(d => `<option value="${d}" ${String(s.recommend_every_days || 14) === String(d) ? 'selected' : ''}>${plural(d, 'day')}</option>`).join('')}</select></label>
           <label class="field"><span>Stop after</span><select class="input" name="recommend_max">${[2, 3, 4, 6, 8, 12].map(d => `<option value="${d}" ${String(s.recommend_max || 6) === String(d) ? 'selected' : ''}>${plural(d, 'email')}</option>`).join('')}</select></label>
         </div>
+        <label class="field"><span>Suggest first</span><select class="input" name="recommend_first" id="rec-first"><option value="${esc(s.recommend_first || '')}">Loading…</option></select><small>Everyone who doesn't have it yet gets this one as their next suggestion. Automatic picks follow.</small></label>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button type="button" class="btn btn-sm" id="rec-test">Send me a sample</button><small class="dim" id="rec-stats" style="font-size:12px"></small></div>
       </div>
       <div class="panel"><h3>Notifications</h3>
@@ -1566,7 +1567,10 @@
     drop.addEventListener('dragleave', () => drop.classList.remove('over'));
     drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); restore(e.dataTransfer.files[0]); });
     $('#sf').addEventListener('submit', e => e.preventDefault());
-    api('/api/admin/recommendations').then(r => { const el = $('#rec-stats'); if (el) el.textContent = r.emails ? `${plural(r.sent30, 'email')} sent in the last 30 days, ${r.sentAll} in all.` : 'Email isn\'t set up on this copy of the store.'; }).catch(() => {});
+    api('/api/admin/recommendations').then(r => {
+      const sel = $('#rec-first');
+      if (sel) sel.innerHTML = `<option value="">Automatic (best match for each person)</option>` + r.products.map(p => `<option value="${p.id}" ${p.id === r.first ? 'selected' : ''}>${esc(p.title)}</option>`).join('');
+      const el = $('#rec-stats'); if (el) el.textContent = r.emails ? `${plural(r.sent30, 'email')} sent in the last 30 days, ${r.sentAll} in all.` : 'Email isn\'t set up on this copy of the store.'; }).catch(() => {});
     $('#rec-test')?.addEventListener('click', async e => {
       e.target.disabled = true;
       try { const r = await api('/api/admin/recommendations/test', { method: 'POST', body: {} }); toast(`Sample about "${r.title}" sent to ${r.to}.`); }

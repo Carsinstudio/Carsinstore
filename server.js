@@ -609,7 +609,7 @@ setInterval(() => sendAnnouncements().catch(e => console.error('Announcements:',
 
 // ---------- "Picked for you" ----------
 // Runs on its own. Every few weeks, each past buyer or free downloader gets one email about a paid product they don't
-// have yet: first one the owner linked to something they have (cross-sells), then one from the same category, then
+// have yet: first the one the owner chose to push (recommend_first), then one the owner linked to something they have (cross-sells), then one from the same category, then
 // best sellers. Never the same product twice, never sooner than recommend_first_days after their latest order, never
 // while they're mid-checkout or within 3 days of an announcement, never after unsubscribing, at most recommend_max
 // per person, and inside the shared daily limit. While the announcement bar is in Sale style, its text is added.
@@ -625,9 +625,9 @@ function pickFor(userId) {
       AND p.id NOT IN (SELECT id FROM owned)
       AND p.id NOT IN (SELECT product_id FROM recommendations WHERE user_id = ?)
       AND NOT EXISTS (SELECT 1 FROM json_each(p.bundle_items) j WHERE CAST(j.value AS INTEGER) IN (SELECT id FROM owned))
-    ORDER BY p.id IN (SELECT id FROM linked) DESC,
+    ORDER BY p.id = ? DESC, p.id IN (SELECT id FROM linked) DESC,
       EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = p.id AND pc.category_id IN (SELECT category_id FROM cats)) DESC,
-      (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id AND o.status = 'paid') DESC, p.featured DESC, p.id DESC LIMIT 1`, userId, userId, userId);
+      (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id AND o.status = 'paid') DESC, p.featured DESC, p.id DESC LIMIT 1`, userId, userId, userId, Number(getSettings().recommend_first) || 0);
 }
 function pickEmail(p, u, s) {
   const last = one(`SELECT p.title FROM orders o JOIN products p ON p.id = o.product_id WHERE o.user_id = ? AND o.status IN ${ACCESS_STATUSES} ORDER BY o.id DESC LIMIT 1`, u.id);
@@ -1349,6 +1349,7 @@ admin.get('/recommendations', (_req, res) => {
   res.json({
     sent30: one("SELECT COUNT(*) AS n FROM recommendations WHERE status = 'sent' AND sent_at >= datetime('now', '-30 days')").n,
     sentAll: one("SELECT COUNT(*) AS n FROM recommendations WHERE status = 'sent'").n,
+    products: all('SELECT id, title FROM products WHERE published = 1 AND price_cents > 0 ORDER BY title'), first: Number(s.recommend_first) || 0,
     testTo: s.notify_email || supportEmail(s), emails: mailer.enabled,
   });
 });
