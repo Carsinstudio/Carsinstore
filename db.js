@@ -126,6 +126,10 @@ const DEFAULT_SETTINGS = {
   abandoned_reminders: '1',       // email buyers once if they start paying but don't finish
   review_requests: '1',           // email buyers once, a few days after they get a product, asking for a rating
   review_after_days: '3',
+  recommend_emails: '1',          // "Picked for you": every few weeks, one email suggesting a product the buyer doesn't have yet
+  recommend_first_days: '7',      // first one this many days after their latest order
+  recommend_every_days: '14',     // then at most one every this many days
+  recommend_max: '6',             // stop after this many per person
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '', tiktok_pixel_id: '',   // analytics, all optional
   whatsapp: '',                   // number for the "Chat on WhatsApp" button, e.g. 2348012345678. Empty hides the button
@@ -279,6 +283,15 @@ function migrate(db) {
     db.exec('ALTER TABLE orders ADD COLUMN review_asked_at TEXT');
     db.exec("UPDATE orders SET review_asked_at = created_at WHERE status IN ('paid', 'free', 'granted')");
   }
+  // "Picked for you" emails: which product each person was sent, so nobody hears about the same one twice.
+  db.exec(`CREATE TABLE IF NOT EXISTS recommendations (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'sent',           -- 'sent' | 'failed'
+    sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, product_id)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_rec_sent ON recommendations(sent_at)');
 }
 
 let db;

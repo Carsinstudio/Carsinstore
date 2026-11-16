@@ -116,4 +116,21 @@ function sendAnnouncement({ to, store, name, title, message, price, coverUrl, pr
   });
 }
 
-module.exports = { enabled, sendAnnouncement, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };
+// "Picked for you": an automatic product suggestion. Built from emails/build.js and sent as finished HTML, so it
+// needs no template in Resend. Same look, same unsubscribe link and one-click headers as announcements.
+let pickTemplate;
+function sendPick({ to, store, name, title, message, price, coverUrl, productUrl, unsubscribeUrl, unsubscribePost, siteUrl, support, key, replyTo }) {
+  if (!enabled) return null;
+  pickTemplate ||= require('./emails/build').templates['product-pick'];
+  const vars = { STORE_NAME: store, BUYER_NAME: firstName(name), PRODUCT_TITLE: title, PRICE: price, COVER_URL: coverUrl, PRODUCT_URL: productUrl,
+    UNSUBSCRIBE_URL: unsubscribeUrl, SITE_URL: siteUrl, SUPPORT_EMAIL: support };
+  const fill = (s, msg, safe) => s.replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => (k === 'MESSAGE' ? msg : safe(vars[k] ?? '')));
+  const html = fill(pickTemplate.html, esc(message).replace(/\r?\n/g, '<br>'), esc);
+  const text = fill(pickTemplate.text, String(message), String);
+  return post({
+    from: FROM, to: [to], subject: `Picked for you: ${title}`, html, text, ...(replyTo ? { reply_to: replyTo } : {}),
+    headers: { 'List-Unsubscribe': `<${unsubscribePost}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+  }, key).then(data => { console.log(`Email "product-pick" sent to ${to} (${data.id})`); return data.id; });
+}
+
+module.exports = { enabled, sendPick, sendAnnouncement, sendDownload, sendSaleAlert, sendCheckoutReminder, sendReviewRequest, sendPasswordReset };

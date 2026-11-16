@@ -6,7 +6,6 @@
 const fs = require('fs');
 const path = require('path');
 const out = path.join(__dirname, 'dist');
-fs.mkdirSync(out, { recursive: true });
 
 const C = {
   page: '#080808', card: '#111111', line: '#2b2b2b', text: '#f1ede7', soft: '#c9c4bd', muted: '#8d8a85', dim: '#66635f',
@@ -259,6 +258,43 @@ Unsubscribe from news like this (your download links keep working): {{{UNSUBSCRI
 {{{STORE_NAME}}}
 `,
   },
+  // "Picked for you": sent by the store on its own, every few weeks, suggesting a product the person doesn't have yet.
+  // The server fills this one in itself (mailer.sendPick), so it works without publishing it to Resend.
+  'product-pick': {
+    name: 'Picked for you (automatic product suggestion)',
+    subject: 'Picked for you: {{{PRODUCT_TITLE}}}',
+    vars: ['STORE_NAME:string:Carsinstore', 'BUYER_NAME:string:there', 'PRODUCT_TITLE:string', 'MESSAGE:string', 'PRICE:string', 'COVER_URL:string', 'PRODUCT_URL:string', 'UNSUBSCRIBE_URL:string', 'SITE_URL:string', 'SUPPORT_EMAIL:string'],
+    html: layout({
+      unsubscribe: true,
+      preheader: 'One we think you’ll like: {{{PRODUCT_TITLE}}}',
+      label: 'Picked for you',
+      heading: '{{{PRODUCT_TITLE}}}',
+      sub: 'Hi {{{BUYER_NAME}}}, here’s one we think you’ll like.',
+      before: `<a href="{{{PRODUCT_URL}}}" target="_blank" style="display:block;text-decoration:none;"><img src="{{{COVER_URL}}}" width="500" alt="{{{PRODUCT_TITLE}}}" style="display:block;width:100%;max-width:500px;height:auto;border:0;border-radius:12px;"></a>
+        <div class="t-text" style="padding-top:24px;font-family:${SANS};font-size:15px;line-height:1.7;color:${C.text};">${keep('{{{MESSAGE}}}')}</div>`,
+      details: [['Price', '{{{PRICE}}}']],
+      cta: { href: '{{{PRODUCT_URL}}}', label: 'Take a look' },
+      secondary: 'Questions about it? Just reply to this email.',
+    }),
+    text: `Hi {{{BUYER_NAME}}}, here's one we think you'll like.
+
+{{{PRODUCT_TITLE}}}
+
+{{{MESSAGE}}}
+
+Price: {{{PRICE}}}
+
+Take a look:
+{{{PRODUCT_URL}}}
+
+Questions about it? Just reply to this email.
+
+You're getting this because you bought or downloaded something from {{{STORE_NAME}}}.
+Unsubscribe from emails like this (your download links keep working): {{{UNSUBSCRIBE_URL}}}
+
+{{{STORE_NAME}}}
+`,
+  },
   // To the owner, from "Forgot password?" on the sign-in page.
   'password-reset': {
     name: 'Password reset (to owner)',
@@ -301,22 +337,28 @@ The link works once, for one hour. If you didn't ask for this, ignore this email
   },
 };
 
-const manifest = {};
-for (const [alias, t] of Object.entries(templates)) {
-  fs.writeFileSync(path.join(out, `${alias}.html`), t.html);
-  fs.writeFileSync(path.join(out, `${alias}.txt`), t.text);
-  manifest[alias] = { name: t.name, subject: t.subject, vars: t.vars };
-}
-fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
+module.exports = { templates };
 
-// Preview page with sample values, for checking the design in a browser.
-const sample = {
-  STORE_NAME: 'Carsinstore', BUYER_NAME: 'Francis', PRODUCT_TITLE: 'Creator Systems Video Pack', AMOUNT: '₦25,000', ORDER_DATE: '27 October 2026',
-  ORDER_REF: 'CS-7F3A91', DOWNLOAD_URL: '#', PRODUCT_URL: '#', SITE_URL: 'https://carsin.store', SUPPORT_EMAIL: 'carsindesign@gmail.com',
-  ORDER_TYPE: 'New sale', BUYER_EMAIL: 'buyer@example.com', BUYER_PHONE: '0803 123 4567', DASHBOARD_URL: '#', RATE_URL: '#', RESET_URL: '#',
-  MESSAGE: 'A 20-slide pitch deck you can edit in Figma and PowerPoint.<br><br>We just added it to the store and thought you’d like it.',
-  PRICE: '₦15,000', COVER_URL: 'https://carsin.store/brand/share.png', UNSUBSCRIBE_URL: '#',
-};
-const fill = s => s.replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => sample[k] ?? k);
-for (const alias of Object.keys(templates)) fs.writeFileSync(path.join(out, `preview-${alias}.html`), fill(templates[alias].html));
-console.log('built', Object.keys(templates).join(', '));
+// Run directly: write emails/dist (and preview pages). Required by the server: just hand over the templates.
+if (require.main === module) {
+  fs.mkdirSync(out, { recursive: true });
+  const manifest = {};
+  for (const [alias, t] of Object.entries(templates)) {
+    fs.writeFileSync(path.join(out, `${alias}.html`), t.html);
+    fs.writeFileSync(path.join(out, `${alias}.txt`), t.text);
+    manifest[alias] = { name: t.name, subject: t.subject, vars: t.vars };
+  }
+  fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
+
+  // Preview page with sample values, for checking the design in a browser.
+  const sample = {
+    STORE_NAME: 'Carsinstore', BUYER_NAME: 'Francis', PRODUCT_TITLE: 'Creator Systems Video Pack', AMOUNT: '₦25,000', ORDER_DATE: '27 October 2026',
+    ORDER_REF: 'CS-7F3A91', DOWNLOAD_URL: '#', PRODUCT_URL: '#', SITE_URL: 'https://carsin.store', SUPPORT_EMAIL: 'carsindesign@gmail.com',
+    ORDER_TYPE: 'New sale', BUYER_EMAIL: 'buyer@example.com', BUYER_PHONE: '0803 123 4567', DASHBOARD_URL: '#', RATE_URL: '#', RESET_URL: '#',
+    MESSAGE: 'A 20-slide pitch deck you can edit in Figma and PowerPoint.<br><br>We just added it to the store and thought you’d like it.',
+    PRICE: '₦15,000', COVER_URL: 'https://carsin.store/brand/share.png', UNSUBSCRIBE_URL: '#',
+  };
+  const fill = s => s.replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => sample[k] ?? k);
+  for (const alias of Object.keys(templates)) fs.writeFileSync(path.join(out, `preview-${alias}.html`), fill(templates[alias].html));
+  console.log('built', Object.keys(templates).join(', '));
+}

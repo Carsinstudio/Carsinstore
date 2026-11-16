@@ -1392,6 +1392,16 @@
         ${f('meta_pixel_id', 'Meta Pixel ID', 'Numbers only, from Events Manager. Needed for Instagram/Facebook ads.')}
         ${f('tiktok_pixel_id', 'TikTok Pixel ID', 'Letters and numbers, from TikTok Ads Manager > Tools > Events. Needed for TikTok ads.')}
       </div>
+      <div class="panel"><h3>Picked for you emails</h3>
+        <label class="check" style="margin-bottom:6px"><span class="switch"><input type="checkbox" data-flag="recommend_emails" ${s.recommend_emails !== '0' ? 'checked' : ''}><i></i></span>Suggest products to past customers automatically</label>
+        <small class="dim" style="display:block;margin:0 0 14px;font-size:12px">Every few weeks, each buyer and free downloader gets one email about a paid product they don't have yet. Products you picked under "You might also like" come first, then the same category, then your best sellers. Nobody hears about the same product twice, and anyone can unsubscribe. While the announcement bar is in Sale style, its text is added to the email.</small>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0 12px">
+          <label class="field"><span>First one after</span><select class="input" name="recommend_first_days">${[3, 5, 7, 10, 14, 30].map(d => `<option value="${d}" ${String(s.recommend_first_days || 7) === String(d) ? 'selected' : ''}>${plural(d, 'day')}</option>`).join('')}</select></label>
+          <label class="field"><span>Then every</span><select class="input" name="recommend_every_days">${[7, 14, 21, 30, 45, 60].map(d => `<option value="${d}" ${String(s.recommend_every_days || 14) === String(d) ? 'selected' : ''}>${plural(d, 'day')}</option>`).join('')}</select></label>
+          <label class="field"><span>Stop after</span><select class="input" name="recommend_max">${[2, 3, 4, 6, 8, 12].map(d => `<option value="${d}" ${String(s.recommend_max || 6) === String(d) ? 'selected' : ''}>${plural(d, 'email')}</option>`).join('')}</select></label>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button type="button" class="btn btn-sm" id="rec-test">Send me a sample</button><small class="dim" id="rec-stats" style="font-size:12px"></small></div>
+      </div>
       <div class="panel"><h3>Notifications</h3>
         ${S.store.emails ? '' : '<p class="muted" style="margin:-8px 0 12px;font-size:12.5px">Email isn\'t set up on this copy of the store, so alerts won\'t be sent from here.</p>'}
         <label class="check" style="margin-bottom:12px"><span class="switch"><input type="checkbox" data-flag="notify_sales" ${s.notify_sales !== '0' ? 'checked' : ''}><i></i></span>Email me for every sale</label>
@@ -1500,6 +1510,12 @@
     drop.addEventListener('dragleave', () => drop.classList.remove('over'));
     drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); restore(e.dataTransfer.files[0]); });
     $('#sf').addEventListener('submit', e => e.preventDefault());
+    api('/api/admin/recommendations').then(r => { const el = $('#rec-stats'); if (el) el.textContent = r.emails ? `${plural(r.sent30, 'email')} sent in the last 30 days, ${r.sentAll} in all.` : 'Email isn\'t set up on this copy of the store.'; }).catch(() => {});
+    $('#rec-test')?.addEventListener('click', async e => {
+      e.target.disabled = true;
+      try { const r = await api('/api/admin/recommendations/test', { method: 'POST', body: {} }); toast(`Sample about "${r.title}" sent to ${r.to}.`); }
+      catch (err) { toast(err.message, true); } finally { e.target.disabled = false; }
+    });
     $('#save').addEventListener('click', async () => {
       const body = Object.fromEntries(new FormData($('#sf')));
       for (const k of Object.keys(body)) if (k.startsWith('data-')) delete body[k];

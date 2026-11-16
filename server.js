@@ -546,7 +546,9 @@ function announceEmail(a, p, u, s) {
   };
 }
 const announceKey = (a, u) => 'ann-' + crypto.createHash('sha256').update(`${a.id}:${a.created_at}:${u.email}`).digest('hex').slice(0, 24);
-const sentToday = () => one("SELECT COUNT(*) AS n FROM announcement_recipients WHERE status IN ('sent', 'failed') AND sent_at >= datetime('now', '-1 day')").n;
+// Announcements and "Picked for you" emails share one daily limit, so receipts always have room.
+const sentToday = () => one("SELECT COUNT(*) AS n FROM announcement_recipients WHERE status IN ('sent', 'failed') AND sent_at >= datetime('now', '-1 day')").n
+  + one("SELECT COUNT(*) AS n FROM recommendations WHERE sent_at >= datetime('now', '-1 day')").n;
 let announcing = false;
 async function sendAnnouncements() {
   if (announcing || !mailer.enabled) return;
@@ -574,6 +576,76 @@ async function sendAnnouncements() {
   } finally { announcing = false; }
 }
 setInterval(() => sendAnnouncements().catch(e => console.error('Announcements:', e.message)), Number(process.env.ANNOUNCE_CHECK_SECONDS || 30) * 1000).unref();
+
+// ---------- "Picked for you" ----------
+// Runs on its own. Every few weeks, each past buyer or free downloader gets one email about a paid product they don't
+// have yet: first one the owner linked to something they have (cross-sells), then one from the same category, then
+// best sellers. Never the same product twice, never sooner than recommend_first_days after their latest order, never
+// while they're mid-checkout or within 3 days of an announcement, never after unsubscribing, at most recommend_max
+// per person, and inside the shared daily limit. While the announcement bar is in Sale style, its text is added.
+const clampNum = (v, lo, hi, dflt) => Math.min(Math.max(Number(v) || dflt, lo), hi);
+function pickFor(userId) {
+  return one(`WITH owned AS (
+      SELECT o.product_id AS id FROM orders o WHERE o.user_id = ? AND o.status IN ${ACCESS_STATUSES}
+      UNION SELECT CAST(j.value AS INTEGER) FROM orders o JOIN products b ON b.id = o.product_id, json_each(b.bundle_items) j
+        WHERE o.user_id = ? AND o.status IN ${ACCESS_STATUSES}),
+    linked AS (SELECT CAST(j.value AS INTEGER) AS id FROM products p, json_each(p.cross_sells) j WHERE p.id IN (SELECT id FROM owned)),
+    cats AS (SELECT category_id FROM product_categories WHERE product_id IN (SELECT id FROM owned))
+    SELECT p.* FROM products p WHERE p.published = 1 AND p.price_cents > 0
+      AND p.id NOT IN (SELECT id FROM owned)
+      AND p.id NOT IN (SELECT product_id FROM recommendations WHERE user_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM json_each(p.bundle_items) j WHERE CAST(j.value AS INTEGER) IN (SELECT id FROM owned))
+    ORDER BY p.id IN (SELECT id FROM linked) DESC,
+      EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = p.id AND pc.category_id IN (SELECT category_id FROM cats)) DESC,
+      (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id AND o.status = 'paid') DESC, p.featured DESC, p.id DESC LIMIT 1`, userId, userId, userId);
+}
+function pickEmail(p, u, s) {
+  const last = one(`SELECT p.title FROM orders o JOIN products p ON p.id = o.product_id WHERE o.user_id = ? AND o.status IN ${ACCESS_STATUSES} ORDER BY o.id DESC LIMIT 1`, u.id);
+  const about = shortText(plain(p.subtitle) || plain(p.description), 260);
+  const sale = s.announcement && s.announcement_style === 'promo' ? `${s.announcement_tag ? s.announcement_tag + ': ' : ''}${s.announcement}` : '';
+  const message = [last && `You got “${last.title}” from us, so we thought you might like this one too.`, about, sale].filter(Boolean).join('\n\n');
+  const cover = coversOf(p).find(c => !isVideoCover(c));
+  const tok = unsubToken(u.id);
+  return {
+    to: u.email, store: s.store_name, name: u.name, title: p.title, message,
+    price: formatPrice(p.price_cents, storeCurrencies(s).main),
+    coverUrl: cover ? `${BASE_URL}/media/covers/${coverFile(cover, 'og')}` : shareImage(s),
+    productUrl: `${BASE_URL}/p/${encodeURIComponent(p.slug)}?utm_source=email&utm_medium=picked-for-you&utm_campaign=${encodeURIComponent(p.slug)}`,
+    unsubscribeUrl: `${BASE_URL}/#/unsubscribe/${tok}`, unsubscribePost: `${BASE_URL}/api/unsubscribe/${tok}`,
+    siteUrl: BASE_URL, support: supportEmail(s), replyTo: supportEmail(s),
+  };
+}
+const pickKey = (u, p) => 'pick-' + crypto.createHash('sha256').update(`${u.email}:${p.id}`).digest('hex').slice(0, 24);
+let recommending = false;
+async function sendRecommendations() {
+  const s = getSettings();
+  if (recommending || s.recommend_emails === '0' || !mailer.enabled) return;
+  recommending = true;
+  try {
+    const first = clampNum(s.recommend_first_days, 1, 90, 7), every = clampNum(s.recommend_every_days, 3, 180, 14), max = clampNum(s.recommend_max, 1, 50, 6);
+    let room = Math.min(Math.max(1, Number(s.announce_daily_limit) || 80) - sentToday(), 10);
+    if (room <= 0) return;
+    const due = all(`SELECT u.* FROM users u WHERE u.is_admin = 0 AND u.unsubscribed_at IS NULL
+      AND EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES})
+      AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status IN ${ACCESS_STATUSES} AND o.created_at > datetime('now', ?))
+      AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'pending' AND o.created_at > datetime('now', '-2 days'))
+      AND NOT EXISTS (SELECT 1 FROM recommendations r WHERE r.user_id = u.id AND r.sent_at > datetime('now', ?))
+      AND (SELECT COUNT(*) FROM recommendations r WHERE r.user_id = u.id) < ?
+      AND NOT EXISTS (SELECT 1 FROM announcement_recipients ar WHERE ar.user_id = u.id AND ar.status = 'sent' AND ar.sent_at > datetime('now', '-3 days'))
+      ORDER BY (SELECT MAX(sent_at) FROM recommendations r WHERE r.user_id = u.id) IS NOT NULL, u.id`, `-${first} days`, `-${every} days`, max);
+    for (const u of due) {
+      if (room <= 0 || getSettings().recommend_emails === '0') break;
+      const p = pickFor(u.id);
+      if (!p) continue; // they have everything worth suggesting
+      run('INSERT INTO recommendations (user_id, product_id) VALUES (?, ?)', u.id, p.id); // mark first: never twice
+      room--;
+      try { await mailer.sendPick({ ...pickEmail(p, u, s), key: pickKey(u, p) }); }
+      catch (e) { run("UPDATE recommendations SET status = 'failed' WHERE user_id = ? AND product_id = ?", u.id, p.id); console.error('Picked-for-you failed:', e.message); }
+      await new Promise(ok => setTimeout(ok, 600)); // stay under Resend's rate limit
+    }
+  } finally { recommending = false; }
+}
+setInterval(() => sendRecommendations().catch(e => console.error('Picked for you:', e.message)), Number(process.env.RECOMMEND_CHECK_SECONDS || 900) * 1000).unref();
 
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
@@ -1240,6 +1312,24 @@ admin.get('/announcements', (_req, res) => res.json(all(`SELECT a.*,
   (SELECT COUNT(*) FROM announcement_recipients r WHERE r.announcement_id = a.id AND r.status = 'queued') AS queued,
   (SELECT COUNT(*) FROM announcement_recipients r WHERE r.announcement_id = a.id AND r.status = 'failed') AS failed
   FROM announcements a ORDER BY a.id DESC LIMIT 50`)));
+// "Picked for you": how many went out, and a sample to the owner (the top pick for someone who has nothing yet).
+admin.get('/recommendations', (_req, res) => {
+  const s = getSettings();
+  res.json({
+    sent30: one("SELECT COUNT(*) AS n FROM recommendations WHERE status = 'sent' AND sent_at >= datetime('now', '-30 days')").n,
+    sentAll: one("SELECT COUNT(*) AS n FROM recommendations WHERE status = 'sent'").n,
+    testTo: s.notify_email || supportEmail(s), emails: mailer.enabled,
+  });
+});
+admin.post('/recommendations/test', wrap(async (req, res) => {
+  if (!mailer.enabled) return bad(res, 'Email is not set up on this store.', 503);
+  const s = getSettings();
+  const p = pickFor(0);
+  if (!p) return bad(res, 'Publish a paid product first.');
+  const to = s.notify_email || supportEmail(s);
+  await mailer.sendPick({ ...pickEmail(p, { id: 0, email: to, name: req.user.name }, s), key: `pick-test-${Date.now()}` });
+  res.json({ ok: true, to, title: p.title });
+}));
 admin.post('/announcements/:id/stop', (req, res) => {
   run("UPDATE announcements SET status = 'stopped' WHERE id = ? AND status = 'sending'", req.params.id);
   run("UPDATE announcement_recipients SET status = 'skipped' WHERE announcement_id = ? AND status = 'queued'", req.params.id);
