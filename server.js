@@ -1086,31 +1086,62 @@ admin.delete('/keys/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-admin.get('/stats', (_req, res) => {
+// Overview numbers for a date range (?from=YYYY-MM-DD&to=YYYY-MM-DD, or from=all) and optionally one product (?product=id).
+// Days are UTC, like the visit counter and order timestamps. Without a range: the last 30 days.
+admin.get('/stats', (req, res) => {
   const main = storeCurrencies().main;
-  const money = one(`SELECT COALESCE(SUM(amount_cents),0) AS revenue, COUNT(*) AS sales FROM orders WHERE status = 'paid' AND currency = ?`, main);
-  const otherCurrencies = all(`SELECT currency, SUM(amount_cents) AS revenue, COUNT(*) AS sales FROM orders WHERE status = 'paid' AND currency != ? GROUP BY currency`, main);
-  const free = one(`SELECT COUNT(*) AS n FROM orders WHERE status IN ('free','granted')`).n;
-  const customers = one(`SELECT COUNT(DISTINCT user_id) AS n FROM orders WHERE status IN ${ACCESS_STATUSES}`).n;
+  const isDay = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+  const shift = (day, n) => new Date(Date.parse(day + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+  const today = visitDay();
+  let to = isDay(req.query.to) ? req.query.to : today;
+  let from = req.query.from === 'all'
+    ? one(`SELECT MIN(d) AS d FROM (SELECT MIN(date(created_at)) AS d FROM orders UNION ALL SELECT MIN(day) FROM visits_daily)`).d || today
+    : isDay(req.query.from) ? req.query.from : shift(to, -29);
+  if (from > to) [from, to] = [to, from];
+  const product = one('SELECT id, title FROM products WHERE id = ?', Number(req.query.product) || 0) || null;
+
+  // Orders in the range (and for the chosen product): a WHERE fragment plus its values.
+  const ow = (a = 'o') => ({
+    sql: `date(${a}.created_at) BETWEEN ? AND ?${product ? ` AND ${a}.product_id = ?` : ''}`,
+    args: product ? [from, to, product.id] : [from, to],
+  });
+  const o = ow();
+  const money = one(`SELECT COALESCE(SUM(amount_cents),0) AS revenue, COUNT(*) AS sales FROM orders o WHERE status = 'paid' AND currency = ? AND ${o.sql}`, main, ...o.args);
+  const otherCurrencies = all(`SELECT currency, SUM(amount_cents) AS revenue, COUNT(*) AS sales FROM orders o WHERE status = 'paid' AND currency != ? AND ${o.sql} GROUP BY currency`, main, ...o.args);
+  const free = one(`SELECT COUNT(*) AS n FROM orders o WHERE status IN ('free','granted') AND ${o.sql}`, ...o.args).n;
+  const customers = one(`SELECT COUNT(DISTINCT user_id) AS n FROM orders o WHERE status IN ${ACCESS_STATUSES} AND ${o.sql}`, ...o.args).n;
   const products = one('SELECT COUNT(*) AS n, SUM(published) AS live FROM products');
-  const days = all(`SELECT date(created_at) AS day, SUM(amount_cents) AS revenue, COUNT(*) AS sales FROM orders
-    WHERE status = 'paid' AND currency = ? AND created_at >= date('now','-29 days') GROUP BY day ORDER BY day`, main);
+  const days = all(`SELECT date(created_at) AS day, SUM(amount_cents) AS revenue, COUNT(*) AS sales FROM orders o
+    WHERE status = 'paid' AND currency = ? AND ${o.sql} GROUP BY day ORDER BY day`, main, ...o.args);
   const top = all(`SELECT p.title, p.slug, COUNT(o.id) AS sales, COALESCE(SUM(CASE WHEN o.status = 'paid' AND o.currency = ? THEN o.amount_cents END),0) AS revenue FROM products p
-    LEFT JOIN orders o ON o.product_id = p.id AND o.status IN ${ACCESS_STATUSES} GROUP BY p.id ORDER BY sales DESC LIMIT 5`, main);
+    JOIN orders o ON o.product_id = p.id AND o.status IN ${ACCESS_STATUSES} AND ${o.sql} GROUP BY p.id ORDER BY sales DESC, revenue DESC LIMIT 5`, main, ...o.args);
   const recent = all(`SELECT o.*, u.email, u.name, p.title FROM orders o JOIN users u ON u.id = o.user_id JOIN products p ON p.id = o.product_id
-    WHERE o.status IN ${ACCESS_STATUSES} ORDER BY o.id DESC LIMIT 50`);
-  // Visits: per day for the chart, totals, the most viewed products (with how many of those turned into orders), where people came from.
-  const vSum = from => one(`SELECT COALESCE(SUM(visitors),0) AS visitors, COALESCE(SUM(views),0) AS views FROM visits_daily WHERE day >= date('now', ?)`, from);
+    WHERE o.status IN ${ACCESS_STATUSES} AND ${o.sql} ORDER BY o.id DESC LIMIT 50`, ...o.args);
+
+  // Visits. The counter keeps visitors for the whole store only, so for one product the chart shows its page views instead.
+  const vp = product ? ' AND v.product_id = ?' : '', vpArgs = product ? [product.id] : [];
+  const vSum = (a, b) => product
+    ? { visitors: null, views: one(`SELECT COALESCE(SUM(views),0) AS n FROM visit_products v WHERE day BETWEEN ? AND ?${vp}`, a, b, ...vpArgs).n }
+    : one('SELECT COALESCE(SUM(visitors),0) AS visitors, COALESCE(SUM(views),0) AS views FROM visits_daily WHERE day BETWEEN ? AND ?', a, b);
   const visits = {
-    days: all(`SELECT day, visitors, views FROM visits_daily WHERE day >= date('now','-29 days') ORDER BY day`),
-    today: vSum('-0 days'), week: vSum('-6 days'), month: vSum('-29 days'),
+    productOnly: !!product,
+    days: product
+      ? all(`SELECT day, NULL AS visitors, SUM(views) AS views FROM visit_products v WHERE day BETWEEN ? AND ?${vp} GROUP BY day ORDER BY day`, from, to, ...vpArgs)
+      : all('SELECT day, visitors, views FROM visits_daily WHERE day BETWEEN ? AND ? ORDER BY day', from, to),
+    total: vSum(from, to),
     since: one('SELECT MIN(day) AS d FROM visits_daily').d,
-    products: all(`SELECT p.title, p.slug, SUM(v.views) AS views,
-        (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id AND o.status IN ${ACCESS_STATUSES} AND o.created_at >= date('now','-29 days')) AS orders
-      FROM visit_products v JOIN products p ON p.id = v.product_id WHERE v.day >= date('now','-29 days') GROUP BY p.id ORDER BY views DESC LIMIT 8`),
-    sources: all(`SELECT source, SUM(visitors) AS visitors FROM visit_sources WHERE day >= date('now','-29 days') GROUP BY source ORDER BY visitors DESC LIMIT 8`),
+    products: all(`SELECT p.id, p.title, p.slug, SUM(v.views) AS views,
+        (SELECT COUNT(*) FROM orders o2 WHERE o2.product_id = p.id AND o2.status IN ${ACCESS_STATUSES} AND date(o2.created_at) BETWEEN ? AND ?) AS orders
+      FROM visit_products v JOIN products p ON p.id = v.product_id WHERE v.day BETWEEN ? AND ?${vp} GROUP BY p.id ORDER BY views DESC LIMIT 8`, from, to, from, to, ...vpArgs),
+    sources: all('SELECT source, SUM(visitors) AS visitors FROM visit_sources WHERE day BETWEEN ? AND ? GROUP BY source ORDER BY visitors DESC LIMIT 8', from, to),
+    sourcesTotal: one('SELECT COALESCE(SUM(visitors),0) AS n FROM visits_daily WHERE day BETWEEN ? AND ?', from, to).n,
+    orders: one(`SELECT COUNT(*) AS n FROM orders o WHERE status IN ${ACCESS_STATUSES} AND ${o.sql}`, ...o.args).n,
   };
-  res.json({ currency: main, revenue: money.revenue, sales: money.sales, otherCurrencies, free, customers, products: products.n, live: products.live || 0, days, top, recent, visits });
+  res.json({
+    range: { from, to, today, product: product ? { id: product.id, title: product.title } : null },
+    productList: all('SELECT id, title FROM products ORDER BY title COLLATE NOCASE'),
+    currency: main, revenue: money.revenue, sales: money.sales, otherCurrencies, free, customers, products: products.n, live: products.live || 0, days, top, recent, visits,
+  });
 });
 
 const productLink = p => `${BASE_URL}/p/${p.slug}`;

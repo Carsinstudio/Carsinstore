@@ -57,61 +57,131 @@
   }
 
   // ---------- overview ----------
+  // ---------- overview filters: a period (preset or custom dates) and one product or all ----------
+  // Days are UTC, matching how the server stores orders and visits.
+  const utcDay = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
+  const addDays = (day, n) => utcDay(Date.parse(day + 'T00:00:00Z') + n * 864e5);
+  const PERIODS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days'],
+    ['month', 'This month'], ['lastmonth', 'Last month'], ['all', 'All time'], ['custom', 'Custom dates']];
+  const OV_KEY = 'cs_overview_filter';
+  let ovFilter = (() => { try { return { period: '30', from: '', to: '', product: '', ...JSON.parse(sessionStorage.getItem(OV_KEY) || '{}') }; } catch { return { period: '30', from: '', to: '', product: '' }; } })();
+  const saveFilter = () => { try { sessionStorage.setItem(OV_KEY, JSON.stringify(ovFilter)); } catch {} };
+  function periodRange(f) {
+    const t = utcDay();
+    switch (f.period) {
+      case 'today': return { from: t, to: t };
+      case 'yesterday': { const y = addDays(t, -1); return { from: y, to: y }; }
+      case '7': return { from: addDays(t, -6), to: t };
+      case '90': return { from: addDays(t, -89), to: t };
+      case 'month': return { from: t.slice(0, 8) + '01', to: t };
+      case 'lastmonth': { const end = addDays(t.slice(0, 8) + '01', -1); return { from: end.slice(0, 8) + '01', to: end }; }
+      case 'all': return { from: 'all', to: t };
+      case 'custom': return { from: f.from || addDays(t, -29), to: f.to || t };
+      default: return { from: addDays(t, -29), to: t };
+    }
+  }
+  const fmtDay = (d, year) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+  const rangeLabel = r => r.from === r.to ? fmtDay(r.from, true) : `${fmtDay(r.from, r.from.slice(0, 4) !== r.to.slice(0, 4))} – ${fmtDay(r.to, true)}`;
+  // Chart buckets: one per day up to ~3 months, otherwise one per month.
+  function buckets(rows, from, to, fields) {
+    const byMonth = (Date.parse(to) - Date.parse(from)) / 864e5 > 92;
+    const key = d => (byMonth ? d.slice(0, 7) : d);
+    const out = new Map();
+    for (let d = from; d <= to; d = addDays(d, 1)) if (!out.has(key(d))) out.set(key(d), Object.fromEntries(fields.map(f => [f, 0])));
+    rows.forEach(r => { const b = out.get(key(r.day)); if (b) fields.forEach(f => (b[f] += Number(r[f] || 0))); });
+    const label = k => (byMonth ? new Date(k + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' }) : fmtDay(k));
+    return { byMonth, list: [...out].map(([k, v]) => ({ k, label: label(k), ...v })) };
+  }
+  function filterBar(s) {
+    const r = s.range;
+    return `<div class="ov-filters">
+        <select class="input" id="ov-period" aria-label="Period">${PERIODS.map(([v, l]) => `<option value="${v}"${ovFilter.period === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+        <span class="ov-dates"${ovFilter.period === 'custom' ? '' : ' hidden'}>
+          <input class="input" type="date" id="ov-from" aria-label="From" value="${esc(r.from)}" max="${esc(r.today)}">
+          <span class="muted">to</span>
+          <input class="input" type="date" id="ov-to" aria-label="To" value="${esc(r.to)}" max="${esc(r.today)}">
+        </span>
+        <select class="input" id="ov-product" aria-label="Product"><option value="">All products</option>${s.productList.map(p => `<option value="${p.id}"${String(r.product?.id || '') === String(p.id) ? ' selected' : ''}>${esc(p.title)}</option>`).join('')}</select>
+        <span class="muted ov-label">${esc(rangeLabel(r))}${r.product ? ` · ${esc(r.product.title)}` : ''}</span>
+      </div>`;
+  }
+  function bindFilters() {
+    const go = () => { saveFilter(); overview(); };
+    $('#ov-period')?.addEventListener('change', e => {
+      ovFilter.period = e.target.value;
+      if (ovFilter.period === 'custom') { ovFilter.from = $('#ov-from').value; ovFilter.to = $('#ov-to').value; }
+      go();
+    });
+    ['#ov-from', '#ov-to'].forEach(id => $(id)?.addEventListener('change', () => {
+      let a = $('#ov-from').value, b = $('#ov-to').value;
+      if (!a || !b) return;
+      if (a > b) [a, b] = [b, a];
+      Object.assign(ovFilter, { period: 'custom', from: a, to: b }); go();
+    }));
+    $('#ov-product')?.addEventListener('change', e => { ovFilter.product = e.target.value; go(); });
+  }
+
   // Visits, from the store's own counter: one visitor per person per day; your own visits aren't counted.
-  function visitsHtml(v) {
+  function visitsHtml(v, r) {
     if (!v) return '';
     const n = x => Number(x || 0).toLocaleString('en-GB');
-    const days = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
-      days.push({ d, ...(v.days.find(x => x.day === d) || { visitors: 0, views: 0 }) });
-    }
-    const max = Math.max(1, ...days.map(d => d.visitors));
-    const since = v.since ? new Date(v.since + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
     const pct = (a, b) => (!b ? '' : !a ? '0%' : `${((a / b) * 100).toFixed(a / b < 0.1 ? 1 : 0)}%`);
-    return `<div class="stats" style="margin-top:22px">
-        <div class="stat"><small>Visitors today</small><b>${n(v.today.visitors)}</b><div class="muted" style="font-size:12.5px;margin-top:4px">${plural(v.today.views, 'page')} viewed</div></div>
-        <div class="stat"><small>Visitors, last 7 days</small><b>${n(v.week.visitors)}</b></div>
-        <div class="stat"><small>Visitors, last 30 days</small><b>${n(v.month.visitors)}</b></div>
-        <div class="stat"><small>Pages viewed, 30 days</small><b>${n(v.month.views)}</b></div>
-      </div>
-      <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Visitors · last 30 days</h3><span class="muted" style="font-size:13px">${since ? `Counting since ${since}. ` : ''}Your own visits aren't counted.</span></div>
-        ${v.month.visitors ? `<div class="chart">${days.map(d => `<div class="b" style="height:${(d.visitors / max) * 100}%" data-t="${d.d.slice(5)} · ${plural(d.visitors, 'visitor')} · ${plural(d.views, 'page')}"></div>`).join('')}</div>`
-          : '<p class="muted" style="padding:20px;margin:0">Visits will show up here as people open the store.</p>'}</div>
-      ${v.products.length || v.sources.length ? `<div class="row">
-        <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Most viewed products</h3><span class="muted" style="font-size:13px">30 days</span></div>
-          ${v.products.length ? `<table class="tbl"><tr><th>Product</th><th>Views</th><th>Orders</th><th title="Orders for every 100 views">Rate</th></tr>${v.products.map(p => `<tr><td>${esc(p.title)}</td><td>${n(p.views)}</td><td>${n(p.orders)}</td><td class="muted">${pct(p.orders, p.views)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No product pages viewed yet.</p>'}</div>
-        <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Where visitors come from</h3><span class="muted" style="font-size:13px">30 days</span></div>
-          ${v.sources.length ? `<table class="tbl">${v.sources.map(x => `<tr><td>${esc(x.source === 'Direct' ? 'Direct (typed, WhatsApp chats, apps)' : x.source)}</td><td style="text-align:right">${plural(x.visitors, 'visitor')}</td><td class="muted" style="text-align:right;width:1%">${pct(x.visitors, v.month.visitors)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">Sources will show up here.</p>'}</div>
-      </div>` : ''}`;
+    const since = v.since ? fmtDay(v.since) : '';
+    const one = v.productOnly;
+    const metric = one ? 'views' : 'visitors';
+    const ch = buckets(v.days, r.from, r.to, ['visitors', 'views']);
+    const max = Math.max(1, ...ch.list.map(d => d[metric]));
+    const nDays = Math.round((Date.parse(r.to) - Date.parse(r.from)) / 864e5) + 1;
+    const ordersIn = v.orders || 0;
+    const tiles = one
+      ? `<div class="stat"><small>Product page views</small><b>${n(v.total.views)}</b></div>
+        <div class="stat"><small>Views per day</small><b>${n(Math.round(v.total.views / nDays))}</b></div>
+        <div class="stat"><small>Orders</small><b>${n(ordersIn)}</b><div class="muted" style="font-size:12.5px;margin-top:4px">Paid and free, this period</div></div>
+        <div class="stat"><small title="Orders for every 100 product page views">Orders per view</small><b>${pct(ordersIn, v.total.views) || '–'}</b></div>`
+      : `<div class="stat"><small>Visitors</small><b>${n(v.total.visitors)}</b></div>
+        <div class="stat"><small>Pages viewed</small><b>${n(v.total.views)}</b></div>
+        <div class="stat"><small>Visitors per day</small><b>${n(Math.round(v.total.visitors / nDays))}</b></div>
+        <div class="stat"><small>Pages per visitor</small><b>${v.total.visitors ? (v.total.views / v.total.visitors).toFixed(1) : '–'}</b></div>`;
+    return `<div class="stats" style="margin-top:22px">${tiles}</div>
+      <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">${one ? 'Product page views' : 'Visitors'}${ch.byMonth ? ' · by month' : ''}</h3><span class="muted" style="font-size:13px">${since ? `Counting since ${since}. ` : ''}Your own visits aren't counted.</span></div>
+        ${v.total[metric] ? `<div class="chart">${ch.list.map(d => `<div class="b" style="height:${(d[metric] / max) * 100}%" data-t="${esc(d.label)} · ${one ? plural(d.views, 'view') : `${plural(d.visitors, 'visitor')} · ${plural(d.views, 'page')}`}"></div>`).join('')}</div>`
+          : `<p class="muted" style="padding:20px;margin:0">${one ? 'No views of this product page in this period.' : 'No visits in this period.'}</p>`}</div>
+      <div class="row">
+        <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">${one ? 'Views and orders' : 'Most viewed products'}</h3></div>
+          ${v.products.length ? `<table class="tbl"><tr><th>Product</th><th>Views</th><th>Orders</th><th title="Orders for every 100 views">Rate</th></tr>${v.products.map(p => `<tr><td>${esc(p.title)}</td><td>${n(p.views)}</td><td>${n(p.orders)}</td><td class="muted">${pct(p.orders, p.views)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No product pages viewed in this period.</p>'}</div>
+        <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Where visitors come from</h3>${one ? '<span class="muted" style="font-size:13px">Whole store</span>' : ''}</div>
+          ${v.sources.length ? `<table class="tbl">${v.sources.map(x => `<tr><td>${esc(x.source === 'Direct' ? 'Direct (typed, WhatsApp chats, apps)' : x.source)}</td><td style="text-align:right">${plural(x.visitors, 'visitor')}</td><td class="muted" style="text-align:right;width:1%">${pct(x.visitors, v.sourcesTotal)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No visitor sources in this period.</p>'}</div>
+      </div>`;
   }
 
   async function overview() {
-    const s = await api('/api/admin/stats');
-    const days = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
-      days.push({ d, ...(s.days.find(x => x.day === d) || { revenue: 0, sales: 0 }) });
-    }
-    const max = Math.max(1, ...days.map(d => d.revenue));
-    layout('', head('Overview', `<a class="btn btn-primary" href="#/admin/products/new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New product</a>`) + `
+    const r = periodRange(ovFilter);
+    const q = new URLSearchParams({ from: r.from, to: r.to });
+    if (ovFilter.product) q.set('product', ovFilter.product);
+    const s = await api(`/api/admin/stats?${q}`);
+    if (ovFilter.product && !s.range.product) { ovFilter.product = ''; saveFilter(); } // that product was deleted
+    const ch = buckets(s.days, s.range.from, s.range.to, ['revenue', 'sales']);
+    const max = Math.max(1, ...ch.list.map(d => d.revenue));
+    layout('', head('Overview', `<a class="btn btn-primary" href="#/admin/products/new">${I.plus.replace('<svg', '<svg width="14" height="14"')} New product</a>`) + filterBar(s) + `
       <div class="stats">
         <div class="stat"><small>Revenue</small><b>${money(s.revenue)}</b>${(s.otherCurrencies || []).map(c => `<div class="muted" style="font-size:12.5px;margin-top:4px">+ ${money(c.revenue, c.currency)} in ${c.currency.toUpperCase()}</div>`).join('')}</div>
         <div class="stat"><small>Paid sales</small><b>${s.sales}</b></div>
         <div class="stat"><small>Customers</small><b>${s.customers}</b></div>
         <div class="stat"><small>Free claims</small><b>${s.free}</b></div>
       </div>
-      <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Revenue · last 30 days</h3><span class="muted" style="font-size:13px">${s.live}/${s.products} products live</span></div>
-        <div class="chart">${days.map(d => `<div class="b" style="height:${(d.revenue / max) * 100}%" data-t="${d.d.slice(5)} · ${money(d.revenue)}"></div>`).join('')}</div></div>
-      ${visitsHtml(s.visits)}
+      <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Revenue${ch.byMonth ? ' · by month' : ''}</h3><span class="muted" style="font-size:13px">${s.live}/${s.products} products live</span></div>
+        ${s.revenue ? `<div class="chart">${ch.list.map(d => `<div class="b" style="height:${(d.revenue / max) * 100}%" data-t="${esc(d.label)} · ${money(d.revenue)} · ${plural(d.sales, 'sale')}"></div>`).join('')}</div>`
+          : '<p class="muted" style="padding:20px;margin:0">No paid sales in this period.</p>'}</div>
+      ${visitsHtml(s.visits, s.range)}
       <div class="row">
         <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Top products</h3></div>
-          ${s.top.length ? `<table class="tbl"><tr><th>Product</th><th>Sales</th><th>Revenue</th></tr>${s.top.map(t => `<tr><td>${esc(t.title)}</td><td>${t.sales}</td><td>${money(t.revenue)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No products yet.</p>'}</div>
+          ${s.top.length ? `<table class="tbl"><tr><th>Product</th><th>Sales</th><th>Revenue</th></tr>${s.top.map(t => `<tr><td>${esc(t.title)}</td><td>${t.sales}</td><td>${money(t.revenue)}</td></tr>`).join('')}</table>` : '<p class="muted" style="padding:20px;margin:0">No sales or downloads in this period.</p>'}</div>
         <div class="panel" style="padding:0"><div class="box-head"><h3 style="font-size:18px">Recent activity</h3><a class="btn btn-sm btn-ghost" href="#/admin/orders">All orders</a></div>
-          ${s.recent.length ? `<table class="tbl" id="recent">${s.recent.map((o, i) => `<tr${i >= RECENT_FIRST ? ' hidden' : ''}><td><div>${esc(o.name || o.email)}</div><small class="dim">${esc(o.title)}</small></td><td>${statusPill(o.status)}</td><td style="text-align:right">${o.amount_cents ? money(o.amount_cents, o.currency) : 'Free'}</td></tr>`).join('')}</table>
+          ${s.recent.length ? `<table class="tbl" id="recent">${s.recent.map((o, i) => `<tr${i >= RECENT_FIRST ? ' hidden' : ''}><td><div>${esc(o.name || o.email)}</div><small class="dim">${esc(o.title)} · ${date(o.created_at)}</small></td><td>${statusPill(o.status)}</td><td style="text-align:right">${o.amount_cents ? money(o.amount_cents, o.currency) : 'Free'}</td></tr>`).join('')}</table>
             ${s.recent.length > RECENT_FIRST ? `<div class="recent-more"><button type="button" class="btn btn-sm" id="recent-more"></button><button type="button" class="btn btn-sm btn-ghost" id="recent-less" hidden>Show less</button></div>` : ''}`
-            : '<p class="muted" style="padding:20px;margin:0">Sales will show up here.</p>'}</div>
+            : '<p class="muted" style="padding:20px;margin:0">No sales or downloads in this period.</p>'}</div>
       </div>`);
+    bindFilters();
     // Recent activity: the first few buyers, then more on request (10 at a time).
     const moreBtn = $('#recent-more'), lessBtn = $('#recent-less');
     if (moreBtn) {

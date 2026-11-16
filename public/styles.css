@@ -432,6 +432,14 @@ label.field > small { display: block; color: var(--dim); font-size: 12px; margin
 .admin-main { padding: 30px clamp(20px, 3vw, 44px) 80px; min-width: 0; }
 .admin-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 26px; flex-wrap: wrap; }
 .admin-head h1 { font-size: 36px; }
+.ov-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -8px 0 18px; }
+.ov-filters select.input { width: auto; min-width: 0; height: 38px; font-size: 13.5px; }
+.ov-filters #ov-product { max-width: 260px; }
+.ov-dates { display: inline-flex; align-items: center; gap: 8px; }
+.ov-dates[hidden] { display: none; }
+.ov-dates input.input { width: auto; height: 38px; font-size: 13.5px; color-scheme: dark; }
+.ov-label { font-size: 13px; }
+@media (max-width: 640px) { .ov-filters select.input, .ov-filters #ov-product { width: 100%; max-width: none; } .ov-dates { width: 100%; } .ov-dates input.input { flex: 1; } }
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
 .stat { padding: 18px 20px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
 .stat small { font: 500 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
