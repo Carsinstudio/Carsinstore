@@ -113,6 +113,7 @@ const DEFAULT_SETTINGS = {
   tagline: 'Videos, templates and tools, built to help you ship.',
   announcement: 'New drops every month, plus free resources inside the store.',
   announcement_tag: 'NEW',        // short label in front of the announcement; empty hides the label
+  announcement_style: 'standard', // 'standard' | 'promo' (full-width brand colour with a flashing label, for sales)
   hero_eyebrow: 'Digital Products',
   hero_title: 'Learn the craft,|Built to Work.',
   hero_sub: 'Videos, templates, guides and toolkits, paid and free, ready to download the moment you check out.',

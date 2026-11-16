@@ -89,6 +89,20 @@ h3 { font-size: 22px; }
 }
 .announce .tag { font: 500 11px var(--mono); background: #2a2a2a; border: 1px solid var(--line-2); padding: 3px 7px; border-radius: 6px; letter-spacing: .05em; white-space: nowrap; text-transform: uppercase; }
 .announce a { color: var(--accent-2); font-weight: 500; }
+/* Sale style: a full-width strip in the brand colour, with the label flashing to catch the eye. */
+.announce-wrap.promo { padding: 0; }
+.promo .announce {
+  max-width: none; border: 0; border-radius: 0; padding: 11px 16px; gap: 12px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent)); background-size: 200% 100%;
+  animation: promo-sheen 6s linear infinite; color: #fff; font-size: 14.5px; font-weight: 500;
+  box-shadow: 0 6px 24px rgba(229,87,61,.35); backdrop-filter: none;
+}
+.promo .announce .tag { background: #080808; color: #fff; border: 0; font-size: 12px; font-weight: 600; padding: 5px 10px; letter-spacing: .12em; animation: promo-flash 1.1s steps(1) infinite; }
+.promo .announce a { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+@keyframes promo-flash { 0%, 100% { background: #080808; color: #fff; } 50% { background: #fff; color: var(--accent); } }
+@keyframes promo-sheen { from { background-position: 0% 0; } to { background-position: 200% 0; } }
+@media (prefers-reduced-motion: reduce) { .promo .announce, .promo .announce .tag { animation: none; } }
+@media (max-width: 640px) { .promo .announce { font-size: 13px; padding: 9px 12px; gap: 8px; } }
 .nav { position: sticky; top: 0; z-index: 40; transition: background .3s, border-color .3s, backdrop-filter .3s; border-bottom: 1px solid transparent; }
 .nav.scrolled { background: rgba(8,8,8,.72); backdrop-filter: blur(16px) saturate(1.4); border-color: var(--line); }
 .nav-inner { max-width: var(--max); margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 24px; }
