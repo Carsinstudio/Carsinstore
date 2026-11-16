@@ -87,7 +87,7 @@ h3 { font-size: 22px; }
   padding: 9px 14px; border-radius: 12px; background: rgba(20,20,20,.75); border: 1px solid var(--line); font-size: 13.5px; color: #dcd8d2;
   backdrop-filter: blur(12px); text-align: center;
 }
-.announce .tag { font: 500 11px var(--mono); background: #2a2a2a; border: 1px solid var(--line-2); padding: 3px 7px; border-radius: 6px; letter-spacing: .05em; }
+.announce .tag { font: 500 11px var(--mono); background: #2a2a2a; border: 1px solid var(--line-2); padding: 3px 7px; border-radius: 6px; letter-spacing: .05em; white-space: nowrap; text-transform: uppercase; }
 .announce a { color: var(--accent-2); font-weight: 500; }
 .nav { position: sticky; top: 0; z-index: 40; transition: background .3s, border-color .3s, backdrop-filter .3s; border-bottom: 1px solid transparent; }
 .nav.scrolled { background: rgba(8,8,8,.72); backdrop-filter: blur(16px) saturate(1.4); border-color: var(--line); }

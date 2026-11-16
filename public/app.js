@@ -233,7 +233,7 @@
     const s = S.store.settings, u = S.store.user;
     const cats = S.store.categories.filter(c => c.count > 0);
     return `
-    ${s.announcement ? `<div class="announce-wrap"><div class="announce"><span class="tag">NEW</span><span>${esc(s.announcement)}</span><a href="#/shop">Browse the store ${I.arrow}</a></div></div>` : ''}
+    ${s.announcement ? `<div class="announce-wrap"><div class="announce">${s.announcement_tag ? `<span class="tag">${esc(s.announcement_tag)}</span>` : ''}<span>${esc(s.announcement)}</span><a href="#/shop">Browse the store ${I.arrow}</a></div></div>` : ''}
     <header class="nav" id="nav"><div class="nav-inner">
       <a class="brand" href="#/"><img class="brand-logo" src="/brand/logo-horizontal.svg" alt="${esc(s.store_name)}"></a>
       <nav class="nav-links" id="nav-links">
