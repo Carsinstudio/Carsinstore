@@ -1914,6 +1914,12 @@ app.get('/', (_req, res) => sendHome(res));
 for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find']) app.get(`/${page}`, (_req, res) => sendHome(res));
 
 // Covers are only ever pictures or videos: opened directly, they can't run anything.
+// TikTok proves we own the picture links it pulls from with a small text file at the start of the link (set in Railway).
+app.get('/media/:file', (req, res, next) => {
+  const name = process.env.TIKTOK_VERIFY_FILE, body = process.env.TIKTOK_VERIFY_CONTENT;
+  if (!name || req.params.file !== name) return next();
+  res.type('text/plain').send(body || '');
+});
 app.use('/media/social', express.static(path.join(DATA_DIR, 'social-cards'), { maxAge: '30d' }));
 app.use('/media/covers', express.static(COVERS_DIR, { maxAge: '7d', setHeaders: res => res.setHeader('Content-Security-Policy', SANDBOX + "; media-src 'self'") }));
 app.use(['/media', '/api'], (_req, res) => res.status(404).json({ error: 'Not found.' })); // never fall through to the store page

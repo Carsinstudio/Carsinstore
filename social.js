@@ -10,6 +10,8 @@
 //   LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET
 //   X_CLIENT_ID, X_CLIENT_SECRET
 //   PINTEREST_APP_ID, PINTEREST_APP_SECRET
+//   TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET (+ TIKTOK_VERIFY_FILE / TIKTOK_VERIFY_CONTENT for TikTok's link check)
+// TikTok gets photo posts: the post's card or product cover, with the Instagram caption minus hashtags.
 // Besides the morning product post there is an evening post each day: a research question for one of the store's
 // audiences (what frustrates them, what they repeat, what they'd pay to simplify) or a useful tip / short how-to
 // taken from a product, as a teaser for the full product.
@@ -20,9 +22,9 @@ const fs = require('fs');
 const path = require('path');
 const { renderCard } = require('./cards');
 
-const PLATFORMS = ['x', 'linkedin', 'facebook', 'instagram', 'pinterest'];
-const NAMES = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest' };
-const STAGGER = { x: 0, linkedin: 10, facebook: 20, instagram: 30, pinterest: 40 }; // minutes after the posting hour
+const PLATFORMS = ['x', 'linkedin', 'facebook', 'instagram', 'pinterest', 'tiktok'];
+const NAMES = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest', tiktok: 'TikTok' };
+const STAGGER = { x: 0, linkedin: 10, facebook: 20, instagram: 30, pinterest: 40, tiktok: 50 }; // minutes after the posting hour
 const FEATURED = 'Grab it from the Featured section on my profile.';
 const AUDIENCES = ['freelancers', 'job seekers', 'graphic designers and creatives', 'small business owners', 'content creators', 'parents and teachers'];
 const GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || 'v23.0'}`;
@@ -36,7 +38,9 @@ const configured = {
   linkedin: () => !!(env('LINKEDIN_CLIENT_ID') && env('LINKEDIN_CLIENT_SECRET')),
   x: () => !!(env('X_CLIENT_ID') && env('X_CLIENT_SECRET')),
   pinterest: () => !!(env('PINTEREST_APP_ID') && env('PINTEREST_APP_SECRET')),
+  tiktok: () => !!(env('TIKTOK_CLIENT_KEY') && env('TIKTOK_CLIENT_SECRET')),
 };
+const TT_API = 'https://open.tiktokapis.com/v2';
 // X counts every link as 23 characters, however long it is.
 const xLength = t => String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length;
 const sqlTime = d => d.toISOString().slice(0, 19).replace('T', ' ');
@@ -88,7 +92,12 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       if (!configured.x()) return bad(res, 'Add X_CLIENT_ID and X_CLIENT_SECRET in Railway first.');
       const { verifier, challenge } = pkce();
       run('INSERT INTO social_oauth (state, platform, verifier) VALUES (?, ?, ?)', state, p, verifier);
-      return res.json({ url: `https://x.com/i/oauth2/authorize?${form({ response_type: 'code', client_id: env('X_CLIENT_ID'), redirect_uri: redirectUri('x'), scope: 'tweet.read tweet.write users.read offline.access', state, code_challenge: challenge, code_challenge_method: 'S256' })}` });
+      return res.json({ url: `https://x.com/i/oauth2/authorize?${form({ response_type: 'code', client_id: env('X_CLIENT_ID'), redirect_uri: redirectUri('x'), scope: 'tweet.read tweet.write users.read media.write offline.access', state, code_challenge: challenge, code_challenge_method: 'S256' })}` });
+    }
+    if (p === 'tiktok') {
+      if (!configured.tiktok()) return bad(res, 'Add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in Railway first.');
+      run('INSERT INTO social_oauth (state, platform) VALUES (?, ?)', state, p);
+      return res.json({ url: `https://www.tiktok.com/v2/auth/authorize/?${form({ client_key: env('TIKTOK_CLIENT_KEY'), redirect_uri: redirectUri('tiktok'), response_type: 'code', scope: 'user.info.basic,video.publish', state })}` });
     }
     if (p === 'pinterest') {
       if (!configured.pinterest()) return bad(res, 'Add PINTEREST_APP_ID and PINTEREST_APP_SECRET in Railway first.');
@@ -113,6 +122,7 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       else if (p === 'linkedin') await connectLinkedIn(code);
       else if (p === 'x') await connectX(code, st.verifier);
       else if (p === 'pinterest') await connectPinterest(code);
+      else if (p === 'tiktok') await connectTikTok(code);
       else return back('error=Unknown%20platform');
       back('connected=' + p);
     } catch (e) {
@@ -200,6 +210,29 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
     return { ...a, data };
   }
 
+  // TikTok: tokens last a day and refresh for a year.
+  async function ttTokenRequest(params, what) {
+    const r = (await http(`${TT_API}/oauth/token/`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form({ client_key: env('TIKTOK_CLIENT_KEY'), client_secret: env('TIKTOK_CLIENT_SECRET'), ...params }) }, what)).data;
+    if (r.error && r.error !== 'ok') throw new Error(`${what} failed: ${r.error_description || r.error}`);
+    return r;
+  }
+  async function connectTikTok(code) {
+    const tok = await ttTokenRequest({ code, grant_type: 'authorization_code', redirect_uri: redirectUri('tiktok') }, 'TikTok sign-in');
+    const me = (await http(`${TT_API}/user/info/?fields=open_id,display_name`, { headers: { Authorization: `Bearer ${tok.access_token}` } }, 'TikTok profile')).data.data?.user || {};
+    saveAccount('tiktok', { token: tok.access_token, refresh: tok.refresh_token, open_id: tok.open_id }, me.display_name || 'TikTok',
+      sqlTime(new Date(Date.now() + (Number(tok.expires_in) || 86400) * 1000)));
+  }
+  async function tiktokToken() {
+    const a = account('tiktok');
+    if (!a) throw new Error('TikTok is not connected.');
+    if (a.expires_at && fromSql(a.expires_at) > new Date(Date.now() + 600e3)) return a;
+    const tok = await ttTokenRequest({ grant_type: 'refresh_token', refresh_token: a.data.refresh }, 'TikTok token refresh');
+    const data = { ...a.data, token: tok.access_token, refresh: tok.refresh_token || a.data.refresh };
+    saveAccount('tiktok', data, a.name, sqlTime(new Date(Date.now() + (Number(tok.expires_in) || 86400) * 1000)));
+    return { ...a, data };
+  }
+
   admin.delete('/social/accounts/:platform', (req, res) => {
     const p = req.params.platform;
     if (p === 'facebook' || p === 'meta') run("DELETE FROM social_accounts WHERE platform IN ('facebook', 'instagram')");
@@ -213,8 +246,40 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
   async function publish(post) {
     if (post.platform === 'x') {
       const a = await xToken();
-      const r = (await http('https://api.x.com/2/tweets', { method: 'POST', headers: { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: post.text }) }, 'X post')).data;
+      // Attach the picture when there is one. Needs the media.write permission (reconnect X once to grant it);
+      // without it the post still goes out as text.
+      let media = null;
+      if (post.image_url) {
+        try {
+          const img = await fetch(post.image_url);
+          if (img.ok) {
+            const fd = new FormData();
+            fd.append('media', new Blob([Buffer.from(await img.arrayBuffer())], { type: img.headers.get('content-type') || 'image/jpeg' }), 'image.jpg');
+            fd.append('media_category', 'tweet_image');
+            const up = (await http('https://api.x.com/2/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${a.data.token}` }, body: fd }, 'X image upload')).data;
+            media = up.data?.id || up.media_id_string || null;
+          }
+        } catch (e) { console.error('X image upload skipped:', e.message); }
+      }
+      const r = (await http('https://api.x.com/2/tweets', { method: 'POST', headers: { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: post.text, ...(media ? { media: { media_ids: [String(media)] } } : {}) }) }, 'X post')).data;
       return `https://x.com/${a.data.username}/status/${r.data.id}`;
+    }
+    if (post.platform === 'tiktok') {
+      const a = await tiktokToken();
+      if (!post.image_url) throw new Error('TikTok photo posts need a picture.');
+      const h = { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json; charset=UTF-8' };
+      // Until TikTok approves the app, only private (SELF_ONLY) posts are allowed: use the most public level offered.
+      const info = (await http(`${TT_API}/post/publish/creator_info/query/`, { method: 'POST', headers: h, body: '{}' }, 'TikTok account check')).data.data || {};
+      const levels = info.privacy_level_options || ['SELF_ONLY'];
+      const privacy = ['PUBLIC_TO_EVERYONE', 'MUTUAL_FOLLOW_FRIENDS', 'FOLLOWER_OF_CREATOR', 'SELF_ONLY'].find(l => levels.includes(l)) || levels[0];
+      const r = (await http(`${TT_API}/post/publish/content/init/`, { method: 'POST', headers: h, body: JSON.stringify({
+        post_info: { title: String(post.title || '').slice(0, 90), description: String(post.text).slice(0, 4000), privacy_level: privacy, disable_comment: false, auto_add_music: true },
+        source_info: { source: 'PULL_FROM_URL', photo_cover_index: 0, photo_images: [post.image_url] },
+        post_mode: 'DIRECT_POST', media_type: 'PHOTO',
+      }) }, 'TikTok post')).data;
+      if (r.error && r.error.code && r.error.code !== 'ok') throw new Error(`TikTok post failed: ${r.error.message || r.error.code}`);
+      return `https://www.tiktok.com/${privacy === 'SELF_ONLY' ? '?private_post=' : '?post='}${r.data?.publish_id || ''}`;
     }
     if (post.platform === 'pinterest') {
       const a = await pinterestToken();
@@ -372,11 +437,15 @@ Rules, because these posts must never mislead anyone:
     const text = res.content.filter(b => b.type === 'text').map(b => b.text).join('');
     return JSON.parse(text).posts;
   }
-  const fitX = (text, link) => {
-    const room = 280 - 24; // a link always counts as 23 characters, plus a space
-    let t = String(text).trim();
+  // X posts carry no visible link: link previews don't always show, so product and tip posts end with
+  // "Link in bio" and go out with the picture attached instead.
+  const BIO = 'Link in bio.';
+  const fitX = text => {
+    let t = String(text).replace(/\s*https?:\/\/\S+/g, '').trim();
+    if (/link in bio/i.test(t)) return t.slice(0, 280);
+    const room = 280 - BIO.length - 2;
     if (t.length > room) t = t.slice(0, room - 1).replace(/\s+\S*$/, '') + '…';
-    return `${t} ${link}`;
+    return `${t}\n\n${BIO}`;
   };
   // Hashtags only on Instagram: removed from every other platform's text, whatever the writer returns.
   const stripTags = s => String(s)
@@ -391,8 +460,9 @@ Rules, because these posts must never mislead anyone:
   function finalText(platform, text, p) {
     const t = platform === 'instagram' ? String(text || '').trim() : stripTags(text || '');
     if (!p) return platform === 'x' ? t.slice(0, 280) : t;
-    if (platform === 'x') return fitX(t, productUrl(p, 'x'));
+    if (platform === 'x') return fitX(t);
     if (platform === 'instagram') return t.slice(0, 2150);
+    if (platform === 'tiktok') return t.slice(0, 2200);
     if (platform === 'pinterest') return t.slice(0, 500);
     if (platform === 'linkedin') return /featured/i.test(t) ? t : `${t}\n\n${FEATURED}`;
     return `${t}\n\n👉 ${productUrl(p, platform)}`;
@@ -400,6 +470,16 @@ Rules, because these posts must never mislead anyone:
   for (const post of all("SELECT id, text FROM social_posts WHERE platform != 'instagram' AND status IN ('draft', 'approved', 'failed') AND text LIKE '%#%'")) {
     const clean = stripTags(post.text);
     if (clean !== post.text) run('UPDATE social_posts SET text = ? WHERE id = ?', clean, post.id);
+  }
+  // Older X drafts carried the product link; switch them to "Link in bio".
+  for (const post of all("SELECT id, text FROM social_posts WHERE platform = 'x' AND status IN ('draft', 'approved', 'failed') AND text LIKE '%http%'")) {
+    run('UPDATE social_posts SET text = ? WHERE id = ?', fitX(post.text), post.id);
+  }
+  // X evening drafts made before X got pictures: give them the same card as that evening's LinkedIn post.
+  for (const post of all(`SELECT x.id, (SELECT l.image_url FROM social_posts l WHERE l.slot = 'evening' AND l.platform = 'linkedin'
+      AND substr(l.scheduled_at, 1, 10) = substr(x.scheduled_at, 1, 10) AND l.image_url LIKE '%/media/social/%' LIMIT 1) AS card
+      FROM social_posts x WHERE x.platform = 'x' AND x.slot = 'evening' AND x.status IN ('draft', 'approved') AND (x.image_url IS NULL OR x.image_url NOT LIKE '%/media/social/%')`)) {
+    if (post.card) run('UPDATE social_posts SET image_url = ? WHERE id = ?', post.card, post.id);
   }
   // Older LinkedIn drafts carried the product link; switch them to the Featured section line.
   for (const post of all("SELECT id, text FROM social_posts WHERE platform = 'linkedin' AND status IN ('draft', 'approved') AND text LIKE '%👉 http%'")) {
@@ -491,7 +571,8 @@ Rules: no invented results, numbers, reviews or statistics; no promises of jobs,
     const platforms = activePlatforms(s);
     const days = all(`SELECT substr(scheduled_at, 1, 10) AS day, MAX(kind) AS kind, MAX(product_id) AS product_id FROM social_posts
       WHERE slot = 'evening' AND status IN ('draft', 'approved') AND scheduled_at > datetime('now', '+10 minutes') GROUP BY day ORDER BY day`)
-      .filter(d => !one(`SELECT 1 FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND image_url LIKE '%/media/social/%'`, d.day));
+      .filter(d => !one(`SELECT 1 FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND image_url LIKE '%/media/social/%'`, d.day)
+        || (platforms.includes('tiktok') && !one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND platform = 'tiktok' AND substr(scheduled_at, 1, 10) = ?", d.day)));
     if (!days.length) return 0;
     const brief = days.map((d, i) => {
       const x = one("SELECT text FROM social_posts WHERE slot = 'evening' AND platform IN ('linkedin', 'x', 'facebook') AND substr(scheduled_at, 1, 10) = ? ORDER BY platform = 'linkedin' DESC LIMIT 1", d.day);
@@ -513,8 +594,15 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       const audience = d.kind === 'question' ? (AUDIENCES.find(a => brief[e.day - 1].existing_post.toLowerCase().includes(a.split(' ')[0])) || 'you') : null;
       const cards = await makeCards({ date: d.day, kind: d.kind, audience }, e, p, platforms);
       if (!cards.square) continue;
-      changed += Number(run(`UPDATE social_posts SET image_url = ? WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND platform IN ('linkedin', 'facebook', 'instagram') AND status IN ('draft', 'approved')`, cards.square, d.day).changes);
+      changed += Number(run(`UPDATE social_posts SET image_url = ? WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND platform IN ('x', 'linkedin', 'facebook', 'instagram') AND status IN ('draft', 'approved')`, cards.square, d.day).changes);
       if (cards.tall) run(`UPDATE social_posts SET image_url = ? WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND platform = 'pinterest' AND status IN ('draft', 'approved')`, cards.tall, d.day);
+      const hasTt = one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND platform = 'tiktok' AND substr(scheduled_at, 1, 10) = ?", d.day);
+      if (platforms.includes('tiktok') && !hasTt && String(e.instagram || '').trim()) {
+        const hour = Math.min(Math.max(Number(s.social_evening_hour) || 19, 0), 23);
+        run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES ('tiktok', ?, ?, ?, ?, ?, ?, 'evening', ?)`,
+          p?.id ?? null, finalText('tiktok', e.instagram, p), String(e.card_title || '').slice(0, 90), cards.square, p ? productUrl(p, 'tiktok') : null, sqlTime(atHour(d.day, hour, 'tiktok')), d.kind);
+        changed++;
+      }
       const hasIg = one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND platform = 'instagram' AND substr(scheduled_at, 1, 10) = ?", d.day);
       if (platforms.includes('instagram') && !hasIg && String(e.instagram || '').trim()) {
         const hour = Math.min(Math.max(Number(s.social_evening_hour) || 19, 0), 23);
@@ -563,14 +651,15 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       const d = plan[e.day - 1]; if (!d) continue;
       const p = d.kind === 'tip' ? d.tip : null;
       const cards = await makeCards(d, e, p, platforms).catch(err => { console.error('Card failed:', err.message); return {}; });
+      e.tiktok = e.instagram;
       for (const platform of platforms) {
         const text = String(e[platform] || '').trim();
         if (!text) continue;
         if (d.kind === 'question' && platform === 'pinterest') continue;
-        if (platform === 'instagram' && !cards.square && !p) continue; // Instagram needs a picture
-        const image = platform === 'pinterest' ? (cards.tall || (p && imageFor(p, s))) : platform === 'x' ? (p ? imageFor(p, s) : null) : (cards.square || (p ? imageFor(p, s) : null));
+        if (['instagram', 'tiktok'].includes(platform) && !cards.square && !p) continue; // these need a picture
+        const image = platform === 'pinterest' ? (cards.tall || (p && imageFor(p, s))) : (cards.square || (p ? imageFor(p, s) : null));
         run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'evening', ?)`,
-          platform, p?.id ?? null, finalText(platform, text, p), platform === 'pinterest' ? String(e.pinterest_title || p?.title || '').slice(0, 100) : null,
+          platform, p?.id ?? null, finalText(platform, text, p), platform === 'pinterest' ? String(e.pinterest_title || p?.title || '').slice(0, 100) : platform === 'tiktok' ? String(e.card_title || p?.title || '').slice(0, 90) : null,
           image, p ? productUrl(p, platform) : null, sqlTime(atHour(d.date, hour, platform)), d.kind);
         created++;
       }
@@ -606,10 +695,11 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       for (const d of posts) {
         const day = days[d.day - 1]; if (!day) continue;
         for (const platform of platforms) {
+          if (platform === 'tiktok') d.tiktok = d.instagram;
           if (!String(d[platform] || '').trim()) continue;
           const at = new Date(day.date); at.setUTCHours(hour - 1, STAGGER[platform], 0, 0); // WAT is UTC+1
           run("INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'morning', 'product')",
-            platform, day.product.id, finalText(platform, d[platform], day.product), platform === 'pinterest' ? String(d.pinterest_title || day.product.title).slice(0, 100) : null,
+            platform, day.product.id, finalText(platform, d[platform], day.product), platform === 'pinterest' ? String(d.pinterest_title || day.product.title).slice(0, 100) : platform === 'tiktok' ? day.product.title.slice(0, 90) : null,
             imageFor(day.product, s), productUrl(day.product, platform), sqlTime(at));
           created++;
         }
@@ -649,8 +739,8 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
         ...(a.platform === 'facebook' ? { page_id: d.page_id, pages: (d.pages || []).map(p => ({ id: p.id, name: p.name, ig: p.ig?.username || null })) } : {}) }];
     }));
     res.json({
-      ready: { ai: configured.ai(), meta: configured.meta(), linkedin: configured.linkedin(), x: configured.x(), pinterest: configured.pinterest(), email: mailer.enabled },
-      redirects: { meta: redirectUri('meta'), linkedin: redirectUri('linkedin'), x: redirectUri('x'), pinterest: redirectUri('pinterest') },
+      ready: { ai: configured.ai(), meta: configured.meta(), linkedin: configured.linkedin(), x: configured.x(), pinterest: configured.pinterest(), tiktok: configured.tiktok(), email: mailer.enabled },
+      redirects: { meta: redirectUri('meta'), linkedin: redirectUri('linkedin'), x: redirectUri('x'), pinterest: redirectUri('pinterest'), tiktok: redirectUri('tiktok') },
       accounts,
       settings: { social_enabled: s.social_enabled, social_hour: s.social_hour, social_platforms: s.social_platforms, social_voice: s.social_voice,
         social_evening: s.social_evening, social_evening_hour: s.social_evening_hour },
