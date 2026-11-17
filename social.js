@@ -677,6 +677,38 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
     return created;
   }
 
+  // Morning posts written before an account was connected: write that platform's post for the same product, for
+  // today and every upcoming day. A time that has already passed today moves to 30 minutes from now (as a draft).
+  async function fillMornings() {
+    const s = getSettings();
+    const platforms = activePlatforms(s).filter(p => p !== 'pinterest'); // morning pins come with the evening posts
+    const hour = Math.min(Math.max(Number(s.social_hour) || 10, 0), 23);
+    const today = new Date().toISOString().slice(0, 10);
+    const days = all(`SELECT substr(scheduled_at, 1, 10) AS day, MIN(product_id) AS product_id FROM social_posts
+      WHERE slot = 'morning' AND product_id IS NOT NULL AND status IN ('draft', 'approved', 'posted') AND substr(scheduled_at, 1, 10) >= ? GROUP BY day ORDER BY day`, today)
+      .map(d => ({ ...d, missing: platforms.filter(p => !one("SELECT 1 FROM social_posts WHERE slot = 'morning' AND platform = ? AND substr(scheduled_at, 1, 10) = ?", p, d.day)) }))
+      .filter(d => d.missing.length)
+      .map(d => ({ ...d, product: one('SELECT * FROM products WHERE id = ?', d.product_id), date: new Date(d.day + 'T00:00:00Z') }))
+      .filter(d => d.product);
+    if (!days.length) return 0;
+    const posts = await writePosts(days, s);
+    let created = 0;
+    for (const e of posts) {
+      const d = days[e.day - 1]; if (!d) continue;
+      e.tiktok = e.instagram;
+      for (const platform of d.missing) {
+        if (!String(e[platform] || '').trim()) continue;
+        let at = atHour(d.day, hour, platform);
+        if (at < new Date(Date.now() + 10 * 60e3)) at = new Date(Date.now() + 30 * 60e3);
+        run("INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'morning', 'product')",
+          platform, d.product.id, finalText(platform, e[platform], d.product), platform === 'tiktok' ? d.product.title.slice(0, 90) : null,
+          imageFor(d.product, s), productUrl(d.product, platform), sqlTime(at));
+        created++;
+      }
+    }
+    return created;
+  }
+
   let generating = false;
   async function generateWeek({ force = false } = {}) {
     const s = getSettings();
@@ -729,6 +761,7 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       generating = true;
       try {
         const n = await fillEvenings(); if (n) console.log(`Social: wrote ${n} evening posts`);
+        const m = await fillMornings(); if (m) console.log(`Social: wrote ${m} morning posts for newly connected accounts`);
         const c = await cardify(); if (c) console.log(`Social: added cards to ${c} posts`);
       } finally { generating = false; }
     }
@@ -785,7 +818,7 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       if (generating) throw new Error('Already writing posts. Give it a minute.');
       generating = true;
       let evenings = 0;
-      try { evenings = await fillEvenings(); } finally { generating = false; }
+      try { evenings = await fillEvenings(); evenings += await fillMornings(); } finally { generating = false; }
       if (evenings) return res.json({ created: evenings, evenings: true });
       res.json(await generateWeek({ force: true }));
     } catch (e) { bad(res, e.message); }
