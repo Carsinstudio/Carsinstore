@@ -1070,6 +1070,10 @@ const SOURCES = [
   [/(^|\.)(tiktok\.com)$/, 'TikTok'], [/(^|\.)(t\.co|twitter\.com|x\.com)$/, 'X'], [/(^|\.)(linkedin\.com|lnkd\.in)$/, 'LinkedIn'],
   [/(^|\.)(youtube\.com|youtu\.be)$/, 'YouTube'], [/(^|\.)google\.[a-z.]+$/, 'Google'], [/(^|\.)bing\.com$/, 'Bing'],
   [/(^|\.)(pinterest\.[a-z.]+|pin\.it)$/, 'Pinterest'], [/(^|\.)(gumroad\.com)$/, 'Gumroad'],
+  // Android apps send their package name (android-app://com.linkedin.android/) instead of a website.
+  [/^com\.linkedin\./, 'LinkedIn'], [/^com\.instagram\./, 'Instagram'], [/^com\.facebook\./, 'Facebook'], [/^com\.whatsapp/, 'WhatsApp'],
+  [/^(com\.zhiliaoapp\.musically|com\.ss\.android\.ugc)/, 'TikTok'], [/^com\.twitter\./, 'X'], [/^com\.pinterest/, 'Pinterest'],
+  [/^com\.google\.android\.gm$/, 'Email'], [/^com\.google\.android\.(googlequicksearchbox|apps\.searchlite)$/, 'Google'],
 ];
 function visitSource(ref, utm) {
   const u = String(utm || '').trim().toLowerCase().replace(/[^a-z0-9 ._-]/g, '').slice(0, 30);
