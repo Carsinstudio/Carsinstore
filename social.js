@@ -61,7 +61,8 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
     const text = await res.text();
     let data = {}; try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text.slice(0, 300) }; }
     if (!res.ok) {
-      const msg = data.error?.message || data.error_description || data.detail || data.message || data.title || (typeof data.error === 'string' ? data.error : '') || data.raw || res.statusText;
+      const code = data.error?.code && data.error.code !== 'ok' ? ` [${data.error.code}]` : '';
+      const msg = (data.error?.message ? data.error.message + code : '') || data.error_description || data.detail || data.message || data.title || (typeof data.error === 'string' ? data.error : '') || data.raw || res.statusText;
       throw new Error(`${what} failed (${res.status}): ${msg}`);
     }
     return { data, res };
@@ -269,10 +270,13 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       const a = await tiktokToken();
       if (!post.image_url) throw new Error('TikTok photo posts need a picture.');
       const h = { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json; charset=UTF-8' };
-      // Until TikTok approves the app, only private (SELF_ONLY) posts are allowed: use the most public level offered.
+      // Until TikTok approves the app (then set TIKTOK_APPROVED=1), only private (SELF_ONLY) posts are allowed.
+      // After approval, use the most public level the account offers.
       const info = (await http(`${TT_API}/post/publish/creator_info/query/`, { method: 'POST', headers: h, body: '{}' }, 'TikTok account check')).data.data || {};
       const levels = info.privacy_level_options || ['SELF_ONLY'];
-      const privacy = ['PUBLIC_TO_EVERYONE', 'MUTUAL_FOLLOW_FRIENDS', 'FOLLOWER_OF_CREATOR', 'SELF_ONLY'].find(l => levels.includes(l)) || levels[0];
+      const privacy = env('TIKTOK_APPROVED') === '1'
+        ? ['PUBLIC_TO_EVERYONE', 'MUTUAL_FOLLOW_FRIENDS', 'FOLLOWER_OF_CREATOR', 'SELF_ONLY'].find(l => levels.includes(l)) || levels[0]
+        : 'SELF_ONLY';
       const r = (await http(`${TT_API}/post/publish/content/init/`, { method: 'POST', headers: h, body: JSON.stringify({
         post_info: { title: String(post.title || '').slice(0, 90), description: String(post.text).slice(0, 4000), privacy_level: privacy, disable_comment: false, auto_add_music: true },
         source_info: { source: 'PULL_FROM_URL', photo_cover_index: 0, photo_images: [post.image_url] },
