@@ -325,6 +325,12 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
   }
 
   async function publish(post) {
+    // Product pictures: use the product's main cover as it is now, so a cover replaced after the post was written
+    // (e.g. with a sharper one) is what goes out.
+    if (post.product_id && /\/media\/covers\//.test(post.image_url || '')) {
+      const p = one('SELECT * FROM products WHERE id = ?', post.product_id);
+      if (p) post = { ...post, image_url: imageFor(p, getSettings()) };
+    }
     post = { ...post, image_url: await hqImage(post.image_url).catch(e => { console.error('HQ image failed:', e.message); return post.image_url; }) };
     // Video days: post the product's short video; if it can't be made, the picture goes out as usual.
     if (post.media === 'reel' && REEL_PLATFORMS.includes(post.platform) && post.product_id) {
