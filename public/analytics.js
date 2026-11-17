@@ -66,6 +66,14 @@
     try {
       const q = new URLSearchParams(location.search || (location.hash.split('?')[1] || ''));
       const body = { path: path.replace(/(#\/(download|d)\/)[^/?#]+/, '$1x').slice(0, 200), ref: firstPing ? document.referrer.slice(0, 300) : '', utm: firstPing ? (q.get('utm_source') || '').slice(0, 30) : '' };
+      // Remember where this visitor first came from (for 30 days, on this device only) so a later purchase can be
+      // credited to it in the weekly results email. Visits from inside the store don't replace it.
+      if (firstPing && (body.utm || (body.ref && !body.ref.startsWith(location.origin)))) {
+        try {
+          const had = JSON.parse(localStorage.getItem('cs_src') || 'null');
+          if (!had || Date.now() - had.at > 30 * 864e5) localStorage.setItem('cs_src', JSON.stringify({ ref: body.ref, utm: body.utm, at: Date.now() }));
+        } catch {}
+      }
       firstPing = false;
       fetch('/api/visit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true, credentials: 'same-origin' }).catch(() => {});
     } catch {}

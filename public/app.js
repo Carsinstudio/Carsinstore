@@ -445,6 +445,52 @@
     setTab(0);
   }
 
+  // Link-in-bio page (carsin.store/links): where "Link in bio" on Instagram, TikTok and X sends people.
+  // A free product to grab with just a name and email (which also adds them to the email list), then the
+  // products from the latest posts, then the whole store.
+  async function linksPage() {
+    const s = S.store.settings;
+    const d = await api('/api/links');
+    const lead = d.free[0];
+    const saved = (() => { try { return JSON.parse(localStorage.getItem('cs_buyer') || 'null') || {}; } catch { return {}; } })();
+    shell(`<div class="page-top"><div class="aurora"><i></i></div><div class="wrap" style="position:relative;max-width:760px;text-align:center">
+        <img src="/brand/logo-mark.svg" alt="" style="width:64px;height:auto;margin:0 auto 14px;display:block">
+        <h1 style="margin-bottom:8px">${esc(s.store_name)}</h1><p style="margin:0 auto">${esc(s.tagline || 'Templates, guides and courses, built to help you ship.')}</p></div></div>
+      <div class="wrap page" style="padding-top:6px;max-width:760px">
+        ${lead ? `<section class="panel" style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;padding:20px;margin-bottom:26px">
+          <a href="#/p/${esc(lead.slug)}" style="flex:0 0 140px;max-width:140px;border-radius:12px;overflow:hidden;display:block;aspect-ratio:1">${coverHtml(lead)}</a>
+          <div style="flex:1 1 280px;min-width:0">
+            <span class="badge free">Free download</span>
+            <h2 style="font-size:22px;margin:10px 0 6px">${esc(lead.title)}</h2>
+            <p class="muted" style="font-size:14px;margin:0 0 14px">${esc(lead.subtitle || '')}</p>
+            <form id="lead-form" class="buy-form" novalidate style="gap:10px">
+              <div class="row" style="gap:10px"><input class="input" name="name" placeholder="Your name" autocomplete="name" required value="${esc(saved.name || '')}">
+              <input class="input" name="email" type="email" placeholder="Your email" autocomplete="email" inputmode="email" required value="${esc(saved.email || '')}"></div>
+              <div class="error-msg" id="lead-err"></div>
+              <button class="btn btn-primary btn-block" id="lead-btn">Send it to me ${I.arrow}</button>
+              <small class="dim" style="font-size:11.5px">Free, no card. You'll also get the occasional email about new products; unsubscribe any time. <a href="#/privacy" style="text-decoration:underline">Privacy</a></small>
+            </form>
+          </div></section>` : ''}
+        ${d.recent.length ? `<h3 style="margin:0 0 14px">From my recent posts</h3><div class="grid">${d.recent.map(productCard).join('')}</div>` : ''}
+        ${d.free.length > 1 ? `<h3 style="margin:30px 0 14px">More free downloads</h3><div class="grid">${d.free.slice(1).map(productCard).join('')}</div>` : ''}
+        <div style="text-align:center;margin:30px 0 10px"><a class="btn btn-lg" href="#/shop">Browse the whole store ${I.arrow}</a></div>
+      </div>`);
+    $('#lead-form')?.addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = e.target, name = f.name.value.trim(), email = f.email.value.trim(), err = $('#lead-err'), btn = $('#lead-btn');
+      err.textContent = '';
+      if (!name) return void (err.textContent = 'Enter your name.');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return void (err.textContent = 'Enter a valid email address.');
+      try { localStorage.setItem('cs_buyer', JSON.stringify({ ...saved, name, email })); } catch {}
+      btn.disabled = true; btn.textContent = 'Getting your files…';
+      try {
+        const r = await api('/api/checkout', { method: 'POST', body: { productId: lead.id, name, email, ref: referral(), src: firstSource() } });
+        window.Analytics?.track('generate_lead', { slug: lead.slug, title: lead.title });
+        if (r.token) location.hash = `#/download/${r.token}`;
+      } catch (x) { err.textContent = x.message; btn.disabled = false; btn.innerHTML = `Send it to me ${I.arrow}`; }
+    });
+  }
+
   async function shop(q) {
     const cat = q.get('cat') || '', price = q.get('price') || '', kind = q.get('kind') || '', sort = q.get('sort') || '', term = q.get('q') || '';
     const kinds = [['video', 'Videos'], ['pdf', 'PDFs & guides'], ['archive', 'ZIP bundles'], ['document', 'Documents & templates'], ['audio', 'Audio']];
@@ -658,6 +704,10 @@
       <div class="actions"><button class="btn" data-close>Close</button></div>`, m => { m.style.maxWidth = '820px'; });
   }
 
+  // Where this visitor first came from (saved by analytics.js), sent with a checkout for the weekly results email.
+  function firstSource() {
+    try { const s = JSON.parse(localStorage.getItem('cs_src') || 'null'); return s && Date.now() - s.at < 30 * 864e5 ? { ref: s.ref, utm: s.utm } : null; } catch { return null; }
+  }
   // The partner code from a referral link (?ref=CODE), remembered for 30 days on this device.
   function referral() {
     try {
@@ -679,7 +729,7 @@
     btn.disabled = true; btn.textContent = paid ? 'Opening secure checkout…' : 'Getting your files…';
     try {
       if (paid) window.Analytics?.track('begin_checkout', { slug: p.slug, title: p.title, amount: state.discounted ?? p.prices[state.currency], currency: state.currency });
-      const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon: state.coupon, currency: state.currency, name, email, phone, ref: referral() } });
+      const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon: state.coupon, currency: state.currency, name, email, phone, ref: referral(), src: firstSource() } });
       if (r.url) return void (location.href = r.url);
       if (r.demo) {
         modal(`<span class="label">Test checkout</span><h3 style="margin-top:14px">${esc(p.title)}</h3>
@@ -1027,6 +1077,7 @@
         case 'reset': return resetPage(parts[1]);
         case 'download': return await downloadPage(parts[1], 0, q);
         case 'find': return findDownloads();
+        case 'links': return await linksPage();
         case 'unsubscribe': return await unsubscribePage(parts[1]);
         case 'terms': case 'privacy': case 'refunds': return await legalPage(parts[0]);
         case 'affiliate': return await affiliatePage(parts[1]);
@@ -1046,7 +1097,7 @@
     // Share links are plain paths (/p/<slug>, /terms …) so link previews work; turn them into app routes.
     const ref = new URLSearchParams(location.search).get('ref');
     if (ref) try { localStorage.setItem('cs_ref', JSON.stringify({ code: ref.slice(0, 40), at: Date.now() })); } catch {}
-    const m = location.pathname.match(/^\/(p\/[^/]+|shop|terms|privacy|refunds|find)\/?$/);
+    const m = location.pathname.match(/^\/(p\/[^/]+|shop|terms|privacy|refunds|find|links)\/?$/);
     if (m && !location.hash) history.replaceState(null, '', '/' + location.search + '#/' + m[1]);
     route();
   });

@@ -136,6 +136,9 @@ const DEFAULT_SETTINGS = {
   social_platforms: 'x,linkedin,facebook,instagram,pinterest,tiktok',
   social_evening: '1',            // also an evening post each day: a research question or a helpful tip / teaser from a product
   social_evening_hour: '19',      // evening posting hour, Nigeria time
+  social_reels: '1',              // Mon, Wed, Fri: Instagram, Facebook and TikTok morning posts are short videos
+  social_reviews: '1',            // one evening a week quotes a real buyer review, when there is a new one
+  social_report: '1',             // Monday morning email: last week's posts, visits and sales by platform
   social_voice: 'Carsin Store sells practical digital products (templates, guides, video courses, printables) made by a designer for creatives, job seekers and small business owners in Nigeria and beyond. Friendly, direct and useful; plain words, no hype.',
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '', tiktok_pixel_id: '',   // analytics, all optional
@@ -341,6 +344,12 @@ function migrate(db) {
     db.exec("ALTER TABLE social_posts ADD COLUMN kind TEXT NOT NULL DEFAULT 'product'"); // 'product' | 'question' | 'tip'
     db.exec('ALTER TABLE social_posts ADD COLUMN title TEXT');
   }
+  // 'image' or 'reel' (a short video made from the product's covers, for Instagram, Facebook and TikTok),
+  // and for review posts, which quote was used (so the same one isn't posted twice).
+  if (!hasColumn(db, 'social_posts', 'media')) db.exec("ALTER TABLE social_posts ADD COLUMN media TEXT NOT NULL DEFAULT 'image'");
+  if (!hasColumn(db, 'social_posts', 'ref')) db.exec('ALTER TABLE social_posts ADD COLUMN ref TEXT');
+  // Where the buyer first came from (Instagram, X, Google, Direct …), for the weekly results email.
+  if (!hasColumn(db, 'orders', 'source')) db.exec('ALTER TABLE orders ADD COLUMN source TEXT');
 }
 
 let db;

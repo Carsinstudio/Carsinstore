@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const { renderCard } = require('./cards');
+const { makeReel, hasFfmpeg } = require('./reel');
 
 const PLATFORMS = ['x', 'linkedin', 'facebook', 'instagram', 'pinterest', 'tiktok'];
 const NAMES = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest', tiktok: 'TikTok' };
@@ -265,8 +266,71 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
     }
     return `${BASE_URL}/media/social/${name}`;
   }
+  // ---------- short videos (Reels) ----------
+  // One video per product and set of covers, made the first time it's needed and reused by every platform.
+  const REEL_PLATFORMS = ['instagram', 'facebook', 'tiktok'];
+  const reelJobs = new Map();
+  function reelFor(productId) {
+    const p = one('SELECT * FROM products WHERE id = ?', productId);
+    if (!p) return Promise.reject(new Error('The product is gone.'));
+    const covers = coversOf(p).filter(c => !isVideoCover(c) && /\.(png|jpe?g|webp)$/i.test(c)).map(c => path.join(COVERS_DIR, c)).filter(f => fs.existsSync(f));
+    if (!covers.length) return Promise.reject(new Error('The product has no cover pictures.'));
+    const key = crypto.createHash('sha1').update(JSON.stringify([covers.map(f => path.basename(f)), p.title, p.price_cents ? 1 : 0, 'v1'])).digest('hex').slice(0, 12);
+    const name = `reel-${p.id}-${key}.mp4`, out = path.join(CARD_DIR, name), url = `${BASE_URL}/media/social/${name}`;
+    if (fs.existsSync(out)) return Promise.resolve(url);
+    if (!reelJobs.has(name)) {
+      fs.mkdirSync(CARD_DIR, { recursive: true });
+      reelJobs.set(name, makeReel({ covers, title: p.title, label: p.price_cents ? 'New in the store' : 'Free download', site: BASE_URL.replace(/^https?:\/\//, ''), publicDir: PUBLIC_DIR, out })
+        .then(() => url).finally(() => reelJobs.delete(name)));
+    }
+    return reelJobs.get(name);
+  }
+  // Mondays, Wednesdays and Fridays (unless turned off), the Instagram, Facebook and TikTok morning posts are videos.
+  const mediaFor = (platform, day, s) => (s.social_reels !== '0' && REEL_PLATFORMS.includes(platform) && [1, 3, 5].includes(new Date(day + 'T12:00:00Z').getUTCDay()) ? 'reel' : 'image');
+  async function publishVideo(post, video) {
+    if (post.platform === 'instagram') {
+      const a = account('instagram'); if (!a) throw new Error('Instagram is not connected.');
+      const c = (await http(`${GRAPH}/${a.data.ig_id}/media`, { method: 'POST', body: form({ media_type: 'REELS', video_url: video, caption: post.text, share_to_feed: 'true', access_token: a.data.token }) }, 'Instagram Reel upload')).data;
+      let st = '';
+      for (let i = 0; i < 60 && st !== 'FINISHED'; i++) {
+        await new Promise(ok => setTimeout(ok, 5000));
+        st = (await http(`${GRAPH}/${c.id}?${form({ fields: 'status_code', access_token: a.data.token })}`, {}, 'Instagram Reel check')).data.status_code;
+        if (st === 'ERROR' || st === 'EXPIRED') throw new Error(`Instagram couldn't process the video (${st}).`);
+      }
+      if (st !== 'FINISHED') throw new Error('Instagram took too long to process the video.');
+      const m = (await http(`${GRAPH}/${a.data.ig_id}/media_publish`, { method: 'POST', body: form({ creation_id: c.id, access_token: a.data.token }) }, 'Instagram Reel publish')).data;
+      const link = (await http(`${GRAPH}/${m.id}?${form({ fields: 'permalink', access_token: a.data.token })}`, {}, 'Instagram link').catch(() => ({ data: {} }))).data.permalink;
+      return link || 'https://www.instagram.com/';
+    }
+    if (post.platform === 'facebook') {
+      const a = account('facebook'); if (!a) throw new Error('Facebook is not connected.');
+      const r = (await http(`${GRAPH.replace('graph.facebook.com', 'graph-video.facebook.com')}/${a.data.page_id}/videos`, { method: 'POST',
+        body: form({ file_url: video, description: post.text, access_token: a.data.token }) }, 'Facebook video')).data;
+      return `https://www.facebook.com/${a.data.page_id}/videos/${r.id}`;
+    }
+    if (post.platform === 'tiktok') {
+      const a = await tiktokToken();
+      const h = { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json; charset=UTF-8' };
+      const info = (await http(`${TT_API}/post/publish/creator_info/query/`, { method: 'POST', headers: h, body: '{}' }, 'TikTok account check')).data.data || {};
+      const levels = info.privacy_level_options || ['SELF_ONLY'];
+      const privacy = env('TIKTOK_APPROVED') === '1' ? ['PUBLIC_TO_EVERYONE', 'MUTUAL_FOLLOW_FRIENDS', 'FOLLOWER_OF_CREATOR', 'SELF_ONLY'].find(l => levels.includes(l)) || levels[0] : 'SELF_ONLY';
+      const r = (await http(`${TT_API}/post/publish/video/init/`, { method: 'POST', headers: h, body: JSON.stringify({
+        post_info: { title: String(post.text).slice(0, 2200), privacy_level: privacy, disable_comment: false, disable_duet: false, disable_stitch: false },
+        source_info: { source: 'PULL_FROM_URL', video_url: video },
+      }) }, 'TikTok video')).data;
+      if (r.error && r.error.code && r.error.code !== 'ok') throw new Error(`TikTok video failed: ${r.error.message || r.error.code}`);
+      return `https://www.tiktok.com/${privacy === 'SELF_ONLY' ? '?private_post=' : '?post='}${r.data?.publish_id || ''}`;
+    }
+    throw new Error('Videos are only posted to Instagram, Facebook and TikTok.');
+  }
+
   async function publish(post) {
     post = { ...post, image_url: await hqImage(post.image_url).catch(e => { console.error('HQ image failed:', e.message); return post.image_url; }) };
+    // Video days: post the product's short video; if it can't be made, the picture goes out as usual.
+    if (post.media === 'reel' && REEL_PLATFORMS.includes(post.platform) && post.product_id) {
+      const video = await reelFor(post.product_id).catch(e => { console.error(`Video for post ${post.id} skipped, posting the picture:`, e.message); return null; });
+      if (video) return publishVideo(post, video);
+    }
     if (post.platform === 'x') {
       const a = await xToken();
       // Attach the picture when there is one. Needs the media.write permission (reconnect X once to grant it);
@@ -493,6 +557,12 @@ Rules, because these posts must never mislead anyone:
     if (platform === 'linkedin') return /featured/i.test(t) ? t : `${t}\n\n${FEATURED}`;
     return `${t}\n\n👉 ${productUrl(p, platform)}`;
   }
+  // Once: posts queued before videos existed become videos on video days too.
+  if (!getSettings().social_reels_marked) {
+    if (getSettings().social_reels !== '0') run(`UPDATE social_posts SET media = 'reel' WHERE slot = 'morning' AND platform IN ('instagram', 'facebook', 'tiktok') AND product_id IS NOT NULL
+      AND status IN ('draft', 'approved') AND scheduled_at > datetime('now') AND strftime('%w', scheduled_at) IN ('1', '3', '5')`);
+    run("INSERT INTO settings (key, value) VALUES ('social_reels_marked', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  }
   for (const post of all("SELECT id, text FROM social_posts WHERE platform != 'instagram' AND status IN ('draft', 'approved', 'failed') AND text LIKE '%#%'")) {
     const clean = stripTags(post.text);
     if (clean !== post.text) run('UPDATE social_posts SET text = ? WHERE id = ?', clean, post.id);
@@ -544,13 +614,16 @@ Rules, because these posts must never mislead anyone:
   async function writeEvenings(days, s) {
     const brief = days.map((d, i) => ({
       day: i + 1, date: d.date, kind: d.kind,
-      ...(d.kind === 'question' ? { audience: d.audience } : { product: d.tip.title, free: !d.tip.price_cents, subtitle: plain(d.tip.subtitle), about: shortText(plain(d.tip.description), 1200) }),
+      ...(d.kind === 'question' ? { audience: d.audience }
+        : d.kind === 'review' ? { product: d.product.title, free: !d.product.price_cents, about: shortText(plain(d.product.subtitle) || plain(d.product.description), 600), quote: d.quote.text, buyer: d.quote.name }
+        : { product: d.tip.title, free: !d.tip.price_cents, subtitle: plain(d.tip.subtitle), about: shortText(plain(d.tip.description), 1200) }),
       ...(d.morning ? { morning_product: d.morning.title, morning_about: shortText(plain(d.morning.subtitle) || plain(d.morning.description), 400) } : {}),
     }));
     const system = `You write evening social media posts for ${s.store_name} (${BASE_URL.replace(/^https?:\/\//, '')}). They are not adverts: they build trust and conversation.
 About the store and its voice: ${s.social_voice}
 
-Each day is one of two kinds:
+Each day is one of three kinds:
+- review: a real buyer's words about a product (quote and buyer are given). Share it warmly and briefly: one line of context, the quote word for word inside quotation marks (you may cut it short with "…" but never change or add words), credited to the buyer's name as given, then one line on what the product is. Never invent other praise, numbers or results. Questions-style rules about links don't apply: treat it like a tip for links and "Link in bio". card_title: repeat the quote; card_points: an empty list.
 - question: a research question for the given audience, to learn what they struggle with. Ask about their frustrations, the repetitive tasks they hate, what slows them down, what they would happily pay to have done or automated, what they wish someone had told them. One clear question, with one or two warm lines of context from shared experience. Invite replies in the comments. Never ask what product they want, never mention the store or any product, no link, no selling.
 - tip: a genuinely useful tip or a short step-by-step (3 to 5 numbered steps) drawn only from the given product's details, as a teaser. Give real value, then say the full version is in the product, by name. Do not invent steps, numbers or claims that the product details don't support.
 
@@ -560,7 +633,7 @@ Platform styles:
 - facebook: 40 to 120 words, friendly. No hashtags. No link.
 - instagram: tips: 60 to 150 words, end with "Link in bio" and 5 to 8 hashtags. Questions: 40 to 120 words inviting answers in the comments, with 3 to 6 hashtags at the end, no "link in bio".
 - card_title / card_points: the text for the post's image card. Questions: card_title is the question itself, at most 110 characters, card_points is an empty list. Tips: card_title is a short headline (at most 70 characters) and card_points are the 3 to 5 steps, each at most 90 characters, written to be read at a glance.
-- pinterest_title / pinterest: tips only: a how-to title up to 90 characters and a 150 to 400 character description. For questions return empty strings.
+- pinterest_title / pinterest: tips only: a how-to title up to 90 characters and a 150 to 400 character description. For questions and reviews return empty strings.
 - morning_pinterest_title / morning_pinterest: if the day has a morning_product, a search-friendly pin title (up to 90 characters) and description (150 to 400 characters) for that product; otherwise empty strings.
 
 Rules: no invented results, numbers, reviews or statistics; no promises of jobs, income or clients; no prices; no fake urgency. Plain English, no markdown, no asterisks.`;
@@ -569,7 +642,7 @@ Rules: no invented results, numbers, reviews or statistics; no promises of jobs,
   // ---------- image cards ----------
   const CARD_DIR = path.join(DATA_DIR, 'social-cards');
   const coverFileOf = p => { const c = p && coversOf(p).find(x => !isVideoCover(x)); return c ? path.join(COVERS_DIR, c) : null; };
-  const labelFor = d => (d.kind === 'question' ? `For ${d.audience || 'you'}` : 'Quick tip');
+  const labelFor = d => (d.kind === 'question' ? `For ${d.audience || 'you'}` : d.kind === 'review' ? 'From a buyer' : 'Quick tip');
   async function saveCard(spec, size, tag) {
     fs.mkdirSync(CARD_DIR, { recursive: true });
     const name = `${tag}-${crypto.randomBytes(6).toString('hex')}.jpg`;
@@ -647,8 +720,25 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
   }));
 
   const atHour = (day, hour, platform) => { const at = new Date(day + 'T00:00:00Z'); at.setUTCHours(hour - 1, STAGGER[platform], 0, 0); return at; }; // WAT is UTC+1
+  // Real words from buyers: reviews (4 or 5 stars, with something written; not the owner's own test reviews) and the
+  // testimonials added to product pages. Ones already posted are left out.
+  function reviewQuotes() {
+    const admins = new Set(all('SELECT lower(email) AS e FROM users WHERE is_admin = 1').map(u => u.e));
+    const buyers = all(`SELECT r.id, r.body, r.name, r.rating, r.product_id, lower(u.email) AS email FROM reviews r JOIN orders o ON o.id = r.order_id
+      JOIN users u ON u.id = o.user_id JOIN products p ON p.id = r.product_id
+      WHERE r.hidden = 0 AND r.rating >= 4 AND length(trim(r.body)) >= 15 AND p.published = 1 ORDER BY r.updated_at DESC`)
+      .filter(r => !admins.has(r.email)).map(r => ({ ref: `review:${r.id}`, text: r.body.trim(), name: r.name || 'A buyer', rating: r.rating, product_id: r.product_id }));
+    const added = all('SELECT id, sales FROM products WHERE published = 1').flatMap(p => {
+      let list = []; try { list = JSON.parse(p.sales || '{}').reviews || []; } catch {}
+      return list.filter(o => String(o?.quote || '').trim().length >= 15).map(o => ({
+        ref: `quote:${p.id}:${crypto.createHash('sha1').update(String(o.quote)).digest('hex').slice(0, 10)}`,
+        text: String(o.quote).trim(), name: [o.name, o.detail].filter(Boolean).join(', ') || 'A buyer', rating: 5, product_id: p.id }));
+    });
+    return [...buyers, ...added].filter(q => !one('SELECT 1 FROM social_posts WHERE ref = ?', q.ref));
+  }
   // Adds evening posts (and Pinterest pins for the morning product) to every upcoming day that has a morning post but
-  // no evening one yet. Alternates tips and questions; tips use a different product from that morning's.
+  // no evening one yet. Alternates tips and questions; tips use a different product from that morning's. At most once
+  // a week, a tip day quotes a real buyer instead, while there are quotes not posted yet.
   async function fillEvenings() {
     const s = getSettings();
     const platforms = activePlatforms(s);
@@ -662,11 +752,18 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
     if (!days.length) return 0;
     const pool = pickProducts(14);
     const past = one("SELECT COUNT(*) AS n FROM social_posts WHERE slot = 'evening' AND platform = 'x'").n;
+    const quotes = s.social_reviews !== '0' ? reviewQuotes() : [];
+    let lastReview = one("SELECT MAX(substr(scheduled_at, 1, 10)) AS d FROM social_posts WHERE kind = 'review'").d;
     const plan = days.map((d, i) => {
       const n = past + i;
       const morning = one('SELECT * FROM products WHERE id = ?', d.product_id);
       const needPin = platforms.includes('pinterest') && morning && !one("SELECT 1 FROM social_posts WHERE platform = 'pinterest' AND slot = 'morning' AND substr(scheduled_at, 1, 10) = ?", d.day);
       if (n % 2 === 1) return { date: d.day, kind: 'question', audience: AUDIENCES[Math.floor(n / 2) % AUDIENCES.length], morning: needPin ? morning : null };
+      if (quotes.length && (!lastReview || (new Date(d.day) - new Date(lastReview)) / 864e5 >= 6)) {
+        const quote = quotes.shift();
+        const product = one('SELECT * FROM products WHERE id = ?', quote.product_id);
+        if (product) { lastReview = d.day; return { date: d.day, kind: 'review', quote, product, morning: needPin ? morning : null }; }
+      }
       const tip = pool.find(p => p.id !== d.product_id && !days.some((x, j) => j < i && x.tipId === p.id)) || pool[0];
       d.tipId = tip.id;
       return { date: d.day, kind: 'tip', tip, morning: needPin ? morning : null };
@@ -675,18 +772,20 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
     let created = 0;
     for (const e of posts) {
       const d = plan[e.day - 1]; if (!d) continue;
-      const p = d.kind === 'tip' ? d.tip : null;
+      const p = d.kind === 'tip' ? d.tip : d.kind === 'review' ? d.product : null;
+      if (d.kind === 'review') { e.card_title = d.quote.text; e.card_points = [String(d.quote.rating), d.quote.name]; } // the buyer's exact words
       const cards = await makeCards(d, e, p, platforms).catch(err => { console.error('Card failed:', err.message); return {}; });
       e.tiktok = e.instagram;
       for (const platform of platforms) {
         const text = String(e[platform] || '').trim();
         if (!text) continue;
-        if (d.kind === 'question' && platform === 'pinterest') continue;
+        if (d.kind !== 'tip' && platform === 'pinterest') continue;
         if (['instagram', 'tiktok'].includes(platform) && !cards.square && !p) continue; // these need a picture
         const image = platform === 'pinterest' ? (cards.tall || (p && imageFor(p, s))) : (cards.square || (p ? imageFor(p, s) : null));
-        run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'evening', ?)`,
-          platform, p?.id ?? null, finalText(platform, text, p), platform === 'pinterest' ? String(e.pinterest_title || p?.title || '').slice(0, 100) : platform === 'tiktok' ? String(e.card_title || p?.title || '').slice(0, 90) : null,
-          image, p ? productUrl(p, platform) : null, sqlTime(atHour(d.date, hour, platform)), d.kind);
+        const ttTitle = d.kind === 'review' ? `What a buyer said about ${p.title}` : e.card_title || p?.title || '';
+        run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind, ref) VALUES (?, ?, ?, ?, ?, ?, ?, 'evening', ?, ?)`,
+          platform, p?.id ?? null, finalText(platform, text, p), platform === 'pinterest' ? String(e.pinterest_title || p?.title || '').slice(0, 100) : platform === 'tiktok' ? String(ttTitle).slice(0, 90) : null,
+          image, p ? productUrl(p, platform) : null, sqlTime(atHour(d.date, hour, platform)), d.kind, d.quote?.ref ?? null);
         created++;
       }
       if (d.morning && String(e.morning_pinterest || '').trim()) {
@@ -722,9 +821,9 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
         if (!String(e[platform] || '').trim()) continue;
         let at = atHour(d.day, hour, platform);
         if (at < new Date(Date.now() + 10 * 60e3)) at = new Date(Date.now() + 30 * 60e3);
-        run("INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'morning', 'product')",
+        run("INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind, media) VALUES (?, ?, ?, ?, ?, ?, ?, 'morning', 'product', ?)",
           platform, d.product.id, finalText(platform, e[platform], d.product), platform === 'tiktok' ? d.product.title.slice(0, 90) : null,
-          imageFor(d.product, s), productUrl(d.product, platform), sqlTime(at));
+          imageFor(d.product, s), productUrl(d.product, platform), sqlTime(at), mediaFor(platform, d.day, s));
         created++;
       }
     }
@@ -756,9 +855,9 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
           if (platform === 'tiktok') d.tiktok = d.instagram;
           if (!String(d[platform] || '').trim()) continue;
           const at = new Date(day.date); at.setUTCHours(hour - 1, STAGGER[platform], 0, 0); // WAT is UTC+1
-          run("INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'morning', 'product')",
+          run("INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind, media) VALUES (?, ?, ?, ?, ?, ?, ?, 'morning', 'product', ?)",
             platform, day.product.id, finalText(platform, d[platform], day.product), platform === 'pinterest' ? String(d.pinterest_title || day.product.title).slice(0, 100) : platform === 'tiktok' ? day.product.title.slice(0, 90) : null,
-            imageFor(day.product, s), productUrl(day.product, platform), sqlTime(at));
+            imageFor(day.product, s), productUrl(day.product, platform), sqlTime(at), mediaFor(platform, sqlTime(at).slice(0, 10), s));
           created++;
         }
       }
@@ -802,7 +901,7 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       redirects: { meta: redirectUri('meta'), linkedin: redirectUri('linkedin'), x: redirectUri('x'), pinterest: redirectUri('pinterest'), tiktok: redirectUri('tiktok') },
       accounts,
       settings: { social_enabled: s.social_enabled, social_hour: s.social_hour, social_platforms: s.social_platforms, social_voice: s.social_voice,
-        social_evening: s.social_evening, social_evening_hour: s.social_evening_hour },
+        social_evening: s.social_evening, social_evening_hour: s.social_evening_hour, social_reels: s.social_reels, social_reviews: s.social_reviews, social_report: s.social_report },
       queue: all(`SELECT sp.*, p.title AS product FROM social_posts sp LEFT JOIN products p ON p.id = sp.product_id
         WHERE sp.status IN ('draft', 'approved', 'posting', 'failed') AND sp.scheduled_at >= datetime('now', '-2 days') ORDER BY sp.scheduled_at, sp.platform`),
       history: all(`SELECT sp.id, sp.platform, sp.status, sp.scheduled_at, sp.posted_at, sp.remote_url, sp.error, p.title AS product FROM social_posts sp
@@ -846,7 +945,67 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
     } catch (e) { bad(res, e.message); }
   }));
 
+  // A video preview for the Social page: makes (or reuses) the product's short video and returns its link.
+  admin.post('/social/reel/:productId', wrap(async (req, res) => {
+    try { res.json({ url: await reelFor(Number(req.params.productId)) }); } catch (e) { bad(res, e.message); }
+  }));
+
+  // ---------- weekly results email ----------
+  // Monday from 8am Lagos time: last week's posts, visitors and where they came from, most viewed products, and
+  // sales and free downloads by where the buyer first came from.
+  const money = (cents, cur) => `${String(cur || '').toUpperCase()} ${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  function weekReport(end = new Date().toISOString().slice(0, 10)) {
+    const day = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+    const start = day(end, -7), before = day(end, -14);
+    const visitors = (a, b) => one('SELECT COALESCE(SUM(visitors), 0) AS n FROM visits_daily WHERE day >= ? AND day < ?', a, b).n;
+    const v = visitors(start, end), vPrev = visitors(before, start);
+    const posts = all(`SELECT platform, COUNT(*) AS n FROM social_posts WHERE status = 'posted' AND posted_at >= ? AND posted_at < ? GROUP BY platform ORDER BY n DESC`, start, end);
+    const failed = one(`SELECT COUNT(*) AS n FROM social_posts WHERE status = 'failed' AND scheduled_at >= ? AND scheduled_at < ?`, start, end).n;
+    const sources = all('SELECT source, SUM(visitors) AS n FROM visit_sources WHERE day >= ? AND day < ? GROUP BY source ORDER BY n DESC LIMIT 8', start, end);
+    const viewed = all(`SELECT p.title, SUM(v.views) AS n FROM visit_products v JOIN products p ON p.id = v.product_id WHERE v.day >= ? AND v.day < ? GROUP BY v.product_id ORDER BY n DESC LIMIT 5`, start, end);
+    const orders = all(`SELECT o.status, o.amount_cents, o.currency, COALESCE(o.source, 'Unknown') AS source, p.title FROM orders o JOIN products p ON p.id = o.product_id
+      WHERE o.status IN ('paid', 'free') AND date(o.created_at) >= ? AND date(o.created_at) < ?`, start, end);
+    const paid = orders.filter(o => o.status === 'paid'), free = orders.filter(o => o.status === 'free');
+    const totals = {}; for (const o of paid) totals[o.currency] = (totals[o.currency] || 0) + o.amount_cents;
+    const bySource = {}; for (const o of orders) { const b = (bySource[o.source] ||= { sales: 0, free: 0 }); o.status === 'paid' ? b.sales++ : b.free++; }
+    const change = vPrev ? ` (${v >= vPrev ? '+' : ''}${Math.round(((v - vPrev) / vPrev) * 100)}% on the week before)` : '';
+    const lines = [
+      `Week of ${start} to ${day(end, -1)}`,
+      '',
+      `VISITORS: ${v}${change}`,
+      ...(sources.length ? ['Where they came from: ' + sources.map(x => `${x.source} ${x.n}`).join(', ')] : []),
+      '',
+      `SALES: ${paid.length}${paid.length ? ' (' + Object.entries(totals).map(([c, t]) => money(t, c)).join(' + ') + ')' : ''}. Free downloads: ${free.length}.`,
+      ...(Object.keys(bySource).length ? ['By where the buyer first came from: ' + Object.entries(bySource).sort((a, b) => (b[1].sales + b[1].free) - (a[1].sales + a[1].free))
+        .map(([src, b]) => `${src} ${b.sales} sale${b.sales === 1 ? '' : 's'}${b.free ? ` + ${b.free} free` : ''}`).join(', ')] : []),
+      ...(paid.length ? ['Sold: ' + [...new Set(paid.map(o => o.title))].slice(0, 6).join(', ')] : []),
+      '',
+      ...(viewed.length ? ['MOST VIEWED: ' + viewed.map(x => `${x.title} (${x.n})`).join(', '), ''] : []),
+      `POSTS SENT: ${posts.reduce((a, x) => a + x.n, 0)}${posts.length ? ' (' + posts.map(x => `${NAMES[x.platform] || x.platform} ${x.n}`).join(', ') + ')' : ''}${failed ? `. ${failed} didn't go out; see the Social page.` : '.'}`,
+      '',
+      'Sources count new visitors once a day. Buyers who came before this report started tracking show as Unknown.',
+    ];
+    return { heading: `Your week: ${v} visitor${v === 1 ? '' : 's'}, ${paid.length} sale${paid.length === 1 ? '' : 's'}`, message: lines.join('\n'), end };
+  }
+  async function sendWeekReport(r = weekReport()) {
+    const s = getSettings();
+    return mailer.sendOwnerNote({ to: s.notify_email || supportEmail(s), store: s.store_name, label: 'Weekly results', heading: r.heading, message: r.message,
+      ctaUrl: `${BASE_URL}/#/admin`, ctaLabel: 'Open your dashboard', settingsUrl: `${BASE_URL}/#/admin/social`, siteUrl: BASE_URL, support: supportEmail(s), key: `week-report-${r.end}` });
+  }
+  async function weeklyReportDue() {
+    const s = getSettings(), now = new Date(), today = now.toISOString().slice(0, 10);
+    if (s.social_report === '0' || !mailer.enabled || now.getUTCDay() !== 1 || now.getUTCHours() < 7 || s.social_report_sent === today) return;
+    run("INSERT INTO settings (key, value) VALUES ('social_report_sent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", today);
+    await sendWeekReport();
+  }
+  admin.get('/social/report', (_req, res) => res.json(weekReport()));
+  admin.post('/social/report/send', wrap(async (_req, res) => {
+    if (!mailer.enabled) return bad(res, 'Email is not set up.');
+    try { await sendWeekReport(); res.json({ ok: true }); } catch (e) { bad(res, e.message); }
+  }));
+
   setInterval(() => publishDue().catch(e => console.error('Social publish:', e.message)), Number(process.env.SOCIAL_PUBLISH_SECONDS || 120) * 1000).unref();
   setInterval(() => autoGenerate().catch(e => console.error('Social generate:', e.message)), Number(process.env.SOCIAL_GENERATE_SECONDS || 3600) * 1000).unref();
+  setInterval(() => weeklyReportDue().catch(e => console.error('Weekly report:', e.message)), 15 * 60 * 1000).unref();
   return { generateWeek, publishDue, publish: publishOne };
 };

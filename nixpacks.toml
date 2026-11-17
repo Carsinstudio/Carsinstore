@@ -1,0 +1,3 @@
+# ffmpeg makes the short social videos (reel.js).
+[phases.setup]
+aptPkgs = ["...", "ffmpeg"]

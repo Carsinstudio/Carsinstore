@@ -763,6 +763,19 @@ app.get('/api/store', (req, res) => {
   });
 });
 
+// The link-in-bio page (/links): free products to grab with an email, and the products from the latest social posts
+// (topped up with featured ones), so people arriving from "Link in bio" find what they just saw.
+app.get('/api/links', (_req, res) => {
+  const free = all('SELECT * FROM products WHERE published = 1 AND price_cents = 0 ORDER BY featured DESC, created_at DESC LIMIT 3');
+  const recent = all(`SELECT p.*, MAX(sp.posted_at) AS last FROM social_posts sp JOIN products p ON p.id = sp.product_id
+    WHERE sp.status = 'posted' AND sp.posted_at >= datetime('now', '-14 days') AND p.published = 1 AND p.price_cents > 0 GROUP BY p.id ORDER BY last DESC LIMIT 6`);
+  if (recent.length < 4) {
+    const more = all(`SELECT * FROM products WHERE published = 1 AND price_cents > 0 ORDER BY featured DESC, CASE WHEN featured = 1 THEN featured_sort ELSE 0 END, created_at DESC LIMIT 8`);
+    for (const p of more) if (recent.length < 6 && !recent.some(r => r.id === p.id)) recent.push(p);
+  }
+  res.json({ free: free.map(p => productCard(p)), recent: recent.map(p => productCard(p)) });
+});
+
 app.get('/api/products', (req, res) => {
   const { cat, q, price, sort, featured, limit } = req.query;
   const where = ['p.published = 1'], params = [];
@@ -974,9 +987,11 @@ app.post('/api/checkout', limit({ name: 'checkout', max: 20, windowMs: 10 * 60 *
   // the rest to yours, and you cover Paystack's fee. Their banks are in Naira, so only Naira sales split.
   const commission = affiliate ? Math.round((priced.price * affiliate.percent) / 100) : 0;
   const split = !!(PAYSTACK_KEY && affiliate?.subaccount && currency === 'ngn' && commission > 0 && commission < priced.price);
-  const r = run(`INSERT INTO orders (user_id, product_id, amount_cents, currency, status, coupon_code, access_token, affiliate_id, commission_cents, commission_auto)
-    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
-    customer.id, p.id, priced.price, currency, priced.coupon?.code || null, token, affiliate?.id || null, split ? commission : 0, split ? 1 : 0);
+  // Where the buyer first came from (Instagram, X, Google …), or Direct. For the weekly results email.
+  const src = req.body?.src && typeof req.body.src === 'object' ? visitSource(String(req.body.src.ref || '').slice(0, 300), String(req.body.src.utm || '').slice(0, 30)) : null;
+  const r = run(`INSERT INTO orders (user_id, product_id, amount_cents, currency, status, coupon_code, access_token, affiliate_id, commission_cents, commission_auto, source)
+    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+    customer.id, p.id, priced.price, currency, priced.coupon?.code || null, token, affiliate?.id || null, split ? commission : 0, split ? 1 : 0, src || 'Direct');
   const orderId = Number(r.lastInsertRowid);
 
   if (priced.price === 0) {
@@ -1911,7 +1926,7 @@ app.get('/sitemap.xml', (_req, res) => {
     `  <url><loc>${esc(u.loc)}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ''}<priority>${u.priority}</priority></url>`).join('\n')}\n</urlset>\n`);
 });
 app.get('/', (_req, res) => sendHome(res));
-for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find']) app.get(`/${page}`, (_req, res) => sendHome(res));
+for (const page of ['shop', 'terms', 'privacy', 'refunds', 'find', 'links']) app.get(`/${page}`, (_req, res) => sendHome(res));
 
 // Covers are only ever pictures or videos: opened directly, they can't run anything.
 // TikTok proves we own the picture links it pulls from with a small text file at the start of the link (set in Railway).

@@ -334,7 +334,8 @@
     if (q.get('error')) toast(q.get('error'), true);
     if (q.get('connected') || q.get('error')) history.replaceState(null, '', '#/admin/social');
     const NAME = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest', tiktok: 'TikTok' };
-    const KIND = { product: 'Product', question: 'Evening · Question', tip: 'Evening · Tip' };
+    const KIND = { product: 'Product', question: 'Evening · Question', tip: 'Evening · Tip', review: 'Evening · Buyer review' };
+    const isReel = p => p.media === 'reel' && ['instagram', 'facebook', 'tiktok'].includes(p.platform) && p.product_id;
     const xLen = t => String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length; // X counts each link as 23
     const s = d.settings, on = String(s.social_platforms || '').split(',');
     const acct = p => d.accounts[p];
@@ -353,7 +354,7 @@
     for (const post of queue) (byDay[post.scheduled_at.slice(0, 10)] ||= []).push(post);
     const drafts = queue.filter(p => p.status === 'draft').length;
     const card = p => `<div class="panel" style="padding:14px;margin:0" data-post="${p.id}">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>${p.kind && p.kind !== 'product' ? `<span class="status pending" style="font-size:9.5px">${KIND[p.kind]}</span>` : ''}
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>${p.kind && p.kind !== 'product' ? `<span class="status pending" style="font-size:9.5px">${KIND[p.kind]}</span>` : ''}${isReel(p) ? '<span class="status live" style="font-size:9.5px">Video</span>' : ''}
           <span class="status ${p.status === 'approved' ? 'live' : p.status === 'failed' ? 'draft' : 'pending'}" style="margin-left:auto">${p.status}</span></div>
         <div style="display:flex;gap:12px;align-items:flex-start">
           ${p.image_url && p.platform !== 'x' ? `<img src="${esc(p.image_url)}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:8px;flex:none">` : ''}
@@ -363,6 +364,7 @@
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
           <small class="dim" data-count="${p.id}">${p.platform === 'x' ? xLen(p.text) : p.text.length} characters${p.platform === 'x' ? ' of 280' : ''}</small>
           <span style="margin-left:auto"></span>
+          ${isReel(p) ? `<button class="btn btn-sm btn-ghost" data-reel="${p.product_id}">Preview video</button>` : ''}
           <button class="btn btn-sm btn-ghost" data-act="skipped">Skip</button>
           <button class="btn btn-sm btn-ghost" data-act="now">Post now</button>
           ${p.status === 'approved' ? '<button class="btn btn-sm" data-act="draft">Unapprove</button>' : '<button class="btn btn-sm btn-primary" data-act="approved">Approve</button>'}
@@ -381,6 +383,12 @@
         <label class="field"><span>Post at (Nigeria time)</span><select class="input" id="so-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_hour || 10) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Product posts. X first, then LinkedIn, Facebook, Instagram and Pinterest ten minutes apart.</small></label>
         <label class="check" style="margin:4px 0 8px"><span class="switch"><input type="checkbox" id="so-eve" ${s.social_evening !== '0' ? 'checked' : ''}><i></i></span>Evening posts too: research questions and helpful tips</label>
         <label class="field"><span>Evening posts at (Nigeria time)</span><select class="input" id="so-eve-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_evening_hour || 19) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Alternates a question for one of your audiences (what frustrates them, what they'd pay to simplify) with a tip or short how-to taken from a product. Replies tell you what to make next.</small></label>
+        <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-reels" ${s.social_reels !== '0' ? 'checked' : ''}><i></i></span>Short videos on Mondays, Wednesdays and Fridays</label>
+        <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">Those days, the Instagram, Facebook and TikTok product posts go out as a 10–20 second video made from the product's covers (Reels reach more people than pictures). If a video can't be made, the picture goes out instead.</small>
+        <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-reviews" ${s.social_reviews !== '0' ? 'checked' : ''}><i></i></span>Share a buyer review once a week</label>
+        <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">One evening a week quotes a real review (4 or 5 stars) or a testimonial from a product page, word for word, on a card. Each quote is used once; weeks without a new one get a tip instead.</small>
+        <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-report" ${s.social_report !== '0' ? 'checked' : ''}><i></i></span>Email me last week's results every Monday</label>
+        <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">Visitors and where they came from, sales and free downloads by platform, most viewed products, and posts sent. <a href="#" id="so-report-now" style="color:var(--accent-2)">Send this week's now</a></small>
         <label class="field"><span>About your brand and voice</span><textarea class="input" id="so-voice" rows="4" maxlength="1500">${esc(s.social_voice || '')}</textarea><small>Claude reads this every time it writes. Say who you help, how you sound, and anything to avoid.</small></label>
         <button class="btn btn-primary btn-sm" id="so-save" type="button">Save settings</button>
       </form>
@@ -403,6 +411,7 @@
       await api('/api/admin/settings', { method: 'PUT', body: {
         social_enabled: $('#so-on').checked ? '1' : '0', social_hour: $('#so-hour').value, social_voice: $('#so-voice').value,
         social_evening: $('#so-eve').checked ? '1' : '0', social_evening_hour: $('#so-eve-hour').value,
+        social_reels: $('#so-reels').checked ? '1' : '0', social_reviews: $('#so-reviews').checked ? '1' : '0', social_report: $('#so-report').checked ? '1' : '0',
         social_platforms: $$('[data-plat]').filter(i => i.checked).map(i => i.dataset.plat).join(','),
       } });
       toast('Settings saved');
@@ -412,6 +421,18 @@
       try { const r = await api('/api/admin/social/generate', { method: 'POST' }); toast(r.created ? `${r.created} ${r.evenings ? 'evening ' : ''}posts written. Review them below.` : 'Nothing new to write.'); social(); }
       catch (err) { toast(err.message, true); e.target.disabled = false; e.target.textContent = "Write next week's posts"; }
     });
+    $('#so-report-now').addEventListener('click', async e => {
+      e.preventDefault();
+      try { await api('/api/admin/social/report/send', { method: 'POST' }); toast('Sent. Check your inbox.'); } catch (err) { toast(err.message, true); }
+    });
+    $$('[data-reel]').forEach(b => b.addEventListener('click', async () => {
+      const label = b.textContent; b.disabled = true; b.textContent = 'Making video…';
+      try {
+        const r = await api(`/api/admin/social/reel/${b.dataset.reel}`, { method: 'POST' });
+        modal(`<h3>Video preview</h3><video src="${esc(r.url)}" controls autoplay muted playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px"></video>
+          <div class="actions"><button class="btn" data-close>Close</button></div>`);
+      } catch (err) { toast(err.message, true); } finally { b.disabled = false; b.textContent = label; }
+    }));
     $('#so-all')?.addEventListener('click', async () => { const r = await api('/api/admin/social/approve-all', { method: 'POST' }); toast(`Approved ${plural(r.approved, 'post')}`); social(); });
     $$('[data-post]').forEach(c => {
       const id = c.dataset.post, ta = $(`[data-text="${id}"]`, c);

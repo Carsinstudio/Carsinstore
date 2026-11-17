@@ -38,6 +38,7 @@ async function coverUrl(file) {
   if (!file || !fs.existsSync(file)) return null;
   try { return dataUrl(await sharp(file).resize(240, 240, { fit: 'cover' }).png().toBuffer(), 'image/png'); } catch { return null; }
 }
+const STAR = dataUrl(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#f2805a" d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"/></svg>'), 'image/svg+xml');
 const clip = (s, n) => { s = String(s || '').trim(); return s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : s; };
 
 async function renderCard({ kind, label, title, points = [], product, site = 'carsin.store', publicDir }, { width = 1080, height = 1350 } = {}) {
@@ -48,7 +49,7 @@ async function renderCard({ kind, label, title, points = [], product, site = 'ca
   const titleSize = kind === 'question'
     ? (q.length <= 60 ? 92 : q.length <= 110 ? 76 : 62) * (tall ? 1.05 : 1)
     : (q.length <= 50 ? 72 : 60);
-  const cover = kind === 'tip' && product?.coverFile ? await coverUrl(product.coverFile) : null;
+  const cover = kind !== 'question' && product?.coverFile ? await coverUrl(product.coverFile) : null;
 
   // Glass look: bright brand-colour light behind frosted, translucent panels with a soft edge highlight.
   const blob = (x, y, size, rgba) => h('div', { position: 'absolute', left: x - size / 2, top: y - size / 2, width: size, height: size, borderRadius: 9999,
@@ -73,7 +74,15 @@ async function renderCard({ kind, label, title, points = [], product, site = 'ca
   ]);
 
   let middle;
-  if (kind === 'question') {
+  if (kind === 'review') {
+    const rq = clip(title, 260);
+    const size = rq.length <= 90 ? 64 : rq.length <= 170 ? 52 : 44;
+    middle = glass({ padding: '52px 56px 58px', gap: 26 }, [
+      h('div', { gap: 10 }, Array.from({ length: Math.max(1, Math.min(5, Number(points?.[0]) || 5)) }, () => img(STAR, { width: 46, height: 46 }))),
+      h('div', { fontFamily: 'Newsreader', fontStyle: 'italic', fontSize: size, lineHeight: 1.2, color: '#fff' }, `“${rq}”`),
+      h('div', { fontFamily: 'Inter', fontWeight: 600, fontSize: 30, color: C.accent2 }, `— ${clip(points?.[1] || 'A buyer', 40)}`),
+    ]);
+  } else if (kind === 'question') {
     middle = glass({ padding: '56px 60px 64px', gap: 18 }, [
       h('div', { fontFamily: 'Newsreader', fontSize: 170, lineHeight: 0.6, color: C.accent2, height: 70 }, '“'),
       h('div', { fontFamily: 'Newsreader', fontSize: titleSize * 0.92, lineHeight: 1.12, color: '#fff', letterSpacing: -1 }, q),
@@ -98,7 +107,7 @@ async function renderCard({ kind, label, title, points = [], product, site = 'ca
     : glass({ flexDirection: 'row', borderRadius: 32, padding: '22px 30px', alignItems: 'center', gap: 24 }, [
         ...(cover ? [img(cover, { width: 110, height: 110, borderRadius: 18, border: '2px solid rgba(255,255,255,0.25)' })] : []),
         h('div', { flexDirection: 'column', gap: 6, flex: 1 }, [
-          h('div', { fontFamily: 'Inter', fontSize: 23, color: '#d9d4cd', letterSpacing: 1 }, 'The full version is in'),
+          h('div', { fontFamily: 'Inter', fontSize: 23, color: '#d9d4cd', letterSpacing: 1 }, kind === 'review' ? 'Said about' : 'The full version is in'),
           h('div', { fontFamily: 'Inter', fontWeight: 600, fontSize: 29, lineHeight: 1.25, color: '#fff' }, clip(product?.title, 70)),
         ]),
         h('div', { fontFamily: 'Inter', fontWeight: 600, fontSize: 25, color: '#fff' }, site),
@@ -113,4 +122,36 @@ async function renderCard({ kind, label, title, points = [], product, site = 'ca
   return sharp(png).jpeg({ quality: 92, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer();
 }
 
-module.exports = { renderCard };
+// Transparent text layers for a short vertical video (1080x1920), laid over the moving pictures by ffmpeg:
+//   top: logo, a label pill and the product title, kept out of the top ~200px that the apps cover with their own buttons
+//   end: a dark scrim with "Link in bio" and the product name, shown for the last few seconds
+async function renderReelLayers({ title, label, site = 'carsin.store', publicDir }) {
+  const W = 1080, H = 1920;
+  const t = clip(title, 90);
+  const pill = (text, style = {}) => h('div', { alignSelf: 'flex-start', padding: '12px 24px', borderRadius: 999, border: '2px solid rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.14)', color: '#fff', fontFamily: 'Inter', fontWeight: 600, fontSize: 26, letterSpacing: 4, textTransform: 'uppercase', ...style }, text);
+  const top = h('div', { width: W, height: H, position: 'relative' }, [
+    h('div', { position: 'absolute', left: 0, top: 0, width: W, height: 640, backgroundImage: 'linear-gradient(180deg, rgba(8,8,8,0.85) 0%, rgba(8,8,8,0.55) 70%, rgba(8,8,8,0) 100%)' }),
+    h('div', { position: 'absolute', left: 80, top: 210, width: W - 160, flexDirection: 'column', gap: 26 }, [
+      img(logoUrl(publicDir), { width: 238, height: 35 }),
+      pill(clip(label, 30)),
+      h('div', { fontFamily: 'Newsreader', fontSize: t.length <= 40 ? 76 : t.length <= 65 ? 64 : 54, lineHeight: 1.08, color: '#fff', letterSpacing: -1 }, t),
+    ]),
+    h('div', { position: 'absolute', left: 0, top: H - 330, width: W, justifyContent: 'center' }, [
+      h('div', { fontFamily: 'Inter', fontWeight: 600, fontSize: 30, color: '#fff', letterSpacing: 1 }, site),
+    ]),
+  ]);
+  const end = h('div', { width: W, height: H, position: 'relative', backgroundColor: 'rgba(8,8,8,0.88)', alignItems: 'center', justifyContent: 'center' }, [
+    h('div', { flexDirection: 'column', alignItems: 'center', gap: 34, padding: '64px 70px', borderRadius: 44, width: 860, border: '2px solid rgba(255,255,255,0.22)',
+      backgroundColor: 'rgba(30,30,30,0.9)', backgroundImage: 'linear-gradient(160deg, rgba(255,255,255,0.14), rgba(255,255,255,0))' }, [
+      h('div', { fontFamily: 'Inter', fontSize: 30, color: '#d9d4cd', letterSpacing: 2, textTransform: 'uppercase' }, 'Get it now'),
+      h('div', { fontFamily: 'Newsreader', fontSize: 104, lineHeight: 1, color: '#fff', letterSpacing: -2 }, 'Link in bio'),
+      h('div', { padding: '18px 36px', borderRadius: 999, backgroundImage: `linear-gradient(180deg, ${C.accent2}, ${C.accent})`, color: '#fff', fontFamily: 'Inter', fontWeight: 600, fontSize: 32 }, site),
+      h('div', { fontFamily: 'Inter', fontSize: 30, lineHeight: 1.3, color: '#f1ede7', textAlign: 'center' }, clip(title, 70)),
+    ]),
+  ]);
+  const png = async tree => new Resvg(await satori(tree, { width: W, height: H, fonts: loadFonts() }), { fitTo: { mode: 'width', value: W } }).render().asPng();
+  return { top: await png(top), end: await png(end) };
+}
+
+module.exports = { renderCard, renderReelLayers };
