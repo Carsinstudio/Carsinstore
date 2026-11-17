@@ -110,7 +110,7 @@ async function renderCard({ kind, label, title, points = [], product, site = 'ca
   ]);
   const svg = await satori(tree, { width, height, fonts: loadFonts() });
   const png = new Resvg(svg, { fitTo: { mode: 'width', value: width } }).render().asPng();
-  return sharp(png).jpeg({ quality: 88, mozjpeg: true }).toBuffer();
+  return sharp(png).jpeg({ quality: 92, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer();
 }
 
 module.exports = { renderCard };

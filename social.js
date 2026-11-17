@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const Anthropic = require('@anthropic-ai/sdk');
 const fs = require('fs');
 const path = require('path');
+const sharp = require('sharp');
 const { renderCard } = require('./cards');
 
 const PLATFORMS = ['x', 'linkedin', 'facebook', 'instagram', 'pinterest', 'tiktok'];
@@ -244,7 +245,28 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
   // ---------- publishing ----------
   // LinkedIn's post text uses "little text": these characters must be escaped or the post is cut short.
   const liEscape = t => String(t).replace(/[\\|{}@[\]()<>#*_~]/g, c => '\\' + c);
+  // Product covers go out as a sharper copy made for social: at least 1080px wide (what Instagram and Facebook
+  // show), up to 1440px, JPEG quality 92 with full colour detail (4:4:4) so text and edges on graphics stay crisp.
+  // The store's own 'og' copy (quality 78) is kept for link previews.
+  async function hqImage(url) {
+    const m = String(url || '').match(/\/media\/covers\/([^/?#]+?)(?:\.og\.jpg)?$/);
+    if (!m || !/\.(png|jpe?g|webp)$/i.test(m[1])) return url;
+    const src = path.join(COVERS_DIR, path.basename(m[1]));
+    if (!fs.existsSync(src)) return url;
+    const name = `cover-${path.basename(m[1]).replace(/\.[^.]+$/, '')}-hq.jpg`;
+    const out = path.join(CARD_DIR, name);
+    if (!fs.existsSync(out)) {
+      fs.mkdirSync(CARD_DIR, { recursive: true });
+      const meta = await sharp(src, { failOn: 'none' }).metadata();
+      const width = Math.min(Math.max(meta.width || 1080, 1080), 1440);
+      await sharp(src, { failOn: 'none' }).rotate().resize({ width, kernel: 'lanczos3' }).flatten({ background: '#111111' })
+        .jpeg({ quality: 92, chromaSubsampling: '4:4:4', mozjpeg: true }).toFile(out + '.tmp');
+      fs.renameSync(out + '.tmp', out);
+    }
+    return `${BASE_URL}/media/social/${name}`;
+  }
   async function publish(post) {
+    post = { ...post, image_url: await hqImage(post.image_url).catch(e => { console.error('HQ image failed:', e.message); return post.image_url; }) };
     if (post.platform === 'x') {
       const a = await xToken();
       // Attach the picture when there is one. Needs the media.write permission (reconnect X once to grant it);
