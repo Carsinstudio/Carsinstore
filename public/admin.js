@@ -383,15 +383,15 @@
         <label class="field"><span>Post at (Nigeria time)</span><select class="input" id="so-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_hour || 10) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Product posts. X first, then LinkedIn, Facebook, Instagram and Pinterest ten minutes apart.</small></label>
         <label class="check" style="margin:4px 0 8px"><span class="switch"><input type="checkbox" id="so-eve" ${s.social_evening !== '0' ? 'checked' : ''}><i></i></span>Evening posts too: research questions and helpful tips</label>
         <label class="field"><span>Evening posts at (Nigeria time)</span><select class="input" id="so-eve-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_evening_hour || 19) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Alternates a question for one of your audiences (what frustrates them, what they'd pay to simplify) with a tip or short how-to taken from a product. Replies tell you what to make next.</small></label>
-        <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-reels" ${s.social_reels !== '0' ? 'checked' : ''}><i></i></span>Short videos on Mondays, Wednesdays and Fridays</label>
-        <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">Those days, the Instagram, Facebook and TikTok product posts go out as a 10–20 second video made from the product's covers (Reels reach more people than pictures). If a video can't be made, the picture goes out instead.</small>
+        <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-reels" ${s.social_reels !== '0' ? 'checked' : ''}><i></i></span>Short videos for product posts</label>
+        <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">On product days, the Instagram, Facebook and TikTok product posts go out as a 10–20 second video made from the product's covers (Reels reach more people than pictures). If a video can't be made, the picture goes out instead.</small>
         <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-reviews" ${s.social_reviews !== '0' ? 'checked' : ''}><i></i></span>Share a buyer review once a week</label>
         <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">One evening a week quotes a real review (4 or 5 stars) or a testimonial from a product page, word for word, on a card. Each quote is used once; weeks without a new one get a tip instead.</small>
         <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-report" ${s.social_report !== '0' ? 'checked' : ''}><i></i></span>Email me last week's results every Monday</label>
         <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">Visitors and where they came from, sales and free downloads by platform, most viewed products, and posts sent. <a href="#" id="so-report-now" style="color:var(--accent-2)">Send this week's now</a></small>
         <h4 style="margin:22px 0 8px;font-weight:500">LinkedIn-branding posts (Carsin Studio)</h4>
         <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-brand" ${s.social_brand !== '0' ? 'checked' : ''}><i></i></span>Product posts only on some days; branding posts on the rest</label>
-        <div style="display:flex;flex-wrap:wrap;gap:10px 16px;margin:8px 0 6px"><span class="dim" style="font-size:13px">Product days:</span>${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((n, i) => `<label class="check" style="font-size:13px"><input type="checkbox" data-pday="${i}" ${String(s.social_product_days ?? '1,3,5').split(',').includes(String(i)) ? 'checked' : ''} style="accent-color:var(--accent)">${n}</label>`).join('')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 16px;margin:8px 0 6px"><span class="dim" style="font-size:13px">Product days:</span>${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((n, i) => `<label class="check" style="font-size:13px"><input type="checkbox" data-pday="${i}" ${String(s.social_product_days ?? '1,4').split(',').includes(String(i)) ? 'checked' : ''} style="accent-color:var(--accent)">${n}</label>`).join('')}</div>
         <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">Other mornings, and the evening tips, are written as Francis for Carsin Studio: funny, step-by-step educational, or a story. Each opens with a real pain point of founders, coaches, freelancers, creators and job seekers with unbranded profiles, says what it costs them, then offers Carsin Studio as the fix. Pictures use your two templates with the post's hook. <a href="#" id="so-rebrand" style="color:var(--accent-2)">Rewrite the queued week to this mix</a></small>
         <label class="field"><span>Hook styles to use</span><textarea class="input" id="so-hooks" rows="6" maxlength="4000">${esc(s.social_brand_hooks || '')}</textarea><small>One per line. Claude varies between them; the first line of every branding post is a hook.</small></label>
         <label class="field"><span>True facts for story posts</span><textarea class="input" id="so-story" rows="4" maxlength="4000" placeholder="e.g. I started designing in 2019. My first client found me through my LinkedIn banner…">${esc(s.social_brand_story || '')}</textarea><small>Story posts use only what you write here, so nothing is made up. Leave empty and there are no story posts.</small></label>
@@ -404,6 +404,7 @@
       ${queue.length ? Object.entries(byDay).map(([day, posts]) => `<h4 style="margin:18px 0 10px;font-weight:500">${new Date(day + 'T12:00:00Z').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} <span class="dim" style="font-weight:400">· ${esc(posts[0].product || '')}</span></h4>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px">${posts.map(card).join('')}</div>`).join('')
         : `<div class="empty"><h3>No posts queued</h3><p>${Object.keys(d.accounts).length && d.ready.ai ? 'Press "Write next week\'s posts", or wait: a new week is written automatically when the queue runs low.' : 'Connect an account and add the API key, then the first week is written automatically.'}</p></div>`}
+      <div id="so-results" style="margin-top:22px"></div>
       ${d.history.length ? `<div class="panel tbl-wrap" style="padding:0;margin-top:22px"><div class="box-head"><h3 style="font-size:18px">History</h3></div><table class="tbl"><tr><th>When</th><th>Where</th><th>Product</th><th>Result</th></tr>
         ${d.history.map(h => `<tr><td class="muted">${when(h.posted_at || h.scheduled_at)}</td><td>${NAME[h.platform]}</td><td class="muted">${esc(h.product || '')}</td><td>${h.status === 'posted' ? `<a href="${esc(h.remote_url)}" target="_blank" rel="noopener">View post</a>` : `<span class="dim">${h.status === 'expired' ? 'not approved in time' : h.status}</span>`}</td></tr>`).join('')}</table></div>` : ''}`);
 
@@ -431,6 +432,28 @@
       try { const r = await api('/api/admin/social/generate', { method: 'POST' }); toast(r.created ? `${r.created} ${r.evenings ? 'evening ' : ''}posts written. Review them below.` : 'Nothing new to write.'); social(); }
       catch (err) { toast(err.message, true); e.target.disabled = false; e.target.textContent = "Write next week's posts"; }
     });
+    // Results: views and engagement per post (Facebook, Instagram, X), by platform and by kind of post.
+    const n = v => (v == null ? '<span class="dim">–</span>' : Number(v).toLocaleString());
+    const kindName = p => (p.kind === 'brand' ? `Branding${p.ref ? ' · ' + esc(p.ref) : ''}` : p.kind === 'product' ? (p.media === 'reel' ? 'Product video' : 'Product') : KIND[p.kind] || p.kind);
+    const drawResults = r => {
+      const el = $('#so-results'); if (!el) return;
+      const sumRow = g => `<tr><td><b style="font-weight:500">${esc(NAME[g.key] || g.key[0].toUpperCase() + g.key.slice(1))}</b></td><td>${g.posts}</td><td>${n(g.measured ? g.views : null)}</td><td>${n(g.measured ? g.likes : null)}</td><td>${n(g.measured ? g.comments : null)}</td><td>${n(g.measured ? g.shares : null)}</td><td>${n(g.measured ? g.saves : null)}</td></tr>`;
+      const head = '<tr><th></th><th>Posts</th><th>Views</th><th>Likes</th><th>Comments</th><th>Shares</th><th>Saves</th></tr>';
+      el.innerHTML = `<div class="panel tbl-wrap" style="padding:0"><div class="box-head" style="display:flex;align-items:center;gap:10px"><h3 style="font-size:18px">Results, last ${r.days} days</h3><button class="btn btn-sm" id="so-res-refresh" style="margin-left:auto">Refresh numbers</button></div>
+        <p class="muted" style="font-size:12.5px;margin:0 16px 12px">Facebook and Instagram update every few hours, X once a day. LinkedIn and TikTok don't share post numbers with apps, so check those in their apps.</p>
+        ${r.posts.length ? `<table class="tbl">${head}${r.byPlatform.map(sumRow).join('')}</table>
+        <h4 style="margin:18px 16px 6px;font-weight:500">By kind of post</h4><table class="tbl">${head}${r.byKind.map(sumRow).join('')}</table>
+        <h4 style="margin:18px 16px 6px;font-weight:500">Each post</h4><table class="tbl"><tr><th>When</th><th>Where</th><th>Kind</th><th>Post</th><th>Views</th><th>Likes</th><th>Comments</th><th>Shares</th></tr>
+        ${r.posts.map(p => `<tr><td class="muted" style="white-space:nowrap">${when(p.posted_at)}</td><td>${NAME[p.platform]}</td><td class="muted" style="font-size:12.5px">${kindName(p)}</td>
+          <td style="font-size:12.5px;max-width:320px">${p.remote_url ? `<a href="${esc(p.remote_url)}" target="_blank" rel="noopener">${esc(p.text.split('\n')[0].slice(0, 70) || 'View')}</a>` : esc(p.text.slice(0, 70))}</td>
+          ${r.measurable.includes(p.platform) ? `<td>${n(p.stats?.views)}</td><td>${n(p.stats?.likes)}</td><td>${n(p.stats?.comments)}</td><td>${n(p.stats?.shares)}</td>` : '<td colspan="4" class="dim" style="font-size:12px">in the app</td>'}</tr>`).join('')}</table>`
+        : '<p class="muted" style="margin:0 16px 16px">No posts have gone out in this time yet.</p>'}</div>`;
+      $('#so-res-refresh')?.addEventListener('click', async e => {
+        e.target.disabled = true; e.target.textContent = 'Refreshing…';
+        try { drawResults(await api('/api/admin/social/results/refresh', { method: 'POST' })); toast('Numbers updated'); } catch (err) { toast(err.message, true); e.target.disabled = false; e.target.textContent = 'Refresh numbers'; }
+      });
+    };
+    api('/api/admin/social/results').then(drawResults).catch(() => {});
     $('#so-rebrand').addEventListener('click', async e => {
       e.preventDefault();
       if (!(await confirmDialog('Rewrite the queued week?', 'Upcoming product posts on non-product days, and upcoming product-tip evenings, are replaced with branding posts as drafts for you to approve. Save your settings first.', 'Rewrite'))) return;

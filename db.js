@@ -136,14 +136,15 @@ const DEFAULT_SETTINGS = {
   social_platforms: 'x,linkedin,facebook,instagram,pinterest,tiktok',
   social_evening: '1',            // also an evening post each day: a research question or a helpful tip / teaser from a product
   social_evening_hour: '19',      // evening posting hour, Nigeria time
-  social_reels: '1',              // Mon, Wed, Fri: Instagram, Facebook and TikTok morning posts are short videos
+  social_reels: '1',              // on product days, Instagram, Facebook and TikTok product posts are short videos
   social_reviews: '1',            // one evening a week quotes a real buyer review, when there is a new one
   social_report: '1',             // Monday morning email: last week's posts, visits and sales by platform
   social_brand: '1',              // non-product days are LinkedIn-branding posts for Carsin Studio (see social.js)
-  social_product_days: '1,3,5',   // weekdays (0 = Sunday) with product posts; the rest are branding posts
+  social_product_days: '1,4',     // weekdays (0 = Sunday) with product posts; the rest are branding posts
   social_brand_voice: '',         // extra notes about Francis and how he sounds
   social_brand_story: '',         // true facts from his life; story posts use only these (no facts = no story posts)
   social_brand_cta: '',           // the call to action branding posts end with, e.g. "DM me BRAND for a free profile review"
+  social_x_stats: '1',            // read X post numbers once a day (uses X API credits)
   social_brand_hooks: [
     '- A blunt truth: "Your LinkedIn banner is working against you."',
     '- A question that stings: "Would you hire you, based on your profile alone?"',
@@ -361,6 +362,9 @@ function migrate(db) {
   // and for review posts, which quote was used (so the same one isn't posted twice).
   if (!hasColumn(db, 'social_posts', 'media')) db.exec("ALTER TABLE social_posts ADD COLUMN media TEXT NOT NULL DEFAULT 'image'");
   if (!hasColumn(db, 'social_posts', 'ref')) db.exec('ALTER TABLE social_posts ADD COLUMN ref TEXT');
+  // The post's id on the platform, and its latest views/engagement numbers (JSON) with when they were read.
+  if (!hasColumn(db, 'social_posts', 'remote_id')) db.exec('ALTER TABLE social_posts ADD COLUMN remote_id TEXT');
+  if (!hasColumn(db, 'social_posts', 'stats')) { db.exec('ALTER TABLE social_posts ADD COLUMN stats TEXT'); db.exec('ALTER TABLE social_posts ADD COLUMN stats_at TEXT'); }
   // Where the buyer first came from (Instagram, X, Google, Direct …), for the weekly results email.
   if (!hasColumn(db, 'orders', 'source')) db.exec('ALTER TABLE orders ADD COLUMN source TEXT');
 }

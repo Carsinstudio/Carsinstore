@@ -83,7 +83,7 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       run('INSERT INTO social_oauth (state, platform) VALUES (?, ?)', state, p);
       // Newer Meta apps sign in with a Facebook Login for Business configuration (META_CONFIG_ID) that lists the
       // permissions; older ones take the permissions as a scope.
-      const scope = 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management,instagram_basic,instagram_content_publish';
+      const scope = 'pages_show_list,pages_read_engagement,pages_manage_posts,read_insights,business_management,instagram_basic,instagram_content_publish,instagram_manage_insights';
       const how = env('META_CONFIG_ID') ? { config_id: env('META_CONFIG_ID'), override_default_response_type: 'true' } : { scope };
       return res.json({ url: `https://www.facebook.com/${GRAPH.split('/').pop()}/dialog/oauth?${form({ client_id: env('META_APP_ID'), redirect_uri: redirectUri('meta'), state, response_type: 'code', ...how })}` });
     }
@@ -286,8 +286,8 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
     }
     return reelJobs.get(name);
   }
-  // Mondays, Wednesdays and Fridays (unless turned off), the Instagram, Facebook and TikTok morning posts are videos.
-  const mediaFor = (platform, day, s) => (s.social_reels !== '0' && REEL_PLATFORMS.includes(platform) && [1, 3, 5].includes(new Date(day + 'T12:00:00Z').getUTCDay()) ? 'reel' : 'image');
+  // On product days (unless turned off), the Instagram, Facebook and TikTok product posts are videos.
+  const mediaFor = (platform, day, s) => (s.social_reels !== '0' && REEL_PLATFORMS.includes(platform) && productDays(s).includes(new Date(day + 'T12:00:00Z').getUTCDay()) ? 'reel' : 'image');
   async function publishVideo(post, video) {
     if (post.platform === 'instagram') {
       const a = account('instagram'); if (!a) throw new Error('Instagram is not connected.');
@@ -301,13 +301,13 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       if (st !== 'FINISHED') throw new Error('Instagram took too long to process the video.');
       const m = (await http(`${GRAPH}/${a.data.ig_id}/media_publish`, { method: 'POST', body: form({ creation_id: c.id, access_token: a.data.token }) }, 'Instagram Reel publish')).data;
       const link = (await http(`${GRAPH}/${m.id}?${form({ fields: 'permalink', access_token: a.data.token })}`, {}, 'Instagram link').catch(() => ({ data: {} }))).data.permalink;
-      return link || 'https://www.instagram.com/';
+      return { url: link || 'https://www.instagram.com/', id: m.id };
     }
     if (post.platform === 'facebook') {
       const a = account('facebook'); if (!a) throw new Error('Facebook is not connected.');
       const r = (await http(`${GRAPH.replace('graph.facebook.com', 'graph-video.facebook.com')}/${a.data.page_id}/videos`, { method: 'POST',
         body: form({ file_url: video, description: post.text, access_token: a.data.token }) }, 'Facebook video')).data;
-      return `https://www.facebook.com/${a.data.page_id}/videos/${r.id}`;
+      return { url: `https://www.facebook.com/${a.data.page_id}/videos/${r.id}`, id: `video:${r.id}` };
     }
     if (post.platform === 'tiktok') {
       const a = await tiktokToken();
@@ -357,7 +357,7 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       }
       const r = (await http('https://api.x.com/2/tweets', { method: 'POST', headers: { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: post.text, ...(media ? { media: { media_ids: [String(media)] } } : {}) }) }, 'X post')).data;
-      return `https://x.com/${a.data.username}/status/${r.data.id}`;
+      return { url: `https://x.com/${a.data.username}/status/${r.data.id}`, id: r.data.id };
     }
     if (post.platform === 'tiktok') {
       const a = await tiktokToken();
@@ -391,7 +391,7 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       const r = post.image_url
         ? (await http(`${GRAPH}/${a.data.page_id}/photos`, { method: 'POST', body: form({ url: post.image_url, caption: post.text, access_token: a.data.token }) }, 'Facebook post')).data
         : (await http(`${GRAPH}/${a.data.page_id}/feed`, { method: 'POST', body: form({ message: post.text, link: post.link, access_token: a.data.token }) }, 'Facebook post')).data;
-      return `https://www.facebook.com/${r.post_id || r.id}`;
+      return { url: `https://www.facebook.com/${r.post_id || r.id}`, id: r.post_id || r.id };
     }
     if (post.platform === 'instagram') {
       const a = account('instagram'); if (!a) throw new Error('Instagram is not connected (link it to your Facebook Page, then reconnect Facebook).');
@@ -405,7 +405,7 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       }
       const m = (await http(`${GRAPH}/${a.data.ig_id}/media_publish`, { method: 'POST', body: form({ creation_id: c.id, access_token: a.data.token }) }, 'Instagram publish')).data;
       const link = (await http(`${GRAPH}/${m.id}?${form({ fields: 'permalink', access_token: a.data.token })}`, {}, 'Instagram link').catch(() => ({ data: {} }))).data.permalink;
-      return link || 'https://www.instagram.com/';
+      return { url: link || 'https://www.instagram.com/', id: m.id };
     }
     if (post.platform === 'linkedin') {
       const a = account('linkedin'); if (!a) throw new Error('LinkedIn is not connected.');
@@ -433,8 +433,9 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
   async function publishOne(post) {
     run("UPDATE social_posts SET status = 'posting' WHERE id = ? AND status = 'approved'", post.id); // claim it: never twice
     try {
-      const url = await publish(post);
-      run("UPDATE social_posts SET status = 'posted', remote_url = ?, error = NULL, posted_at = datetime('now') WHERE id = ?", url, post.id);
+      const out = await publish(post);
+      const url = typeof out === 'string' ? out : out.url, rid = typeof out === 'string' ? null : String(out.id || '') || null;
+      run("UPDATE social_posts SET status = 'posted', remote_url = ?, remote_id = ?, error = NULL, posted_at = datetime('now') WHERE id = ?", url, rid, post.id);
       return { ok: true, url };
     } catch (e) {
       run("UPDATE social_posts SET status = 'failed', error = ? WHERE id = ?", String(e.message).slice(0, 500), post.id);
@@ -820,7 +821,7 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
   // (real step-by-step) or a story about him (only from facts he wrote down). Each starts from a real pain point of
   // people whose LinkedIn profile isn't branded, says what it costs them, then offers Carsin Studio as the fix.
   // Pictures are the owner's two templates (templates.js) with the post's hook line; never generated artwork.
-  const productDays = s => String(s.social_product_days ?? '1,3,5').split(',').map(Number).filter(n => n >= 0 && n <= 6);
+  const productDays = s => String(s.social_product_days ?? '1,4').split(',').map(Number).filter(n => n >= 0 && n <= 6);
   const isProductDay = (day, s) => productDays(s).includes(new Date(day + 'T12:00:00Z').getUTCDay());
   const BRAND_AUDIENCES = ['founders looking for their first customers', 'coaches who want more booked calls', 'freelancers who want better clients', 'creators', 'job seekers'];
   // Post formats (from the owner's content-ideas board), by type. Ones that need filming, a clip to react to, or
@@ -1102,6 +1103,107 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
     try { res.json({ url: await reelFor(Number(req.params.productId)) }); } catch (e) { bad(res, e.message); }
   }));
 
+  // ---------- post results (views and engagement) ----------
+  // Read from the platforms for posts from the last 30 days: Facebook and Instagram every few hours, X once a day
+  // (each X read uses API credits). LinkedIn and TikTok don't give these numbers to apps like this one.
+  // Saved per post as { views, reach, likes, comments, shares, saves, clicks }; a number the platform didn't give is left out.
+  const STATS_PLATFORMS = ['facebook', 'instagram', 'x'];
+  const badMetric = new Set(); // metrics a platform rejected; not asked for again until the server restarts
+  async function metaInsights(path, metrics, token) {
+    const out = {};
+    for (const m of metrics) {
+      if (badMetric.has(m)) continue;
+      try {
+        const r = (await http(`${GRAPH}/${path}?${form({ metric: m, access_token: token })}`, {}, 'Insights')).data;
+        const row = (r.data || [])[0];
+        const v = row?.values?.[0]?.value ?? row?.total_value?.value;
+        if (typeof v === 'number') out[m] = v;
+      } catch (e) { if (/metric|valid|support/i.test(e.message)) badMetric.add(m); else throw e; }
+    }
+    return out;
+  }
+  // Older posts were saved with only their link: work out their id from it.
+  async function fillRemoteIds() {
+    for (const p of all("SELECT id, platform, remote_url FROM social_posts WHERE status = 'posted' AND remote_id IS NULL AND remote_url IS NOT NULL AND posted_at > datetime('now', '-30 days')")) {
+      const u = String(p.remote_url);
+      const id = p.platform === 'x' ? u.match(/status\/(\d+)/)?.[1]
+        : p.platform === 'facebook' ? (u.match(/videos\/(\d+)/) ? `video:${u.match(/videos\/(\d+)/)[1]}` : u.match(/facebook\.com\/(\d+_\d+|\d+)\/?$/)?.[1]) : null;
+      if (id) run('UPDATE social_posts SET remote_id = ? WHERE id = ?', id, p.id);
+    }
+    const ig = account('instagram');
+    if (ig && one("SELECT 1 FROM social_posts WHERE platform = 'instagram' AND status = 'posted' AND remote_id IS NULL AND remote_url LIKE '%instagram.com/%' AND posted_at > datetime('now', '-30 days')")) {
+      const list = (await http(`${GRAPH}/${ig.data.ig_id}/media?${form({ fields: 'id,permalink', limit: 50, access_token: ig.data.token })}`, {}, 'Instagram posts')).data.data || [];
+      for (const m of list) run("UPDATE social_posts SET remote_id = ? WHERE platform = 'instagram' AND remote_id IS NULL AND remote_url = ?", m.id, m.permalink);
+    }
+  }
+  async function statsFor(post) {
+    const id = post.remote_id;
+    if (post.platform === 'facebook') {
+      const a = account('facebook'); if (!a) return null;
+      if (id.startsWith('video:')) {
+        const v = id.slice(6);
+        const d = (await http(`${GRAPH}/${v}?${form({ fields: 'likes.summary(true).limit(0),comments.summary(true).limit(0)', access_token: a.data.token })}`, {}, 'Facebook video')).data;
+        const ins = await metaInsights(`${v}/video_insights`, ['total_video_views'], a.data.token);
+        return { views: ins.total_video_views, likes: d.likes?.summary?.total_count, comments: d.comments?.summary?.total_count };
+      }
+      const d = (await http(`${GRAPH}/${id}?${form({ fields: 'reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares', access_token: a.data.token })}`, {}, 'Facebook post')).data;
+      const ins = await metaInsights(`${id}/insights`, ['post_media_view', 'post_impressions', 'post_impressions_unique', 'post_clicks'], a.data.token);
+      return { views: ins.post_media_view ?? ins.post_impressions, reach: ins.post_impressions_unique, likes: d.reactions?.summary?.total_count,
+        comments: d.comments?.summary?.total_count, shares: d.shares?.count ?? 0, clicks: ins.post_clicks };
+    }
+    if (post.platform === 'instagram') {
+      const a = account('instagram'); if (!a) return null;
+      const d = (await http(`${GRAPH}/${id}?${form({ fields: 'like_count,comments_count', access_token: a.data.token })}`, {}, 'Instagram post')).data;
+      const ins = await metaInsights(`${id}/insights`, ['views', 'reach', 'saved', 'shares'], a.data.token);
+      return { views: ins.views, reach: ins.reach, likes: d.like_count, comments: d.comments_count, shares: ins.shares, saves: ins.saved };
+    }
+    return null;
+  }
+  let statsRunning = false;
+  async function refreshStats({ force = false } = {}) {
+    if (statsRunning) return { updated: 0 };
+    statsRunning = true;
+    let updated = 0;
+    try {
+      await fillRemoteIds().catch(e => console.error('Post ids:', e.message));
+      const save = (id, st) => { run("UPDATE social_posts SET stats = ?, stats_at = datetime('now') WHERE id = ?", JSON.stringify(Object.fromEntries(Object.entries(st).filter(([, v]) => typeof v === 'number'))), id); updated++; };
+      const due = force ? "1" : "(stats_at IS NULL OR stats_at < datetime('now', '-3 hours'))";
+      for (const post of all(`SELECT * FROM social_posts WHERE status = 'posted' AND remote_id IS NOT NULL AND platform IN ('facebook', 'instagram')
+        AND posted_at > datetime('now', '-30 days') AND ${due} ORDER BY posted_at DESC LIMIT 60`)) {
+        try { const st = await statsFor(post); if (st) save(post.id, st); } catch (e) { console.error(`Stats for post ${post.id} (${post.platform}):`, e.message); }
+      }
+      // X: one request for up to 100 posts, at most once a day, posts from the last 14 days.
+      const xDue = force ? "1" : "(stats_at IS NULL OR stats_at < datetime('now', '-23 hours'))";
+      const xs = getSettings().social_x_stats === '0' ? [] : all(`SELECT * FROM social_posts WHERE status = 'posted' AND platform = 'x' AND remote_id IS NOT NULL
+        AND posted_at > datetime('now', '-14 days') AND ${xDue} ORDER BY posted_at DESC LIMIT 100`);
+      if (xs.length) {
+        try {
+          const a = await xToken();
+          const r = (await http(`https://api.x.com/2/tweets?${form({ ids: xs.map(p => p.remote_id).join(','), 'tweet.fields': 'public_metrics' })}`, { headers: { Authorization: `Bearer ${a.data.token}` } }, 'X numbers')).data;
+          for (const t of r.data || []) {
+            const m = t.public_metrics || {}, post = xs.find(p => p.remote_id === t.id);
+            if (post) save(post.id, { views: m.impression_count, likes: m.like_count, comments: m.reply_count, shares: (m.retweet_count || 0) + (m.quote_count || 0), saves: m.bookmark_count });
+          }
+        } catch (e) { console.error('X numbers:', e.message); }
+      }
+    } finally { statsRunning = false; }
+    return { updated };
+  }
+  function results(days = 30) {
+    const posts = all(`SELECT sp.id, sp.platform, sp.kind, sp.ref, sp.slot, sp.media, sp.text, sp.posted_at, sp.remote_url, sp.stats, sp.stats_at, p.title AS product
+      FROM social_posts sp LEFT JOIN products p ON p.id = sp.product_id WHERE sp.status = 'posted' AND sp.posted_at > datetime('now', ?) ORDER BY sp.posted_at DESC`, `-${days} days`)
+      .map(p => ({ ...p, text: String(p.text || '').slice(0, 140), stats: p.stats ? JSON.parse(p.stats) : null }));
+    const keys = ['views', 'likes', 'comments', 'shares', 'saves'];
+    const sum = list => Object.fromEntries(keys.map(k => [k, list.reduce((n, p) => n + (p.stats?.[k] || 0), 0)]));
+    const group = by => Object.entries(posts.reduce((g, p) => ((g[by(p)] ||= []).push(p), g), {})).map(([k, list]) => ({ key: k, posts: list.length, measured: list.filter(p => p.stats).length, ...sum(list.filter(p => p.stats)) }));
+    return { days, posts, byPlatform: group(p => p.platform), byKind: group(p => (p.kind === 'brand' ? 'branding' : p.kind === 'product' ? (p.media === 'reel' ? 'product video' : 'product') : p.kind)), measurable: STATS_PLATFORMS };
+  }
+  admin.get('/social/results', (_req, res) => res.json(results()));
+  admin.post('/social/results/refresh', wrap(async (_req, res) => {
+    try { const r = await refreshStats({ force: true }); res.json({ ...r, ...results() }); } catch (e) { bad(res, e.message); }
+  }));
+  setInterval(() => refreshStats().catch(e => console.error('Post numbers:', e.message)), 60 * 60 * 1000).unref();
+
   // ---------- weekly results email ----------
   // Monday from 8am Lagos time: last week's posts, visitors and where they came from, most viewed products, and
   // sales and free downloads by where the buyer first came from.
@@ -1117,6 +1219,8 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
     const viewed = all(`SELECT p.title, SUM(v.views) AS n FROM visit_products v JOIN products p ON p.id = v.product_id WHERE v.day >= ? AND v.day < ? GROUP BY v.product_id ORDER BY n DESC LIMIT 5`, start, end);
     const orders = all(`SELECT o.status, o.amount_cents, o.currency, COALESCE(o.source, 'Unknown') AS source, p.title FROM orders o JOIN products p ON p.id = o.product_id
       WHERE o.status IN ('paid', 'free') AND date(o.created_at) >= ? AND date(o.created_at) < ?`, start, end);
+    const top = all("SELECT platform, text, posted_at, stats FROM social_posts WHERE status = 'posted' AND stats IS NOT NULL AND posted_at >= ? AND posted_at < ?", start, end)
+      .map(p => { const st = JSON.parse(p.stats); return { ...p, views: st.views, score: (st.likes || 0) + (st.comments || 0) + (st.shares || 0) }; }).sort((a, b) => b.score - a.score).slice(0, 3);
     const paid = orders.filter(o => o.status === 'paid'), free = orders.filter(o => o.status === 'free');
     const totals = {}; for (const o of paid) totals[o.currency] = (totals[o.currency] || 0) + o.amount_cents;
     const bySource = {}; for (const o of orders) { const b = (bySource[o.source] ||= { sales: 0, free: 0 }); o.status === 'paid' ? b.sales++ : b.free++; }
@@ -1132,6 +1236,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
         .map(([src, b]) => `${src} ${b.sales} sale${b.sales === 1 ? '' : 's'}${b.free ? ` + ${b.free} free` : ''}`).join(', ')] : []),
       ...(paid.length ? ['Sold: ' + [...new Set(paid.map(o => o.title))].slice(0, 6).join(', ')] : []),
       '',
+      ...(top.length ? ['TOP POSTS (likes + comments + shares): ' + top.map(p => `${NAMES[p.platform]} ${p.posted_at.slice(5, 10)} "${String(p.text).split('\n')[0].slice(0, 60)}" (${p.score}${p.views ? ', ' + p.views + ' views' : ''})`).join('; '), ''] : []),
       ...(viewed.length ? ['MOST VIEWED: ' + viewed.map(x => `${x.title} (${x.n})`).join(', '), ''] : []),
       `POSTS SENT: ${posts.reduce((a, x) => a + x.n, 0)}${posts.length ? ' (' + posts.map(x => `${NAMES[x.platform] || x.platform} ${x.n}`).join(', ') + ')' : ''}${failed ? `. ${failed} didn't go out; see the Social page.` : '.'}`,
       '',
