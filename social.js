@@ -85,7 +85,7 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       // permissions; older ones take the permissions as a scope.
       const scope = 'pages_show_list,pages_read_engagement,pages_read_user_content,pages_manage_posts,read_insights,business_management,instagram_basic,instagram_content_publish,instagram_manage_insights';
       const how = env('META_CONFIG_ID') ? { config_id: env('META_CONFIG_ID'), override_default_response_type: 'true' } : { scope };
-      return res.json({ url: `https://www.facebook.com/${GRAPH.split('/').pop()}/dialog/oauth?${form({ client_id: env('META_APP_ID'), redirect_uri: redirectUri('meta'), state, response_type: 'code', ...how })}` });
+      return res.json({ url: `https://www.facebook.com/${GRAPH.split('/').pop()}/dialog/oauth?${form({ client_id: env('META_APP_ID'), redirect_uri: redirectUri('meta'), state, response_type: 'code', auth_type: 'rerequest', ...how })}` }); // rerequest: ask again for permissions added since the last connect
     }
     if (p === 'linkedin') {
       if (!configured.linkedin()) return bad(res, 'Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET in Railway first.');
