@@ -377,7 +377,7 @@
         ${fb?.pages?.length > 1 ? `<div style="padding:12px 16px"><label class="field" style="margin:0"><span>Facebook Page to post on</span><select class="input" id="so-page">${fb.pages.map(p => `<option value="${p.id}" ${p.id === fb.page_id ? 'selected' : ''}>${esc(p.name)}${p.ig ? ` (Instagram @${esc(p.ig)})` : ''}</option>`).join('')}</select></label></div>` : ''}
         <details style="padding:12px 16px;font-size:12.5px"><summary class="muted" style="cursor:pointer">Redirect links for the developer apps</summary><p class="muted" style="margin:8px 0 0;line-height:1.8">Meta: <code>${esc(d.redirects.meta)}</code><br>LinkedIn: <code>${esc(d.redirects.linkedin)}</code><br>X: <code>${esc(d.redirects.x)}</code><br>Pinterest: <code>${esc(d.redirects.pinterest)}</code><br>TikTok: <code>${esc(d.redirects.tiktok)}</code></p></details>
       </div>
-      <form class="panel" id="so-set" style="margin-bottom:18px"><h3>Settings</h3>
+      <details class="panel" style="margin-bottom:18px"><summary style="cursor:pointer;display:flex;align-items:center;gap:10px"><h3 style="margin:0">Settings</h3><span class="dim" style="font-size:13px">schedule, platforms, branding, voice</span></summary><form id="so-set" style="margin-top:16px">
         <label class="check" style="margin-bottom:12px"><span class="switch"><input type="checkbox" id="so-on" ${s.social_enabled !== '0' ? 'checked' : ''}><i></i></span>Write a new week of posts when the queue runs low</label>
         <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:12px">${['x', 'linkedin', 'facebook', 'instagram', 'pinterest', 'tiktok'].map(p => `<label class="check" style="font-size:13px"><input type="checkbox" data-plat="${p}" ${on.includes(p) ? 'checked' : ''} style="accent-color:var(--accent)">${NAME[p]}</label>`).join('')}</div>
         <label class="field"><span>Post at (Nigeria time)</span><select class="input" id="so-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_hour || 10) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Product posts. X first, then LinkedIn, Facebook, Instagram and Pinterest ten minutes apart.</small></label>
@@ -400,14 +400,12 @@
         <label class="field"><span>More about you (optional)</span><textarea class="input" id="so-bvoice" rows="6" maxlength="4000">${esc(s.social_brand_voice || '')}</textarea></label>
         <label class="field"><span>About your brand and voice</span><textarea class="input" id="so-voice" rows="4" maxlength="1500">${esc(s.social_voice || '')}</textarea><small>Claude reads this every time it writes. Say who you help, how you sound, and anything to avoid.</small></label>
         <button class="btn btn-primary btn-sm" id="so-save" type="button">Save settings</button>
-      </form>
+      </form></details>
       <div class="box-head" style="padding:0 0 10px"><h3 style="font-size:18px">Coming up</h3></div>
       ${queue.length ? Object.entries(byDay).map(([day, posts]) => `<h4 style="margin:18px 0 10px;font-weight:500">${new Date(day + 'T12:00:00Z').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} <span class="dim" style="font-weight:400">· ${esc(posts[0].product || '')}</span></h4>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px">${posts.map(card).join('')}</div>`).join('')
         : `<div class="empty"><h3>No posts queued</h3><p>${Object.keys(d.accounts).length && d.ready.ai ? 'Press "Write next week\'s posts", or wait: a new week is written automatically when the queue runs low.' : 'Connect an account and add the API key, then the first week is written automatically.'}</p></div>`}
-      <div id="so-results" style="margin-top:22px"></div>
-      ${d.history.length ? `<div class="panel tbl-wrap" style="padding:0;margin-top:22px"><div class="box-head"><h3 style="font-size:18px">History</h3></div><table class="tbl"><tr><th>When</th><th>Where</th><th>Product</th><th>Result</th></tr>
-        ${d.history.map(h => `<tr><td class="muted">${when(h.posted_at || h.scheduled_at)}</td><td>${NAME[h.platform]}</td><td class="muted">${esc(h.product || '')}</td><td>${h.status === 'posted' ? `<a href="${esc(h.remote_url)}" target="_blank" rel="noopener">View post</a>` : `<span class="dim">${h.status === 'expired' ? 'not approved in time' : h.status}</span>`}</td></tr>`).join('')}</table></div>` : ''}`);
+      `);
 
     $$('[data-connect]').forEach(b => b.addEventListener('click', async () => {
       try { const r = await api(`/api/admin/social/connect/${b.dataset.connect}`); location.href = r.url; } catch (err) { toast(err.message, true); }
@@ -435,28 +433,6 @@
       try { const r = await api('/api/admin/social/generate', { method: 'POST' }); toast(r.created ? `${r.created} ${r.evenings ? 'evening ' : ''}posts written. Review them below.` : 'Nothing new to write.'); social(); }
       catch (err) { toast(err.message, true); e.target.disabled = false; e.target.textContent = "Write next week's posts"; }
     });
-    // Results: views and engagement per post (Facebook, Instagram, X), by platform and by kind of post.
-    const n = v => (v == null ? '<span class="dim">–</span>' : Number(v).toLocaleString());
-    const kindName = p => (p.kind === 'brand' ? `Branding${p.ref ? ' · ' + esc(p.ref) : ''}` : p.kind === 'product' ? (p.media === 'reel' ? 'Product video' : 'Product') : KIND[p.kind] || p.kind);
-    const drawResults = r => {
-      const el = $('#so-results'); if (!el) return;
-      const sumRow = g => `<tr><td><b style="font-weight:500">${esc(NAME[g.key] || g.key[0].toUpperCase() + g.key.slice(1))}</b></td><td>${g.posts}</td><td>${n(g.measured ? g.views : null)}</td><td>${n(g.measured ? g.likes : null)}</td><td>${n(g.measured ? g.comments : null)}</td><td>${n(g.measured ? g.shares : null)}</td><td>${n(g.measured ? g.saves : null)}</td></tr>`;
-      const head = '<tr><th></th><th>Posts</th><th>Views</th><th>Likes</th><th>Comments</th><th>Shares</th><th>Saves</th></tr>';
-      el.innerHTML = `<div class="panel tbl-wrap" style="padding:0"><div class="box-head" style="display:flex;align-items:center;gap:10px"><h3 style="font-size:18px">Results, last ${r.days} days</h3><button class="btn btn-sm" id="so-res-refresh" style="margin-left:auto">Refresh numbers</button></div>
-        <p class="muted" style="font-size:12.5px;margin:0 16px 12px">Facebook and Instagram update every few hours, X once a day. LinkedIn and TikTok don't share post numbers with apps, so check those in their apps.</p>
-        ${r.posts.length ? `<table class="tbl">${head}${r.byPlatform.map(sumRow).join('')}</table>
-        <h4 style="margin:18px 16px 6px;font-weight:500">By kind of post</h4><table class="tbl">${head}${r.byKind.map(sumRow).join('')}</table>
-        <h4 style="margin:18px 16px 6px;font-weight:500">Each post</h4><table class="tbl"><tr><th>When</th><th>Where</th><th>Kind</th><th>Post</th><th>Views</th><th>Likes</th><th>Comments</th><th>Shares</th></tr>
-        ${r.posts.map(p => `<tr><td class="muted" style="white-space:nowrap">${when(p.posted_at)}</td><td>${NAME[p.platform]}</td><td class="muted" style="font-size:12.5px">${kindName(p)}</td>
-          <td style="font-size:12.5px;max-width:320px">${p.remote_url ? `<a href="${esc(p.remote_url)}" target="_blank" rel="noopener">${esc(p.text.split('\n')[0].slice(0, 70) || 'View')}</a>` : esc(p.text.slice(0, 70))}</td>
-          ${r.measurable.includes(p.platform) ? `<td>${n(p.stats?.views)}</td><td>${n(p.stats?.likes)}</td><td>${n(p.stats?.comments)}</td><td>${n(p.stats?.shares)}</td>` : '<td colspan="4" class="dim" style="font-size:12px">in the app</td>'}</tr>`).join('')}</table>`
-        : '<p class="muted" style="margin:0 16px 16px">No posts have gone out in this time yet.</p>'}</div>`;
-      $('#so-res-refresh')?.addEventListener('click', async e => {
-        e.target.disabled = true; e.target.textContent = 'Refreshing…';
-        try { drawResults(await api('/api/admin/social/results/refresh', { method: 'POST' })); toast('Numbers updated'); } catch (err) { toast(err.message, true); e.target.disabled = false; e.target.textContent = 'Refresh numbers'; }
-      });
-    };
-    api('/api/admin/social/results').then(drawResults).catch(() => {});
     $('#so-rebrand').addEventListener('click', async e => {
       e.preventDefault();
       if (!(await confirmDialog('Rewrite the queued week?', 'Upcoming product posts on non-product days, and upcoming product-tip evenings, are replaced with branding posts as drafts for you to approve. Save your settings first.', 'Rewrite'))) return;

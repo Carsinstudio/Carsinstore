@@ -1285,6 +1285,14 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       WHERE o.status IN ('paid', 'free') AND date(o.created_at) >= ? AND date(o.created_at) < ?`, start, end);
     const top = all("SELECT platform, text, posted_at, stats FROM social_posts WHERE status = 'posted' AND stats IS NOT NULL AND posted_at >= ? AND posted_at < ?", start, end)
       .map(p => { const st = JSON.parse(p.stats); return { ...p, views: st.views, score: (st.likes || 0) + (st.comments || 0) + (st.shares || 0) }; }).sort((a, b) => b.score - a.score).slice(0, 3);
+    // Post numbers for the week, per platform and per kind (from the stats read from Facebook, Instagram and X).
+    const measured = all("SELECT platform, kind, media, stats FROM social_posts WHERE status = 'posted' AND stats IS NOT NULL AND posted_at >= ? AND posted_at < ?", start, end)
+      .map(p => ({ ...p, st: JSON.parse(p.stats) }));
+    const fmt = list => { const t = k => list.reduce((n, p) => n + (p.st[k] || 0), 0); return `${list.length} post${list.length === 1 ? '' : 's'}, ${t('views').toLocaleString()} views, ${t('likes')} likes, ${t('comments')} comments, ${t('shares')} shares`; };
+    const groupBy = f => Object.entries(measured.reduce((g, p) => ((g[f(p)] ||= []).push(p), g), {}));
+    const byPlat = groupBy(p => NAMES[p.platform] || p.platform).map(([k, list]) => `${k}: ${fmt(list)}`);
+    const byKindLine = groupBy(p => (p.kind === 'brand' ? 'Branding' : p.kind === 'product' ? (p.media === 'reel' ? 'Product videos' : 'Product posts') : p.kind === 'question' ? 'Questions' : p.kind === 'review' ? 'Reviews' : p.kind))
+      .map(([k, list]) => `${k}: ${fmt(list)}`);
     const paid = orders.filter(o => o.status === 'paid'), free = orders.filter(o => o.status === 'free');
     const totals = {}; for (const o of paid) totals[o.currency] = (totals[o.currency] || 0) + o.amount_cents;
     const bySource = {}; for (const o of orders) { const b = (bySource[o.source] ||= { sales: 0, free: 0 }); o.status === 'paid' ? b.sales++ : b.free++; }
@@ -1300,6 +1308,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
         .map(([src, b]) => `${src} ${b.sales} sale${b.sales === 1 ? '' : 's'}${b.free ? ` + ${b.free} free` : ''}`).join(', ')] : []),
       ...(paid.length ? ['Sold: ' + [...new Set(paid.map(o => o.title))].slice(0, 6).join(', ')] : []),
       '',
+      ...(byPlat.length ? ['POST RESULTS BY PLATFORM: ' + byPlat.join('; '), ...(byKindLine.length ? ['By kind of post: ' + byKindLine.join('; ')] : []), '(LinkedIn and TikTok keep post numbers in their apps.)', ''] : []),
       ...(top.length ? ['TOP POSTS (likes + comments + shares): ' + top.map(p => `${NAMES[p.platform]} ${p.posted_at.slice(5, 10)} "${String(p.text).split('\n')[0].slice(0, 60)}" (${p.score}${p.views ? ', ' + p.views + ' views' : ''})`).join('; '), ''] : []),
       ...(viewed.length ? ['MOST VIEWED: ' + viewed.map(x => `${x.title} (${x.n})`).join(', '), ''] : []),
       `POSTS SENT: ${posts.reduce((a, x) => a + x.n, 0)}${posts.length ? ' (' + posts.map(x => `${NAMES[x.platform] || x.platform} ${x.n}`).join(', ') + ')' : ''}${failed ? `. ${failed} didn't go out; see the Social page.` : '.'}`,
@@ -1308,7 +1317,9 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
     ];
     return { heading: `Your week: ${v} visitor${v === 1 ? '' : 's'}, ${paid.length} sale${paid.length === 1 ? '' : 's'}`, message: lines.join('\n'), end };
   }
-  async function sendWeekReport(r = weekReport()) {
+  async function sendWeekReport(r) {
+    await refreshStats({ force: true }).catch(e => console.error('Post numbers before report:', e.message)); // freshest numbers in the email
+    r ||= weekReport();
     const s = getSettings();
     return mailer.sendOwnerNote({ to: s.notify_email || supportEmail(s), store: s.store_name, label: 'Weekly results', heading: r.heading, message: r.message,
       ctaUrl: `${BASE_URL}/#/admin`, ctaLabel: 'Open your dashboard', settingsUrl: `${BASE_URL}/#/admin/social`, siteUrl: BASE_URL, support: supportEmail(s), key: `week-report-${r.end}` });
