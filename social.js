@@ -1047,11 +1047,12 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
     AND status IN ('draft', 'approved', 'posting', 'posted', 'failed')`).map(r => r.day).filter(d => weekOf(d) === week));
   function syncSchedule() {
     const s = getSettings();
-    // 1. Queued morning posts move to the current morning hour (keeping each platform's minutes after the hour).
+    // 1. Queued posts move to the current morning / evening hour (keeping each platform's minutes after the hour).
     const hour = Math.min(Math.max(Number(s.social_hour) || 10, 0), 23);
     let moved = 0;
-    for (const p of all("SELECT id, platform, scheduled_at FROM social_posts WHERE slot = 'morning' AND status IN ('draft', 'approved') AND scheduled_at > datetime('now', '+15 minutes')")) {
-      const at = atHour(p.scheduled_at.slice(0, 10), hour, p.platform);
+    const eveHour = Math.min(Math.max(Number(s.social_evening_hour) || 19, 0), 23);
+    for (const p of all("SELECT id, platform, slot, scheduled_at FROM social_posts WHERE slot IN ('morning', 'evening') AND status IN ('draft', 'approved') AND scheduled_at > datetime('now', '+15 minutes')")) {
+      const at = atHour(p.scheduled_at.slice(0, 10), p.slot === 'evening' ? eveHour : hour, p.platform);
       if (at > new Date(Date.now() + 10 * 60e3) && sqlTime(at) !== p.scheduled_at) { run('UPDATE social_posts SET scheduled_at = ? WHERE id = ?', sqlTime(at), p.id); moved++; }
     }
     // 2. Weeks with more evening days than allowed drop queued evenings (never posted ones), off-days first.
