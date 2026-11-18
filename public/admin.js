@@ -357,7 +357,7 @@
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>${p.kind && p.kind !== 'product' ? `<span class="status pending" style="font-size:9.5px">${p.kind === 'brand' ? `Branding · ${esc(p.ref || '')}` : KIND[p.kind]}</span>` : ''}${isReel(p) ? '<span class="status live" style="font-size:9.5px">Video</span>' : ''}
           <span class="status ${p.status === 'approved' ? 'live' : p.status === 'failed' ? 'draft' : 'pending'}" style="margin-left:auto">${p.status}</span></div>
         <div style="display:flex;gap:12px;align-items:flex-start">
-          ${p.image_url && p.platform !== 'x' ? `<img src="${esc(p.image_url)}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:8px;flex:none">` : ''}
+          ${p.image_url ? `<button type="button" data-preview="${p.id}" title="See the picture full size" style="padding:0;border:0;background:none;cursor:zoom-in;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px"><img src="${esc(p.image_url)}" alt="" style="width:96px;height:120px;object-fit:cover;border-radius:8px;display:block"><small class="dim" style="font-size:11px">Preview</small></button>` : ''}
           <div style="flex:1;display:flex;flex-direction:column;gap:6px">${p.platform === 'pinterest' ? `<input class="input" style="font-size:13px" maxlength="100" value="${esc(p.title || '')}" data-title="${p.id}" placeholder="Pin title">` : p.platform === 'tiktok' ? `<input class="input" style="font-size:13px" maxlength="90" value="${esc(p.title || '')}" data-title="${p.id}" placeholder="TikTok title">` : ''}<textarea class="input" rows="${p.platform === 'x' ? 3 : 6}" style="font-size:13px;line-height:1.5" data-text="${p.id}">${esc(p.text)}</textarea></div>
         </div>
         ${p.error ? `<p style="color:#ff8b7a;font-size:12.5px;margin:8px 0 0">${esc(p.error)}</p>` : ''}
@@ -465,6 +465,16 @@
       e.preventDefault();
       try { await api('/api/admin/social/report/send', { method: 'POST' }); toast('Sent. Check your inbox.'); } catch (err) { toast(err.message, true); }
     });
+    // Full-size preview of a post: its picture (as it will go out) with the text under it, like the feed shows it.
+    $$('[data-preview]').forEach(b => b.addEventListener('click', () => {
+      const p = queue.find(x => String(x.id) === b.dataset.preview); if (!p) return;
+      const text = $(`[data-text="${p.id}"]`)?.value ?? p.text;
+      modal(`<h3>${NAME[p.platform]} · ${esc(when(p.scheduled_at))}</h3>
+        <div style="margin-top:14px;max-height:72vh;overflow:auto;display:flex;flex-direction:column;gap:12px">
+          <img src="${esc(p.image_url)}" alt="" style="width:100%;height:auto;border-radius:10px;background:#000">
+          <div style="white-space:pre-wrap;font-size:13.5px;line-height:1.55">${esc(text)}</div></div>
+        <div class="actions"><a class="btn" href="${esc(p.image_url)}" target="_blank" rel="noopener">Open image</a><button class="btn btn-primary" data-close>Close</button></div>`);
+    }));
     $$('[data-reel]').forEach(b => b.addEventListener('click', async () => {
       const label = b.textContent; b.disabled = true; b.textContent = 'Making video…';
       try {
