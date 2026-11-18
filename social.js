@@ -1291,7 +1291,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
     const fmt = list => { const t = k => list.reduce((n, p) => n + (p.st[k] || 0), 0); return `${list.length} post${list.length === 1 ? '' : 's'}, ${t('views').toLocaleString()} views, ${t('likes')} likes, ${t('comments')} comments, ${t('shares')} shares`; };
     const groupBy = f => Object.entries(measured.reduce((g, p) => ((g[f(p)] ||= []).push(p), g), {}));
     const byPlat = groupBy(p => NAMES[p.platform] || p.platform).map(([k, list]) => `${k}: ${fmt(list)}`);
-    const byKindLine = groupBy(p => (p.kind === 'brand' ? 'Branding' : p.kind === 'product' ? (p.media === 'reel' ? 'Product videos' : 'Product posts') : p.kind === 'question' ? 'Questions' : p.kind === 'review' ? 'Reviews' : p.kind))
+    const byKindLine = groupBy(p => (p.kind === 'brand' ? 'Branding' : p.kind === 'product' ? (p.media === 'reel' ? 'Product videos' : 'Product posts') : p.kind === 'question' ? 'Questions' : p.kind === 'review' ? 'Reviews' : p.kind === 'tip' ? 'Tips' : p.kind))
       .map(([k, list]) => `${k}: ${fmt(list)}`);
     const paid = orders.filter(o => o.status === 'paid'), free = orders.filter(o => o.status === 'free');
     const totals = {}; for (const o of paid) totals[o.currency] = (totals[o.currency] || 0) + o.amount_cents;
@@ -1305,7 +1305,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       '',
       `SALES: ${paid.length}${paid.length ? ' (' + Object.entries(totals).map(([c, t]) => money(t, c)).join(' + ') + ')' : ''}. Free downloads: ${free.length}.`,
       ...(Object.keys(bySource).length ? ['By where the buyer first came from: ' + Object.entries(bySource).sort((a, b) => (b[1].sales + b[1].free) - (a[1].sales + a[1].free))
-        .map(([src, b]) => `${src} ${b.sales} sale${b.sales === 1 ? '' : 's'}${b.free ? ` + ${b.free} free` : ''}`).join(', ')] : []),
+        .map(([src, b]) => `${src}: ${[b.sales ? `${b.sales} sale${b.sales === 1 ? '' : 's'}` : '', b.free ? `${b.free} free` : ''].filter(Boolean).join(' + ')}`).join(', ')] : []),
       ...(paid.length ? ['Sold: ' + [...new Set(paid.map(o => o.title))].slice(0, 6).join(', ')] : []),
       '',
       ...(byPlat.length ? ['POST RESULTS BY PLATFORM: ' + byPlat.join('; '), ...(byKindLine.length ? ['By kind of post: ' + byKindLine.join('; ')] : []), '(LinkedIn and TikTok keep post numbers in their apps.)', ''] : []),
