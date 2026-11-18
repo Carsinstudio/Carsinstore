@@ -83,7 +83,7 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       run('INSERT INTO social_oauth (state, platform) VALUES (?, ?)', state, p);
       // Newer Meta apps sign in with a Facebook Login for Business configuration (META_CONFIG_ID) that lists the
       // permissions; older ones take the permissions as a scope.
-      const scope = 'pages_show_list,pages_read_engagement,pages_manage_posts,read_insights,business_management,instagram_basic,instagram_content_publish,instagram_manage_insights';
+      const scope = 'pages_show_list,pages_read_engagement,pages_read_user_content,pages_manage_posts,read_insights,business_management,instagram_basic,instagram_content_publish,instagram_manage_insights';
       const how = env('META_CONFIG_ID') ? { config_id: env('META_CONFIG_ID'), override_default_response_type: 'true' } : { scope };
       return res.json({ url: `https://www.facebook.com/${GRAPH.split('/').pop()}/dialog/oauth?${form({ client_id: env('META_APP_ID'), redirect_uri: redirectUri('meta'), state, response_type: 'code', ...how })}` });
     }
@@ -1118,10 +1118,15 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
         const row = (r.data || [])[0];
         const v = row?.values?.[0]?.value ?? row?.total_value?.value;
         if (typeof v === 'number') out[m] = v;
-      } catch (e) { if (/metric|valid|support/i.test(e.message)) badMetric.add(m); else throw e; }
+      } catch (e) {
+        if (/permission|\(#10\)|\(#200\)/i.test(e.message)) { console.error('Insights not allowed yet (reconnect Facebook):', e.message.slice(0, 160)); break; }
+        if (/metric|valid|support/i.test(e.message)) badMetric.add(m); else throw e;
+      }
     }
     return out;
   }
+  // A Graph read that returns {} instead of failing when a permission is missing, so the other numbers still count.
+  const metaTry = (url, what) => http(url, {}, what).then(r => r.data).catch(e => { if (/permission|\(#10\)|\(#200\)/i.test(e.message)) { console.error(`${what}:`, e.message.slice(0, 160)); return {}; } throw e; });
   // Older posts were saved with only their link: work out their id from it.
   async function fillRemoteIds() {
     for (const p of all("SELECT id, platform, remote_url FROM social_posts WHERE status = 'posted' AND remote_id IS NULL AND remote_url IS NOT NULL AND posted_at > datetime('now', '-30 days')")) {
@@ -1142,18 +1147,18 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       const a = account('facebook'); if (!a) return null;
       if (id.startsWith('video:')) {
         const v = id.slice(6);
-        const d = (await http(`${GRAPH}/${v}?${form({ fields: 'likes.summary(true).limit(0),comments.summary(true).limit(0)', access_token: a.data.token })}`, {}, 'Facebook video')).data;
+        const d = await metaTry(`${GRAPH}/${v}?${form({ fields: 'likes.summary(true).limit(0),comments.summary(true).limit(0)', access_token: a.data.token })}`, 'Facebook video');
         const ins = await metaInsights(`${v}/video_insights`, ['total_video_views'], a.data.token);
         return { views: ins.total_video_views, likes: d.likes?.summary?.total_count, comments: d.comments?.summary?.total_count };
       }
-      const d = (await http(`${GRAPH}/${id}?${form({ fields: 'reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares', access_token: a.data.token })}`, {}, 'Facebook post')).data;
+      const d = await metaTry(`${GRAPH}/${id}?${form({ fields: 'reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares', access_token: a.data.token })}`, 'Facebook post');
       const ins = await metaInsights(`${id}/insights`, ['post_media_view', 'post_impressions', 'post_impressions_unique', 'post_clicks'], a.data.token);
       return { views: ins.post_media_view ?? ins.post_impressions, reach: ins.post_impressions_unique, likes: d.reactions?.summary?.total_count,
-        comments: d.comments?.summary?.total_count, shares: d.shares?.count ?? 0, clicks: ins.post_clicks };
+        comments: d.comments?.summary?.total_count, shares: d.shares?.count, clicks: ins.post_clicks };
     }
     if (post.platform === 'instagram') {
       const a = account('instagram'); if (!a) return null;
-      const d = (await http(`${GRAPH}/${id}?${form({ fields: 'like_count,comments_count', access_token: a.data.token })}`, {}, 'Instagram post')).data;
+      const d = await metaTry(`${GRAPH}/${id}?${form({ fields: 'like_count,comments_count', access_token: a.data.token })}`, 'Instagram post');
       const ins = await metaInsights(`${id}/insights`, ['views', 'reach', 'saved', 'shares'], a.data.token);
       return { views: ins.views, reach: ins.reach, likes: d.like_count, comments: d.comments_count, shares: ins.shares, saves: ins.saved };
     }
@@ -1170,7 +1175,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       const due = force ? "1" : "(stats_at IS NULL OR stats_at < datetime('now', '-3 hours'))";
       for (const post of all(`SELECT * FROM social_posts WHERE status = 'posted' AND remote_id IS NOT NULL AND platform IN ('facebook', 'instagram')
         AND posted_at > datetime('now', '-30 days') AND ${due} ORDER BY posted_at DESC LIMIT 60`)) {
-        try { const st = await statsFor(post); if (st) save(post.id, st); } catch (e) { console.error(`Stats for post ${post.id} (${post.platform}):`, e.message); }
+        try { const st = await statsFor(post); if (st && Object.values(st).some(v => typeof v === 'number')) save(post.id, st); } catch (e) { console.error(`Stats for post ${post.id} (${post.platform}):`, e.message); }
       }
       // X: one request for up to 100 posts, at most once a day, posts from the last 14 days.
       const xDue = force ? "1" : "(stats_at IS NULL OR stats_at < datetime('now', '-23 hours'))";
