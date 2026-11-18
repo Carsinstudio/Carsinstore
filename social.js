@@ -823,6 +823,8 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
   // Pictures are the owner's two templates (templates.js) with the post's hook line; never generated artwork.
   const productDays = s => String(s.social_product_days ?? '1,4').split(',').map(Number).filter(n => n >= 0 && n <= 6);
   const isProductDay = (day, s) => productDays(s).includes(new Date(day + 'T12:00:00Z').getUTCDay());
+  // Content themes, rotated so people discover Francis's journey gradually over weeks.
+  const BRAND_THEMES = ['personal journey', 'design expertise', 'business lessons', 'LinkedIn branding'];
   const BRAND_AUDIENCES = ['founders looking for their first customers', 'coaches who want more booked calls', 'freelancers who want better clients', 'creators', 'job seekers'];
   // Post formats (from the owner's content-ideas board), by type. Ones that need filming, a clip to react to, or
   // verified client results (reaction, challenge, case study) are left out.
@@ -852,7 +854,9 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       properties: { day: { type: 'integer' }, hook: { type: 'string' }, x: { type: 'string' }, linkedin: { type: 'string' }, facebook: { type: 'string' }, instagram: { type: 'string' }, tiktok: { type: 'string' } } } } },
   };
   async function writeBrand(days, s) {
-    const brief = days.map((d, i) => ({ day: i + 1, date: d.date, type: d.type, format: d.format, audience: d.audience }));
+    const brief = days.map((d, i) => ({ day: i + 1, date: d.date, type: d.type, format: d.format, theme: d.theme, audience: d.audience }));
+    // Openings of recent branding posts, so the same story or figure isn't told again too soon.
+    const recent = all("SELECT text FROM social_posts WHERE kind = 'brand' AND platform = 'linkedin' ORDER BY scheduled_at DESC LIMIT 24").map(r => String(r.text).replace(/s+/g, ' ').slice(0, 160));
     const system = `You write LinkedIn-branding posts for Francis Adediran, a LinkedIn Brand Strategist and the founder of Carsin Studio (carsinstudio.com), which rebrands LinkedIn profiles: banners, headlines, About sections and the whole profile, so it says what the person does, who they help and how.
 ${String(s.social_brand_voice || '').trim() ? `More about him and his voice: ${s.social_brand_voice}\n` : ''}
 WHO THE POSTS ARE FOR: founders, coaches, freelancers, creators and job seekers whose LinkedIn profile has no real branding: still the default blue banner, nothing set up, a banner whose promise has nothing to do with what they do or who they help, a landscape photo or stock image that shows nothing about them, a headline that is just a job title.
@@ -892,6 +896,12 @@ FIELDS:
 - instagram: 80 to 170 words. Strong first line, short paragraphs, the call to action, then 5 to 8 relevant hashtags on the last line. No links.
 - tiktok: 1 to 3 short lines that tease the image and invite comments. No hashtags, no links.
 
+THEMES (each day names one): personal journey (his beginnings, struggles, growth, ambitions), design expertise (his process, opinions, tools, creative decisions), business lessons (pricing, freelancing, collaboration, client relationships), LinkedIn branding (client work, strategy, profile tips, testimonials). Educational and funny posts take the theme's angle but stay about the reader's profile.
+
+REVEAL THE JOURNEY GRADUALLY: one story or one main fact per post, never a list of achievements; at most one or two figures in a post. Don't retell a story, testimonial or figure that appears in these recent posts:
+${recent.length ? recent.map(t => '- ' + t).join('\n') : '(none yet)'}
+If his income comes up, it is his design income of about $1,000 to $1,500 a month; never call it profit or total business revenue.
+
 Rules: never claim results you weren't given, never promise jobs, clients or income, no prices, no fake urgency. Don't mention any online store or digital products. Plain English, no markdown, no asterisks. Don't open two days the same way.`;
     return claudeJson(system, `Write the posts for these ${days.length} days:\n${JSON.stringify(brief, null, 1)}`, BRAND_SCHEMA);
   }
@@ -922,7 +932,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
   function brandPlan(dates, s) {
     const types = brandTypes(s);
     const past = one("SELECT COUNT(*) AS n FROM social_posts WHERE kind = 'brand' AND platform = 'x'").n;
-    return dates.map((date, i) => { const type = types[(past + i) % types.length], f = BRAND_FORMATS[type]; return { date, type, format: f[Math.floor((past + i) / types.length) % f.length], audience: BRAND_AUDIENCES[(past + i) % BRAND_AUDIENCES.length] }; });
+    return dates.map((date, i) => { const type = types[(past + i) % types.length], f = BRAND_FORMATS[type]; return { date, type, format: f[Math.floor((past + i) / types.length) % f.length], theme: BRAND_THEMES[(past + i) % BRAND_THEMES.length], audience: BRAND_AUDIENCES[(past + i) % BRAND_AUDIENCES.length] }; });
   }
   // Moves the already-written queue to the new mix: upcoming product mornings on non-product days and upcoming
   // product-tip evenings are replaced with branding posts (as drafts to approve). Posts already out are untouched.
