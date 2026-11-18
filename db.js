@@ -139,6 +139,19 @@ const DEFAULT_SETTINGS = {
   social_reels: '1',              // Mon, Wed, Fri: Instagram, Facebook and TikTok morning posts are short videos
   social_reviews: '1',            // one evening a week quotes a real buyer review, when there is a new one
   social_report: '1',             // Monday morning email: last week's posts, visits and sales by platform
+  social_brand: '1',              // non-product days are LinkedIn-branding posts for Carsin Studio (see social.js)
+  social_product_days: '1,3,5',   // weekdays (0 = Sunday) with product posts; the rest are branding posts
+  social_brand_voice: '',         // extra notes about Francis and how he sounds
+  social_brand_story: '',         // true facts from his life; story posts use only these (no facts = no story posts)
+  social_brand_cta: '',           // the call to action branding posts end with, e.g. "DM me BRAND for a free profile review"
+  social_brand_hooks: [
+    '- A blunt truth: "Your LinkedIn banner is working against you."',
+    '- A question that stings: "Would you hire you, based on your profile alone?"',
+    '- Before and after: "Same person. Same skills. Different banner."',
+    '- Stop doing this: "Stop using a landscape photo as your LinkedIn banner."',
+    '- Curiosity: "The 3 seconds that decide if anyone clicks Follow."',
+    '- Contrarian: "Your profile doesn\'t need more posts. It needs a promise."',
+  ].join('\n'),
   social_voice: 'Carsin Store sells practical digital products (templates, guides, video courses, printables) made by a designer for creatives, job seekers and small business owners in Nigeria and beyond. Friendly, direct and useful; plain words, no hype.',
   extra_currencies: '',           // e.g. 'usd': products can then have a price in that currency too
   plausible_domain: '', ga_id: '', meta_pixel_id: '', tiktok_pixel_id: '',   // analytics, all optional

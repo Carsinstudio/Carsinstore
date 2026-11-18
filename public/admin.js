@@ -354,7 +354,7 @@
     for (const post of queue) (byDay[post.scheduled_at.slice(0, 10)] ||= []).push(post);
     const drafts = queue.filter(p => p.status === 'draft').length;
     const card = p => `<div class="panel" style="padding:14px;margin:0" data-post="${p.id}">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>${p.kind && p.kind !== 'product' ? `<span class="status pending" style="font-size:9.5px">${KIND[p.kind]}</span>` : ''}${isReel(p) ? '<span class="status live" style="font-size:9.5px">Video</span>' : ''}
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>${p.kind && p.kind !== 'product' ? `<span class="status pending" style="font-size:9.5px">${p.kind === 'brand' ? `Branding · ${esc(p.ref || '')}` : KIND[p.kind]}</span>` : ''}${isReel(p) ? '<span class="status live" style="font-size:9.5px">Video</span>' : ''}
           <span class="status ${p.status === 'approved' ? 'live' : p.status === 'failed' ? 'draft' : 'pending'}" style="margin-left:auto">${p.status}</span></div>
         <div style="display:flex;gap:12px;align-items:flex-start">
           ${p.image_url && p.platform !== 'x' ? `<img src="${esc(p.image_url)}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:8px;flex:none">` : ''}
@@ -389,6 +389,14 @@
         <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">One evening a week quotes a real review (4 or 5 stars) or a testimonial from a product page, word for word, on a card. Each quote is used once; weeks without a new one get a tip instead.</small>
         <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-report" ${s.social_report !== '0' ? 'checked' : ''}><i></i></span>Email me last week's results every Monday</label>
         <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">Visitors and where they came from, sales and free downloads by platform, most viewed products, and posts sent. <a href="#" id="so-report-now" style="color:var(--accent-2)">Send this week's now</a></small>
+        <h4 style="margin:22px 0 8px;font-weight:500">LinkedIn-branding posts (Carsin Studio)</h4>
+        <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-brand" ${s.social_brand !== '0' ? 'checked' : ''}><i></i></span>Product posts only on some days; branding posts on the rest</label>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 16px;margin:8px 0 6px"><span class="dim" style="font-size:13px">Product days:</span>${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((n, i) => `<label class="check" style="font-size:13px"><input type="checkbox" data-pday="${i}" ${String(s.social_product_days ?? '1,3,5').split(',').includes(String(i)) ? 'checked' : ''} style="accent-color:var(--accent)">${n}</label>`).join('')}</div>
+        <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">Other mornings, and the evening tips, are written as Francis for Carsin Studio: funny, step-by-step educational, or a story. Each opens with a real pain point of founders, coaches, freelancers, creators and job seekers with unbranded profiles, says what it costs them, then offers Carsin Studio as the fix. Pictures use your two templates with the post's hook. <a href="#" id="so-rebrand" style="color:var(--accent-2)">Rewrite the queued week to this mix</a></small>
+        <label class="field"><span>Hook styles to use</span><textarea class="input" id="so-hooks" rows="6" maxlength="4000">${esc(s.social_brand_hooks || '')}</textarea><small>One per line. Claude varies between them; the first line of every branding post is a hook.</small></label>
+        <label class="field"><span>True facts for story posts</span><textarea class="input" id="so-story" rows="4" maxlength="4000" placeholder="e.g. I started designing in 2019. My first client found me through my LinkedIn banner…">${esc(s.social_brand_story || '')}</textarea><small>Story posts use only what you write here, so nothing is made up. Leave empty and there are no story posts.</small></label>
+        <label class="field"><span>Call to action</span><input class="input" id="so-cta" maxlength="300" value="${esc(s.social_brand_cta || '')}" placeholder="e.g. DM me BRAND and I'll tell you the first thing to fix on your profile."><small>How branding posts end. Leave empty for "follow for more / send me a DM".</small></label>
+        <label class="field"><span>More about you (optional)</span><textarea class="input" id="so-bvoice" rows="3" maxlength="1500">${esc(s.social_brand_voice || '')}</textarea></label>
         <label class="field"><span>About your brand and voice</span><textarea class="input" id="so-voice" rows="4" maxlength="1500">${esc(s.social_voice || '')}</textarea><small>Claude reads this every time it writes. Say who you help, how you sound, and anything to avoid.</small></label>
         <button class="btn btn-primary btn-sm" id="so-save" type="button">Save settings</button>
       </form>
@@ -411,6 +419,8 @@
       await api('/api/admin/settings', { method: 'PUT', body: {
         social_enabled: $('#so-on').checked ? '1' : '0', social_hour: $('#so-hour').value, social_voice: $('#so-voice').value,
         social_evening: $('#so-eve').checked ? '1' : '0', social_evening_hour: $('#so-eve-hour').value,
+        social_brand: $('#so-brand').checked ? '1' : '0', social_product_days: $$('[data-pday]').filter(i => i.checked).map(i => i.dataset.pday).join(','),
+        social_brand_hooks: $('#so-hooks').value, social_brand_story: $('#so-story').value, social_brand_cta: $('#so-cta').value, social_brand_voice: $('#so-bvoice').value,
         social_reels: $('#so-reels').checked ? '1' : '0', social_reviews: $('#so-reviews').checked ? '1' : '0', social_report: $('#so-report').checked ? '1' : '0',
         social_platforms: $$('[data-plat]').filter(i => i.checked).map(i => i.dataset.plat).join(','),
       } });
@@ -420,6 +430,13 @@
       e.target.disabled = true; e.target.textContent = 'Writing… (about a minute)';
       try { const r = await api('/api/admin/social/generate', { method: 'POST' }); toast(r.created ? `${r.created} ${r.evenings ? 'evening ' : ''}posts written. Review them below.` : 'Nothing new to write.'); social(); }
       catch (err) { toast(err.message, true); e.target.disabled = false; e.target.textContent = "Write next week's posts"; }
+    });
+    $('#so-rebrand').addEventListener('click', async e => {
+      e.preventDefault();
+      if (!(await confirmDialog('Rewrite the queued week?', 'Upcoming product posts on non-product days, and upcoming product-tip evenings, are replaced with branding posts as drafts for you to approve. Save your settings first.', 'Rewrite'))) return;
+      e.target.textContent = 'Writing… (about a minute)';
+      try { const r = await api('/api/admin/social/rebrand', { method: 'POST' }); toast(`${r.created} branding posts written. Review them below.`); social(); }
+      catch (err) { toast(err.message, true); e.target.textContent = 'Rewrite the queued week to this mix'; }
     });
     $('#so-report-now').addEventListener('click', async e => {
       e.preventDefault();

@@ -23,6 +23,7 @@ const path = require('path');
 const sharp = require('sharp');
 const { renderCard } = require('./cards');
 const { makeReel, hasFfmpeg } = require('./reel');
+const { renderTemplate, TEMPLATE_NAMES } = require('./templates');
 
 const PLATFORMS = ['x', 'linkedin', 'facebook', 'instagram', 'pinterest', 'tiktok'];
 const NAMES = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest', tiktok: 'TikTok' };
@@ -770,24 +771,33 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
         const product = one('SELECT * FROM products WHERE id = ?', quote.product_id);
         if (product) { lastReview = d.day; return { date: d.day, kind: 'review', quote, product, morning: needPin ? morning : null }; }
       }
+      // Former product-tip evenings are LinkedIn-branding tips now (real step-by-step, no product).
+      if (s.social_brand !== '0') return { date: d.day, kind: 'brand' };
       const tip = pool.find(p => p.id !== d.product_id && !days.some((x, j) => j < i && x.tipId === p.id)) || pool[0];
       d.tipId = tip.id;
       return { date: d.day, kind: 'tip', tip, morning: needPin ? morning : null };
     });
-    const posts = await writeEvenings(plan, s);
-    let created = 0;
+    let created = await queueBrand(brandPlan(plan.filter(d => d.kind === 'brand').map(d => d.date), s).map((d, i) => ({ ...d, type: 'educational', format: BRAND_FORMATS.educational[(i + d.date.charCodeAt(9)) % BRAND_FORMATS.educational.length] })), 'evening', s);
+    const rest = plan.filter(d => d.kind !== 'brand');
+    const posts = rest.length ? await writeEvenings(rest, s) : [];
+    let qn = one("SELECT COUNT(*) AS n FROM social_posts WHERE kind = 'question' AND platform = 'x'").n;
     for (const e of posts) {
-      const d = plan[e.day - 1]; if (!d) continue;
+      const d = rest[e.day - 1]; if (!d) continue;
       const p = d.kind === 'tip' ? d.tip : d.kind === 'review' ? d.product : null;
       if (d.kind === 'review') { e.card_title = d.quote.text; e.card_points = [String(d.quote.rating), d.quote.name]; } // the buyer's exact words
-      const cards = await makeCards(d, e, p, platforms).catch(err => { console.error('Card failed:', err.message); return {}; });
+      // Questions go on the owner's templates; reviews keep the review card (it shows the buyer's name, not Francis).
+      const tpl = d.kind === 'question' && String(e.card_title || '').trim()
+        ? await templateImages(e.card_title, `${d.date}-question`).catch(err => { console.error('Template image failed:', err.message); return null; }) : null;
+      const cards = tpl ? {} : await makeCards(d, e, p, platforms).catch(err => { console.error('Card failed:', err.message); return {}; });
+      if (tpl) for (const platform of platforms) cards[platform] = tpl[templateFor(platform, qn)];
+      if (tpl) { cards.square = tpl.portrait; qn++; }
       e.tiktok = e.instagram;
       for (const platform of platforms) {
         const text = String(e[platform] || '').trim();
         if (!text) continue;
         if (d.kind !== 'tip' && platform === 'pinterest') continue;
         if (['instagram', 'tiktok'].includes(platform) && !cards.square && !p) continue; // these need a picture
-        const image = platform === 'pinterest' ? (cards.tall || (p && imageFor(p, s))) : (cards.square || (p ? imageFor(p, s) : null));
+        const image = platform === 'pinterest' ? (cards.tall || (p && imageFor(p, s))) : (cards[platform] || cards.square || (p ? imageFor(p, s) : null));
         const ttTitle = d.kind === 'review' ? `What a buyer said about ${p.title}` : e.card_title || p?.title || '';
         run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind, ref) VALUES (?, ?, ?, ?, ?, ?, ?, 'evening', ?, ?)`,
           platform, p?.id ?? null, finalText(platform, text, p), platform === 'pinterest' ? String(e.pinterest_title || p?.title || '').slice(0, 100) : platform === 'tiktok' ? String(ttTitle).slice(0, 90) : null,
@@ -802,6 +812,130 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       }
     }
     return created;
+  }
+
+  // ---------- LinkedIn-branding posts (Carsin Studio) ----------
+  // Product posts go out only on the product days (Mon, Wed, Fri by default). Every other morning, and the evenings
+  // that used to be product tips, is a LinkedIn-branding post from Francis / Carsin Studio: funny, educational
+  // (real step-by-step) or a story about him (only from facts he wrote down). Each starts from a real pain point of
+  // people whose LinkedIn profile isn't branded, says what it costs them, then offers Carsin Studio as the fix.
+  // Pictures are the owner's two templates (templates.js) with the post's hook line; never generated artwork.
+  const productDays = s => String(s.social_product_days ?? '1,3,5').split(',').map(Number).filter(n => n >= 0 && n <= 6);
+  const isProductDay = (day, s) => productDays(s).includes(new Date(day + 'T12:00:00Z').getUTCDay());
+  const BRAND_AUDIENCES = ['founders looking for their first customers', 'coaches who want more booked calls', 'freelancers who want better clients', 'creators', 'job seekers'];
+  // Post formats (from the owner's content-ideas board), by type. Ones that need filming, a clip to react to, or
+  // verified client results (reaction, challenge, case study) are left out.
+  const BRAND_FORMATS = {
+    educational: ['tutorial', 'listicle', 'common mistake', 'problem to solution', 'levels', 'breakdown', 'A vs B comparison', 'Q&A'],
+    funny: ['scenario', 'hot take', 'tier list', 'levels', 'A vs B comparison'],
+    story: ['story'],
+  };
+  const brandTypes = s => (String(s.social_brand_story || '').trim() ? ['educational', 'funny', 'story'] : ['educational', 'funny']);
+  // Which template each platform gets: Instagram and TikTok always the tall photo template; LinkedIn and Facebook
+  // switch between the two day by day, and X takes the other one, so the feeds don't all look the same.
+  const templateFor = (platform, n) => (['instagram', 'tiktok'].includes(platform) ? 'portrait'
+    : platform === 'x' ? (n % 2 ? 'portrait' : 'post') : (n % 2 ? 'post' : 'portrait'));
+  async function templateImages(hook, tag) {
+    fs.mkdirSync(CARD_DIR, { recursive: true });
+    const out = {};
+    for (const name of TEMPLATE_NAMES) {
+      const file = `${tag}-${name}-${crypto.randomBytes(5).toString('hex')}.jpg`;
+      fs.writeFileSync(path.join(CARD_DIR, file), await renderTemplate(name, hook));
+      out[name] = `${BASE_URL}/media/social/${file}`;
+    }
+    return out;
+  }
+  const BRAND_SCHEMA = {
+    type: 'object', additionalProperties: false, required: ['posts'],
+    properties: { posts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['day', 'hook', 'x', 'linkedin', 'facebook', 'instagram', 'tiktok'],
+      properties: { day: { type: 'integer' }, hook: { type: 'string' }, x: { type: 'string' }, linkedin: { type: 'string' }, facebook: { type: 'string' }, instagram: { type: 'string' }, tiktok: { type: 'string' } } } } },
+  };
+  async function writeBrand(days, s) {
+    const brief = days.map((d, i) => ({ day: i + 1, date: d.date, type: d.type, format: d.format, audience: d.audience }));
+    const system = `You write LinkedIn-branding posts for Francis Adediran, a LinkedIn Brand Strategist and the founder of Carsin Studio (carsinstudio.com), which rebrands LinkedIn profiles: banners, headlines, About sections and the whole profile, so it says what the person does, who they help and how.
+${String(s.social_brand_voice || '').trim() ? `More about him and his voice: ${s.social_brand_voice}\n` : ''}
+WHO THE POSTS ARE FOR: founders, coaches, freelancers, creators and job seekers whose LinkedIn profile has no real branding: still the default blue banner, nothing set up, a banner whose promise has nothing to do with what they do or who they help, a landscape photo or stock image that shows nothing about them, a headline that is just a job title.
+
+EVERY POST, WHATEVER ITS TYPE, follows this order:
+1. Open with a real pain point of the given audience (the client first, always). Make it specific and recognisable.
+2. Show what an unbranded profile is costing them, in their world: job seekers get skipped by recruiters; founders struggle to land their first customers and investors; coaches don't get calls booked; freelancers compete on price; creators get views but no followers who stay. Describe it; never invent numbers, studies or statistics.
+3. Then, and only then, Carsin Studio / Francis as the way to fix it. Soft and confident, not salesy.${String(s.social_brand_cta || '').trim() ? ` The call to action, in your own words: ${s.social_brand_cta}` : ' End with a light call to action: follow for more, or send a DM to get the profile looked at.'}
+
+FORMATS (each day names one; shape the post around it):
+- tutorial: numbered steps someone can follow right now.
+- listicle: a number and a list ("5 things your banner should say").
+- common mistake: name the mistake, show why it hurts, give the fix.
+- problem to solution: frame the pain, then walk through the fix.
+- levels: 3 or more tiers of the same thing (level 1 default banner, level 2 ..., level 3 ...).
+- breakdown: explain why something works, piece by piece (a strong headline, a good banner).
+- A vs B comparison: two versions side by side ("Job title headline vs promise headline").
+- Q&A: one question people ask, one clear answer.
+- scenario: a short made-up but relatable situation (clearly a scenario, not a claim it happened), e.g. a recruiter opening two profiles.
+- hot take: a confident opinion about LinkedIn profiles, argued in a few lines.
+- tier list: rank banner or profile choices from worst to best, with a reason each.
+- story: see the story type below.
+
+TYPES:
+- educational: real, usable step-by-step advice (3 to 5 numbered steps) someone can apply to their profile today: banner, headline, About, featured section, photo, positioning.
+- funny: light, relatable humour about LinkedIn profile mistakes that makes people comment and tag friends. Kind, never mocking a real person.
+- story: a short first-person story from Francis's life, using ONLY these facts he gave (never add events, clients, names or numbers he didn't give): ${String(s.social_brand_story || '').trim() || '(none given)'}
+
+HOOKS: the first line must stop the scroll.${String(s.social_brand_hooks || '').trim() ? ` Use these hook styles, varied across days:\n${s.social_brand_hooks}` : ''}
+
+FIELDS:
+- hook: the line shown on the post's image, at most 100 characters, one or two short sentences. It should make sense on its own.
+- x: under 270 characters. The hook and the single sharpest point. No hashtags, no links.
+- linkedin: 120 to 230 words. Hook as the first line, then short lines with white space between them, easy to skim. No hashtags, no links. End with a question or the call to action.
+- facebook: 70 to 150 words, conversational, short paragraphs, a question at the end to spark comments. No hashtags, no links.
+- instagram: 80 to 170 words. Strong first line, short paragraphs, the call to action, then 5 to 8 relevant hashtags on the last line. No links.
+- tiktok: 1 to 3 short lines that tease the image and invite comments. No hashtags, no links.
+
+Rules: never claim results you weren't given, never promise jobs, clients or income, no prices, no fake urgency. Don't mention any online store or digital products. Plain English, no markdown, no asterisks. Don't open two days the same way.`;
+    return claudeJson(system, `Write the posts for these ${days.length} days:\n${JSON.stringify(brief, null, 1)}`, BRAND_SCHEMA);
+  }
+  // Writes and queues branding posts for the given days and slot. Returns how many posts were added.
+  async function queueBrand(days, slot, s) {
+    if (!days.length) return 0;
+    const platforms = activePlatforms(s).filter(p => p !== 'pinterest');
+    const hour = slot === 'evening' ? Math.min(Math.max(Number(s.social_evening_hour) || 19, 0), 23) : Math.min(Math.max(Number(s.social_hour) || 10, 0), 23);
+    const posts = await writeBrand(days, s);
+    let created = 0, n = one("SELECT COUNT(*) AS n FROM social_posts WHERE kind = 'brand' AND platform = 'x'").n;
+    for (const e of posts) {
+      const d = days[e.day - 1]; if (!d) continue;
+      const hook = String(e.hook || '').trim() || String(e.x || '').split('\n')[0];
+      const imgs = await templateImages(hook, `${d.date}-brand`).catch(err => { console.error('Template image failed:', err.message); return {}; });
+      for (const platform of platforms) {
+        const text = String(e[platform] || '').trim(); if (!text) continue;
+        let at = atHour(d.date, hour, platform);
+        if (at < new Date(Date.now() + 10 * 60e3)) at = new Date(Date.now() + 30 * 60e3);
+        run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind, ref) VALUES (?, NULL, ?, ?, ?, NULL, ?, ?, 'brand', ?)`,
+          platform, finalText(platform, text, null), platform === 'tiktok' ? hook.slice(0, 90) : null, imgs[templateFor(platform, n)] || null, sqlTime(at), slot, [d.type, d.format].filter(Boolean).join(' · '));
+        created++;
+      }
+      n++;
+    }
+    return created;
+  }
+  // Picks the type and audience for each branding day, rotating so the week has a mix.
+  function brandPlan(dates, s) {
+    const types = brandTypes(s);
+    const past = one("SELECT COUNT(*) AS n FROM social_posts WHERE kind = 'brand' AND platform = 'x'").n;
+    return dates.map((date, i) => { const type = types[(past + i) % types.length], f = BRAND_FORMATS[type]; return { date, type, format: f[Math.floor((past + i) / types.length) % f.length], audience: BRAND_AUDIENCES[(past + i) % BRAND_AUDIENCES.length] }; });
+  }
+  // Moves the already-written queue to the new mix: upcoming product mornings on non-product days and upcoming
+  // product-tip evenings are replaced with branding posts (as drafts to approve). Posts already out are untouched.
+  async function rebrandQueue() {
+    const s = getSettings();
+    const soon = "datetime('now', '+30 minutes')";
+    const mornings = [...new Set(all(`SELECT substr(scheduled_at, 1, 10) AS day FROM social_posts WHERE slot = 'morning' AND kind = 'product'
+      AND status IN ('draft', 'approved', 'failed') AND scheduled_at > ${soon} AND platform != 'pinterest'`).map(r => r.day))].filter(day => !isProductDay(day, s)).sort();
+    const evenings = [...new Set(all(`SELECT substr(scheduled_at, 1, 10) AS day FROM social_posts WHERE slot = 'evening' AND kind = 'tip'
+      AND status IN ('draft', 'approved', 'failed') AND scheduled_at > ${soon}`).map(r => r.day))].sort();
+    for (const day of mornings) run(`DELETE FROM social_posts WHERE slot = 'morning' AND kind = 'product' AND substr(scheduled_at, 1, 10) = ? AND status IN ('draft', 'approved', 'failed') AND scheduled_at > ${soon}`, day);
+    for (const day of evenings) run(`DELETE FROM social_posts WHERE slot = 'evening' AND kind = 'tip' AND substr(scheduled_at, 1, 10) = ? AND status IN ('draft', 'approved', 'failed') AND scheduled_at > ${soon}`, day);
+    let created = await queueBrand(brandPlan(mornings, s), 'morning', s);
+    created += await queueBrand(brandPlan(evenings, s).map((d, i) => ({ ...d, type: 'educational', format: BRAND_FORMATS.educational[(i + 3) % BRAND_FORMATS.educational.length] })), 'evening', s);
+    return { mornings: mornings.length, evenings: evenings.length, created };
   }
 
   // Morning posts written before an account was connected: write that platform's post for the same product, for
@@ -850,11 +984,15 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       const start = new Date(); start.setUTCHours(0, 0, 0, 0); start.setUTCDate(start.getUTCDate() + 1);
       if (last && fromSql(last) >= start) { const l = fromSql(last); l.setUTCHours(0, 0, 0, 0); l.setUTCDate(l.getUTCDate() + 1); start.setTime(l.getTime()); }
       if (!force && start > new Date(Date.now() + 3 * 864e5)) return { created: 0 }; // 3+ days still queued
-      const products = pickProducts(7);
-      if (!products.length) throw new Error('Publish some products first.');
-      const days = products.map((product, i) => ({ product, date: new Date(start.getTime() + i * 864e5) }));
-      const posts = await writePosts(days, s);
-      let created = 0;
+      // The week: product posts on the product days, LinkedIn-branding posts on the others.
+      const week = Array.from({ length: 7 }, (_, i) => new Date(start.getTime() + i * 864e5));
+      const brandOn = s.social_brand !== '0';
+      const productDates = week.filter(d => !brandOn || isProductDay(d.toISOString().slice(0, 10), s));
+      const products = pickProducts(productDates.length);
+      if (productDates.length && !products.length) throw new Error('Publish some products first.');
+      const days = products.map((product, i) => ({ product, date: productDates[i] }));
+      const posts = days.length ? await writePosts(days, s) : [];
+      let created = brandOn ? await queueBrand(brandPlan(week.filter(d => !productDates.includes(d)).map(d => d.toISOString().slice(0, 10)), s), 'morning', s) : 0;
       for (const d of posts) {
         const day = days[d.day - 1]; if (!day) continue;
         for (const platform of platforms) {
@@ -907,7 +1045,8 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       redirects: { meta: redirectUri('meta'), linkedin: redirectUri('linkedin'), x: redirectUri('x'), pinterest: redirectUri('pinterest'), tiktok: redirectUri('tiktok') },
       accounts,
       settings: { social_enabled: s.social_enabled, social_hour: s.social_hour, social_platforms: s.social_platforms, social_voice: s.social_voice,
-        social_evening: s.social_evening, social_evening_hour: s.social_evening_hour, social_reels: s.social_reels, social_reviews: s.social_reviews, social_report: s.social_report },
+        social_evening: s.social_evening, social_evening_hour: s.social_evening_hour, social_reels: s.social_reels, social_reviews: s.social_reviews, social_report: s.social_report,
+        social_brand: s.social_brand, social_product_days: s.social_product_days, social_brand_voice: s.social_brand_voice, social_brand_story: s.social_brand_story, social_brand_cta: s.social_brand_cta, social_brand_hooks: s.social_brand_hooks },
       queue: all(`SELECT sp.*, p.title AS product FROM social_posts sp LEFT JOIN products p ON p.id = sp.product_id
         WHERE sp.status IN ('draft', 'approved', 'posting', 'failed') AND sp.scheduled_at >= datetime('now', '-2 days') ORDER BY sp.scheduled_at, sp.platform`),
       history: all(`SELECT sp.id, sp.platform, sp.status, sp.scheduled_at, sp.posted_at, sp.remote_url, sp.error, p.title AS product FROM social_posts sp
@@ -938,6 +1077,13 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
     run("UPDATE social_posts SET status = 'approved' WHERE id = ?", post.id);
     const r = await publishOne({ ...post, status: 'approved' });
     r.ok ? res.json(r) : bad(res, r.error);
+  }));
+  // Rewrites the queued week to the new mix (branding posts on non-product days and in place of product tips).
+  admin.post('/social/rebrand', wrap(async (_req, res) => {
+    if (!configured.ai()) return bad(res, 'Add ANTHROPIC_API_KEY in Railway first.');
+    if (generating) return bad(res, 'Already writing posts. Give it a minute.');
+    generating = true;
+    try { res.json(await rebrandQueue()); } catch (e) { bad(res, e.message); } finally { generating = false; }
   }));
   admin.post('/social/generate', wrap(async (_req, res) => {
     try {
