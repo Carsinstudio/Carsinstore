@@ -135,6 +135,7 @@ const DEFAULT_SETTINGS = {
   social_hour: '10',              // posting hour, Nigeria time (WAT, UTC+1)
   social_platforms: 'x,linkedin,facebook,instagram,pinterest,tiktok',
   social_evening: '1',            // also an evening post each day: a research question or a helpful tip / teaser from a product
+  social_evening_days: '5',      // evening posts on this many days a week; which days changes at random each week
   social_evening_hour: '19',      // evening posting hour, Nigeria time
   social_reels: '1',              // on product days, Instagram, Facebook and TikTok product posts are short videos
   social_reviews: '1',            // one evening a week quotes a real buyer review, when there is a new one

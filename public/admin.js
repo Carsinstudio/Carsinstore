@@ -382,6 +382,7 @@
         <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:12px">${['x', 'linkedin', 'facebook', 'instagram', 'pinterest', 'tiktok'].map(p => `<label class="check" style="font-size:13px"><input type="checkbox" data-plat="${p}" ${on.includes(p) ? 'checked' : ''} style="accent-color:var(--accent)">${NAME[p]}</label>`).join('')}</div>
         <label class="field"><span>Post at (Nigeria time)</span><select class="input" id="so-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_hour || 10) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Product posts. X first, then LinkedIn, Facebook, Instagram and Pinterest ten minutes apart.</small></label>
         <label class="check" style="margin:4px 0 8px"><span class="switch"><input type="checkbox" id="so-eve" ${s.social_evening !== '0' ? 'checked' : ''}><i></i></span>Evening posts too: research questions and helpful tips</label>
+        <label class="field"><span>Evening posts per week</span><select class="input" id="so-eve-days">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${String(s.social_evening_days ?? 5) === String(n) ? 'selected' : ''}>${n === 7 ? 'Every day' : n + ' days a week'}</option>`).join('')}</select><small>Which days changes at random each week, so the feed doesn't feel scheduled.</small></label>
         <label class="field"><span>Evening posts at (Nigeria time)</span><select class="input" id="so-eve-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${String(s.social_evening_hour || 19) === String(h) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select><small>Alternates a question for one of your audiences (what frustrates them, what they'd pay to simplify) with a tip or short how-to taken from a product. Replies tell you what to make next.</small></label>
         <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-reels" ${s.social_reels !== '0' ? 'checked' : ''}><i></i></span>Short videos for product posts</label>
         <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">On product days, the Instagram, Facebook and TikTok product posts go out as a 10–20 second video made from the product's covers (Reels reach more people than pictures). If a video can't be made, the picture goes out instead.</small>
@@ -419,13 +420,15 @@
     $('#so-save').addEventListener('click', async () => {
       await api('/api/admin/settings', { method: 'PUT', body: {
         social_enabled: $('#so-on').checked ? '1' : '0', social_hour: $('#so-hour').value, social_voice: $('#so-voice').value,
-        social_evening: $('#so-eve').checked ? '1' : '0', social_evening_hour: $('#so-eve-hour').value,
+        social_evening: $('#so-eve').checked ? '1' : '0', social_evening_hour: $('#so-eve-hour').value, social_evening_days: $('#so-eve-days').value,
         social_brand: $('#so-brand').checked ? '1' : '0', social_product_days: $$('[data-pday]').filter(i => i.checked).map(i => i.dataset.pday).join(','),
         social_brand_hooks: $('#so-hooks').value, social_brand_story: $('#so-story').value, social_brand_cta: $('#so-cta').value, social_brand_voice: $('#so-bvoice').value,
         social_reels: $('#so-reels').checked ? '1' : '0', social_reviews: $('#so-reviews').checked ? '1' : '0', social_report: $('#so-report').checked ? '1' : '0',
         social_platforms: $$('[data-plat]').filter(i => i.checked).map(i => i.dataset.plat).join(','),
       } });
-      toast('Settings saved');
+      const sync = await api('/api/admin/social/sync', { method: 'POST' }).catch(() => ({}));
+      toast(sync.moved || sync.dropped ? `Settings saved. ${sync.moved ? sync.moved + ' queued posts moved to the new time' : ''}${sync.moved && sync.dropped ? ', ' : ''}${sync.dropped ? sync.dropped + ' extra evening posts removed' : ''}.` : 'Settings saved');
+      if (sync.moved || sync.dropped) social();
     });
     $('#so-gen').addEventListener('click', async e => {
       e.target.disabled = true; e.target.textContent = 'Writing… (about a minute)';

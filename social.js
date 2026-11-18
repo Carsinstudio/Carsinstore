@@ -756,7 +756,8 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
     const days = all(`SELECT substr(scheduled_at, 1, 10) AS day, MIN(product_id) AS product_id FROM social_posts
       WHERE slot = 'morning' AND status IN ('draft', 'approved') GROUP BY day ORDER BY day`)
       .filter(d => atHour(d.day, hour, 'x') > new Date(Date.now() + 15 * 60e3))
-      .filter(d => !one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ?", d.day));
+      .filter(d => !one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ?", d.day))
+      .filter(d => !eveningOff(d.day, s) && eveningDaysInWeek(weekOf(d.day)).size < eveningsPerWeek(s)); // evenings on 5 days a week
     if (!days.length) return 0;
     const pool = pickProducts(14);
     const past = one("SELECT COUNT(*) AS n FROM social_posts WHERE slot = 'evening' AND platform = 'x'").n;
@@ -1029,7 +1030,53 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       return { created };
     } finally { generating = false; }
   }
+  // ---------- schedule upkeep ----------
+  // Evening posts go out on a set number of days a week (5 by default); which days rotates at random each week
+  // (seeded by the week, so the choice doesn't change between runs). Mornings go out every day at the morning hour.
+  const eveningsPerWeek = s => Math.min(7, Math.max(0, Number(s.social_evening_days ?? 5)));
+  const weekOf = day => { const d = new Date(day + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
+  const dowOf = day => (new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7; // 0 = Monday
+  function eveningOrder(week) { // the week's days, the ones to drop first at the front
+    let seed = parseInt(crypto.createHash('sha1').update('evenings:' + week).digest('hex').slice(0, 8), 16);
+    const idx = [0, 1, 2, 3, 4, 5, 6];
+    for (let i = 6; i > 0; i--) { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; const j = seed % (i + 1); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+    return idx;
+  }
+  const eveningOff = (day, s) => eveningOrder(weekOf(day)).slice(0, 7 - eveningsPerWeek(s)).includes(dowOf(day));
+  const eveningDaysInWeek = week => new Set(all(`SELECT DISTINCT substr(scheduled_at, 1, 10) AS day FROM social_posts WHERE slot = 'evening' AND platform != 'pinterest'
+    AND status IN ('draft', 'approved', 'posting', 'posted', 'failed')`).map(r => r.day).filter(d => weekOf(d) === week));
+  function syncSchedule() {
+    const s = getSettings();
+    // 1. Queued morning posts move to the current morning hour (keeping each platform's minutes after the hour).
+    const hour = Math.min(Math.max(Number(s.social_hour) || 10, 0), 23);
+    let moved = 0;
+    for (const p of all("SELECT id, platform, scheduled_at FROM social_posts WHERE slot = 'morning' AND status IN ('draft', 'approved') AND scheduled_at > datetime('now', '+15 minutes')")) {
+      const at = atHour(p.scheduled_at.slice(0, 10), hour, p.platform);
+      if (at > new Date(Date.now() + 10 * 60e3) && sqlTime(at) !== p.scheduled_at) { run('UPDATE social_posts SET scheduled_at = ? WHERE id = ?', sqlTime(at), p.id); moved++; }
+    }
+    // 2. Weeks with more evening days than allowed drop queued evenings (never posted ones), off-days first.
+    const n = eveningsPerWeek(s);
+    let dropped = 0;
+    const weeks = new Set(all("SELECT DISTINCT substr(scheduled_at, 1, 10) AS day FROM social_posts WHERE slot = 'evening' AND status IN ('draft', 'approved') AND scheduled_at > datetime('now', '+30 minutes')").map(r => weekOf(r.day)));
+    for (const week of weeks) {
+      const days = eveningDaysInWeek(week);
+      const order = eveningOrder(week);
+      const removable = [...days].filter(d => !one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND status IN ('posted', 'posting')", d)
+        && one("SELECT 1 FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND scheduled_at > datetime('now', '+30 minutes')", d))
+        .sort((a, b) => order.indexOf(dowOf(a)) - order.indexOf(dowOf(b)));
+      while (days.size > n && removable.length) {
+        const d = removable.shift();
+        dropped += Number(run("DELETE FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND status IN ('draft', 'approved', 'failed')", d).changes);
+        days.delete(d);
+      }
+    }
+    return { moved, dropped };
+  }
+  admin.post('/social/sync', (_req, res) => res.json(syncSchedule()));
+  setTimeout(() => { try { const r = syncSchedule(); if (r.moved || r.dropped) console.log('Social schedule:', r); } catch (e) { console.error('Social schedule:', e.message); } }, 5000).unref();
+
   async function autoGenerate() {
+    try { syncSchedule(); } catch (e) { console.error('Social schedule:', e.message); }
     const s = getSettings();
     if (generating || s.social_enabled === '0' || !configured.ai() || !activePlatforms(s).length) return;
     const r = await generateWeek();
@@ -1057,7 +1104,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       redirects: { meta: redirectUri('meta'), linkedin: redirectUri('linkedin'), x: redirectUri('x'), pinterest: redirectUri('pinterest'), tiktok: redirectUri('tiktok') },
       accounts,
       settings: { social_enabled: s.social_enabled, social_hour: s.social_hour, social_platforms: s.social_platforms, social_voice: s.social_voice,
-        social_evening: s.social_evening, social_evening_hour: s.social_evening_hour, social_reels: s.social_reels, social_reviews: s.social_reviews, social_report: s.social_report,
+        social_evening: s.social_evening, social_evening_hour: s.social_evening_hour, social_evening_days: s.social_evening_days, social_reels: s.social_reels, social_reviews: s.social_reviews, social_report: s.social_report,
         social_brand: s.social_brand, social_product_days: s.social_product_days, social_brand_voice: s.social_brand_voice, social_brand_story: s.social_brand_story, social_brand_cta: s.social_brand_cta, social_brand_hooks: s.social_brand_hooks },
       queue: all(`SELECT sp.*, p.title AS product FROM social_posts sp LEFT JOIN products p ON p.id = sp.product_id
         WHERE sp.status IN ('draft', 'approved', 'posting', 'failed') AND sp.scheduled_at >= datetime('now', '-2 days') ORDER BY sp.scheduled_at, sp.platform`),
