@@ -881,7 +881,8 @@ TYPES:
 - funny: light, relatable humour about LinkedIn profile mistakes that makes people comment and tag friends. Kind, never mocking a real person.
 - story: a short first-person story from Francis's life, using ONLY these facts he gave (never add events, clients, names or numbers he didn't give): ${String(s.social_brand_story || '').trim() || '(none given)'}
 
-HOOKS: the first line must stop the scroll.${String(s.social_brand_hooks || '').trim() ? ` Use these hook styles, varied across days:\n${s.social_brand_hooks}` : ''}
+HOOKS: the first line must stop the scroll.${String(s.social_brand_hooks || '').trim() ? ` Use these hook styles, varied across days (never the same family two days running):\n${s.social_brand_hooks}` : ''}
+Hook rules: hooks in first person about Francis's own journey, mistakes, turning points, decisions, behind-the-scenes work or clients may only be used for story posts, and only when the facts he gave support them. For every other post use hooks aimed at the reader (relatable, contrarian, curiosity, lesson, a question). Fill any blank in a hook pattern with the reader's real situation or with facts given; never invent numbers, timeframes, results or clients.
 
 FIELDS:
 - hook: the line shown on the post's image, at most 100 characters, one or two short sentences. It should make sense on its own.
