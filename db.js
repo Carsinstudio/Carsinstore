@@ -364,6 +364,8 @@ function migrate(db) {
   if (!hasColumn(db, 'social_posts', 'media')) db.exec("ALTER TABLE social_posts ADD COLUMN media TEXT NOT NULL DEFAULT 'image'");
   if (!hasColumn(db, 'social_posts', 'ref')) db.exec('ALTER TABLE social_posts ADD COLUMN ref TEXT');
   // The post's id on the platform, and its latest views/engagement numbers (JSON) with when they were read.
+  // Posts written by the owner can carry several pictures (JSON list of links).
+  if (!hasColumn(db, 'social_posts', 'images')) db.exec('ALTER TABLE social_posts ADD COLUMN images TEXT');
   if (!hasColumn(db, 'social_posts', 'remote_id')) db.exec('ALTER TABLE social_posts ADD COLUMN remote_id TEXT');
   if (!hasColumn(db, 'social_posts', 'stats')) { db.exec('ALTER TABLE social_posts ADD COLUMN stats TEXT'); db.exec('ALTER TABLE social_posts ADD COLUMN stats_at TEXT'); }
   // Where the buyer first came from (Instagram, X, Google, Direct …), for the weekly results email.

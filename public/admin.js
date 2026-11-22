@@ -334,7 +334,7 @@
     if (q.get('error')) toast(q.get('error'), true);
     if (q.get('connected') || q.get('error')) history.replaceState(null, '', '#/admin/social');
     const NAME = { x: 'X', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', pinterest: 'Pinterest', tiktok: 'TikTok' };
-    const KIND = { product: 'Product', question: 'Evening · Question', tip: 'Evening · Tip', review: 'Evening · Buyer review' };
+    const KIND = { product: 'Product', question: 'Evening · Question', tip: 'Evening · Tip', review: 'Evening · Buyer review', own: 'Your post' };
     const isReel = p => p.media === 'reel' && ['instagram', 'facebook', 'tiktok'].includes(p.platform) && p.product_id;
     const xLen = t => String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length; // X counts each link as 23
     const s = d.settings, on = String(s.social_platforms || '').split(',');
@@ -357,7 +357,7 @@
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><b style="font-weight:500">${NAME[p.platform]}</b><span class="dim" style="font-size:12px">${when(p.scheduled_at)}</span>${p.kind && p.kind !== 'product' ? `<span class="status pending" style="font-size:9.5px">${p.kind === 'brand' ? `Branding · ${esc(p.ref || '')}` : KIND[p.kind]}</span>` : ''}${isReel(p) ? '<span class="status live" style="font-size:9.5px">Video</span>' : ''}
           <span class="status ${p.status === 'approved' ? 'live' : p.status === 'failed' ? 'draft' : 'pending'}" style="margin-left:auto">${p.status}</span></div>
         <div style="display:flex;gap:12px;align-items:flex-start">
-          ${p.image_url ? `<button type="button" data-preview="${p.id}" title="See the picture full size" style="padding:0;border:0;background:none;cursor:zoom-in;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px"><img src="${esc(p.image_url)}" alt="" style="width:96px;height:120px;object-fit:cover;border-radius:8px;display:block"><small class="dim" style="font-size:11px">Preview</small></button>` : ''}
+          ${p.image_url ? `<button type="button" data-preview="${p.id}" title="See the picture full size" style="padding:0;border:0;background:none;cursor:zoom-in;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px"><img src="${esc(p.image_url)}" alt="" style="width:96px;height:120px;object-fit:cover;border-radius:8px;display:block"><small class="dim" style="font-size:11px">Preview${(() => { try { const n = JSON.parse(p.images || "[]").length; return n > 1 ? ` (${n} photos)` : ""; } catch { return ""; } })()}</small></button>` : ''}
           <div style="flex:1;display:flex;flex-direction:column;gap:6px">${p.platform === 'pinterest' ? `<input class="input" style="font-size:13px" maxlength="100" value="${esc(p.title || '')}" data-title="${p.id}" placeholder="Pin title">` : p.platform === 'tiktok' ? `<input class="input" style="font-size:13px" maxlength="90" value="${esc(p.title || '')}" data-title="${p.id}" placeholder="TikTok title">` : ''}<textarea class="input" rows="${p.platform === 'x' ? 3 : 6}" style="font-size:13px;line-height:1.5" data-text="${p.id}">${esc(p.text)}</textarea></div>
         </div>
         ${p.error ? `<p style="color:#ff8b7a;font-size:12.5px;margin:8px 0 0">${esc(p.error)}</p>` : ''}
@@ -369,7 +369,7 @@
           <button class="btn btn-sm btn-ghost" data-act="now">Post now</button>
           ${p.status === 'approved' ? '<button class="btn btn-sm" data-act="draft">Unapprove</button>' : '<button class="btn btn-sm btn-primary" data-act="approved">Approve</button>'}
         </div></div>`;
-    layout('social', head('Social', `<button class="btn" id="so-gen">Write next week's posts</button>${drafts ? `<button class="btn btn-primary" id="so-all">Approve all ${drafts}</button>` : ''}`) + `
+    layout('social', head('Social', `<button class="btn" id="so-new">New post</button><button class="btn" id="so-gen">Write next week's posts</button>${drafts ? `<button class="btn btn-primary" id="so-all">Approve all ${drafts}</button>` : ''}`) + `
       <p class="muted" style="margin:-6px 0 16px;font-size:13px;max-width:780px">Each week Claude drafts one post a day for every connected account, each about one of your products, and emails you when they're ready. Skim, edit and approve them here. Only approved posts go out, at the time you set; drafts you don't approve are skipped.</p>
       ${!d.ready.ai ? '<div class="panel" style="border-color:rgba(255,139,122,.35)"><b style="font-weight:500">Writing posts needs an Anthropic API key.</b><p class="muted" style="font-size:13px;margin:6px 0 0">Add <code>ANTHROPIC_API_KEY</code> in Railway → Variables. It costs a few cents a week.</p></div>' : ''}
       <div class="panel tbl-wrap" style="padding:0;margin-bottom:18px"><div class="box-head"><h3 style="font-size:18px">Accounts</h3></div>
@@ -428,6 +428,43 @@
       toast(sync.moved || sync.dropped ? `Settings saved. ${sync.moved ? sync.moved + ' queued posts moved to the new time' : ''}${sync.moved && sync.dropped ? ', ' : ''}${sync.dropped ? sync.dropped + ' extra evening posts removed' : ''}.` : 'Settings saved');
       if (sync.moved || sync.dropped) social();
     });
+    // A post you write yourself: your own photos and words, at a time you choose, on the platforms you tick.
+    $('#so-new').addEventListener('click', () => {
+      const next8 = new Date(); next8.setDate(next8.getDate() + 1); next8.setHours(8, 0, 0, 0);
+      const local = d => new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+      const images = [];
+      modal(`<h3>New post</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 16px;margin:14px 0 10px">${['x', 'linkedin', 'facebook', 'instagram'].map(p => `<label class="check" style="font-size:13px"><input type="checkbox" data-np-plat="${p}" ${['x', 'linkedin'].includes(p) ? 'checked' : ''} style="accent-color:var(--accent)">${NAME[p]}</label>`).join('')}</div>
+        <label class="field"><span>When (your time)</span><input class="input" type="datetime-local" id="np-at" value="${local(next8)}"></label>
+        <label class="field"><span>Text for LinkedIn, Facebook and Instagram</span><textarea class="input" id="np-text" rows="9" style="font-size:13px;line-height:1.5"></textarea></label>
+        <label class="field"><span>Text for X <small class="dim" id="np-xcount">0 of 280</small></span><textarea class="input" id="np-x" rows="4" style="font-size:13px;line-height:1.5" placeholder="Short version for X. Leave empty to skip X."></textarea></label>
+        <label class="field"><span>Photos (up to 4 on X, more on LinkedIn; Facebook and Instagram use the first)</span><input type="file" id="np-files" accept="image/*" multiple></label>
+        <div id="np-thumbs" style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 12px"></div>
+        <label class="check" style="font-size:13px;margin-bottom:6px"><input type="checkbox" id="np-replace" checked style="accent-color:var(--accent)">Replace the automatic posts on those platforms at that time</label>
+        <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn" id="np-draft">Save as draft</button><button class="btn btn-primary" id="np-approve">Approve</button></div>`, (m, close) => {
+        $('#np-x', m).addEventListener('input', e => { $('#np-xcount', m).textContent = `${xLen(e.target.value)} of 280`; });
+        $('#np-files', m).addEventListener('change', async e => {
+          for (const f of e.target.files) {
+            const fd = new FormData(); fd.append('file', f);
+            try { const r = await upload('/api/admin/social/media', fd); images.push(r.url); $('#np-thumbs', m).insertAdjacentHTML('beforeend', `<img src="${esc(r.url)}" alt="" style="width:70px;height:90px;object-fit:cover;border-radius:6px">`); }
+            catch (err) { toast(err.message, true); }
+          }
+          e.target.value = '';
+        });
+        const save = async status => {
+          const plats = $$('[data-np-plat]', m).filter(i => i.checked).map(i => i.dataset.npPlat);
+          const posts = plats.map(p => ({ platform: p, text: p === 'x' ? $('#np-x', m).value : $('#np-text', m).value })).filter(p => p.text.trim());
+          if (!posts.length) return toast('Write the text for at least one ticked platform.', true);
+          if (posts.some(p => p.platform === 'x' && xLen(p.text) > 280)) return toast('The X text is over 280 characters.', true);
+          try {
+            const r = await api('/api/admin/social/posts', { method: 'POST', body: { posts, images, at: new Date($('#np-at', m).value).toISOString(), status, replace: $('#np-replace', m).checked } });
+            close(); toast(`${plural(r.ids.length, 'post')} ${status === 'approved' ? 'scheduled' : 'saved as drafts'}${r.replaced ? `, ${r.replaced} automatic ${r.replaced === 1 ? 'post' : 'posts'} stood down` : ''}.`); social();
+          } catch (err) { toast(err.message, true); }
+        };
+        $('#np-draft', m).addEventListener('click', () => save('draft'));
+        $('#np-approve', m).addEventListener('click', () => save('approved'));
+      });
+    });
     $('#so-gen').addEventListener('click', async e => {
       e.target.disabled = true; e.target.textContent = 'Writing… (about a minute)';
       try { const r = await api('/api/admin/social/generate', { method: 'POST' }); toast(r.created ? `${r.created} ${r.evenings ? 'evening ' : ''}posts written. Review them below.` : 'Nothing new to write.'); social(); }
@@ -450,7 +487,7 @@
       const text = $(`[data-text="${p.id}"]`)?.value ?? p.text;
       modal(`<h3>${NAME[p.platform]} · ${esc(when(p.scheduled_at))}</h3>
         <div style="margin-top:14px;max-height:72vh;overflow:auto;display:flex;flex-direction:column;gap:12px">
-          <img src="${esc(p.image_url)}" alt="" style="width:100%;height:auto;border-radius:10px;background:#000">
+          ${(() => { let l = []; try { l = JSON.parse(p.images || "[]"); } catch {} return (l.length ? l : [p.image_url]).map(u => `<img src="${esc(u)}" alt="" style="width:100%;height:auto;border-radius:10px;background:#000">`).join(""); })()}
           <div style="white-space:pre-wrap;font-size:13.5px;line-height:1.55">${esc(text)}</div></div>
         <div class="actions"><a class="btn" href="${esc(p.image_url)}" target="_blank" rel="noopener">Open image</a><button class="btn btn-primary" data-close>Close</button></div>`);
     }));

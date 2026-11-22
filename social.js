@@ -325,6 +325,9 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
     throw new Error('Videos are only posted to Instagram, Facebook and TikTok.');
   }
 
+  // A post's pictures: its own list (posts you write yourself can have several), or its single picture.
+  const imagesOf = post => { let list = []; try { list = JSON.parse(post.images || '[]'); } catch {} return (Array.isArray(list) && list.length ? list : [post.image_url]).filter(Boolean); };
+
   async function publish(post) {
     // Product pictures: use the product's main cover as it is now, so a cover replaced after the post was written
     // (e.g. with a sharper one) is what goes out.
@@ -342,21 +345,22 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       const a = await xToken();
       // Attach the picture when there is one. Needs the media.write permission (reconnect X once to grant it);
       // without it the post still goes out as text.
-      let media = null;
-      if (post.image_url) {
+      // Up to 4 pictures per post on X.
+      const media = [];
+      for (const url of imagesOf(post).slice(0, 4)) {
         try {
-          const img = await fetch(post.image_url);
+          const img = await fetch(url);
           if (img.ok) {
             const fd = new FormData();
             fd.append('media', new Blob([Buffer.from(await img.arrayBuffer())], { type: img.headers.get('content-type') || 'image/jpeg' }), 'image.jpg');
             fd.append('media_category', 'tweet_image');
             const up = (await http('https://api.x.com/2/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${a.data.token}` }, body: fd }, 'X image upload')).data;
-            media = up.data?.id || up.media_id_string || null;
+            const id = up.data?.id || up.media_id_string; if (id) media.push(String(id));
           }
         } catch (e) { console.error('X image upload skipped:', e.message); }
       }
       const r = (await http('https://api.x.com/2/tweets', { method: 'POST', headers: { Authorization: `Bearer ${a.data.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: post.text, ...(media ? { media: { media_ids: [String(media)] } } : {}) }) }, 'X post')).data;
+        body: JSON.stringify({ text: post.text, ...(media.length ? { media: { media_ids: media } } : {}) }) }, 'X post')).data;
       return { url: `https://x.com/${a.data.username}/status/${r.data.id}`, id: r.data.id };
     }
     if (post.platform === 'tiktok') {
@@ -411,17 +415,20 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
       const a = account('linkedin'); if (!a) throw new Error('LinkedIn is not connected.');
       if (a.expires_at && fromSql(a.expires_at) < new Date()) throw new Error('LinkedIn access ran out (it lasts 60 days). Reconnect LinkedIn.');
       const h = { Authorization: `Bearer ${a.data.token}`, 'LinkedIn-Version': LI_VERSION, 'X-Restli-Protocol-Version': '2.0.0', 'Content-Type': 'application/json' };
-      let media = null;
-      if (post.image_url) {
+      // One picture, or several shown as a multi-photo post (up to 20).
+      const media = [];
+      for (const url of imagesOf(post).slice(0, 20)) {
         const init = (await http('https://api.linkedin.com/rest/images?action=initializeUpload', { method: 'POST', headers: h, body: JSON.stringify({ initializeUploadRequest: { owner: a.data.person } }) }, 'LinkedIn image')).data.value;
-        const img = await fetch(post.image_url); if (!img.ok) throw new Error(`Couldn't load the picture (${img.status}).`);
+        const img = await fetch(url); if (!img.ok) throw new Error(`Couldn't load the picture (${img.status}).`);
         await http(init.uploadUrl, { method: 'PUT', headers: { Authorization: `Bearer ${a.data.token}` }, body: Buffer.from(await img.arrayBuffer()) }, 'LinkedIn image upload');
-        media = init.image;
+        media.push(init.image);
       }
+      const alt = post.kind === 'product' ? 'Product picture' : 'Post picture';
       const { res } = await http('https://api.linkedin.com/rest/posts', { method: 'POST', headers: h, body: JSON.stringify({
         author: a.data.person, commentary: liEscape(post.text), visibility: 'PUBLIC',
         distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] },
-        ...(media ? { content: { media: { id: media, altText: 'Product picture' } } } : {}),
+        ...(media.length > 1 ? { content: { multiImage: { images: media.map(id => ({ id, altText: alt })) } } }
+          : media.length ? { content: { media: { id: media[0], altText: alt } } } : {}),
         lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false,
       }) }, 'LinkedIn post');
       const urn = res.headers.get('x-restli-id');
@@ -1074,6 +1081,44 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
     return { moved, dropped };
   }
   admin.post('/social/sync', (_req, res) => res.json(syncSchedule()));
+
+  // ---------- posts you write yourself ----------
+  // Upload a picture (saved as a JPEG up to 2048px wide), then create a post for one or more platforms at a set time.
+  const mediaUpload = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+  admin.post('/social/media', mediaUpload.single('file'), wrap(async (req, res) => {
+    if (!req.file || !/^image\//.test(req.file.mimetype)) return bad(res, 'Upload a JPG, PNG or WebP picture.');
+    fs.mkdirSync(CARD_DIR, { recursive: true });
+    const name = `own-${crypto.randomBytes(8).toString('hex')}.jpg`;
+    try {
+      await sharp(req.file.buffer, { failOn: 'none' }).rotate().resize({ width: 2048, withoutEnlargement: true }).flatten({ background: '#ffffff' })
+        .jpeg({ quality: 90, chromaSubsampling: '4:4:4', mozjpeg: true }).toFile(path.join(CARD_DIR, name));
+    } catch { return bad(res, 'That picture could not be read.'); }
+    res.json({ url: `${BASE_URL}/media/social/${name}` });
+  }));
+  admin.post('/social/posts', (req, res) => {
+    const b = req.body || {};
+    const posts = (Array.isArray(b.posts) ? b.posts : []).filter(p => PLATFORMS.includes(p.platform) && String(p.text || '').trim());
+    if (!posts.length) return bad(res, 'Write the text for at least one platform.');
+    const at = new Date(b.at);
+    if (isNaN(at)) return bad(res, 'Pick a date and time.');
+    const images = (Array.isArray(b.images) ? b.images : []).map(String).filter(u => u.startsWith(`${BASE_URL}/media/`)).slice(0, 20);
+    const status = b.status === 'approved' ? 'approved' : 'draft';
+    const slot = (at.getUTCHours() + 1) % 24 < 14 ? 'morning' : 'evening';
+    const ids = [];
+    for (const p of posts) {
+      if (['instagram', 'tiktok', 'pinterest'].includes(p.platform) && !images.length) return bad(res, `${NAMES[p.platform]} posts need a picture.`);
+      const when = new Date(at.getTime() + (STAGGER[p.platform] || 0) * 60e3);
+      const text = p.platform === 'instagram' ? String(p.text).trim() : stripTags(p.text);
+      ids.push(Number(run(`INSERT INTO social_posts (platform, text, title, image_url, images, scheduled_at, status, slot, kind, ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'own', 'your post')`,
+        p.platform, p.platform === 'x' ? text.slice(0, 280) : text, p.platform === 'tiktok' ? String(p.title || '').slice(0, 90) || null : null,
+        images[0] || null, images.length > 1 ? JSON.stringify(images) : null, sqlTime(when), status, slot).lastInsertRowid));
+    }
+    // Optional: stand down the automatic posts these replace (same platforms, same morning or evening).
+    let replaced = 0;
+    if (b.replace) for (const p of posts) replaced += Number(run(`UPDATE social_posts SET status = 'skipped' WHERE platform = ? AND slot = ? AND substr(scheduled_at, 1, 10) = ?
+      AND status IN ('draft', 'approved') AND kind != 'own'`, p.platform, slot, sqlTime(at).slice(0, 10)).changes);
+    res.json({ ids, replaced });
+  });
   setTimeout(() => { try { const r = syncSchedule(); if (r.moved || r.dropped) console.log('Social schedule:', r); } catch (e) { console.error('Social schedule:', e.message); } }, 5000).unref();
 
   async function autoGenerate() {
