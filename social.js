@@ -773,7 +773,7 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
     const plan = days.map((d, i) => {
       const n = past + i;
       const morning = one('SELECT * FROM products WHERE id = ?', d.product_id);
-      const needPin = platforms.includes('pinterest') && morning && !one("SELECT 1 FROM social_posts WHERE platform = 'pinterest' AND slot = 'morning' AND substr(scheduled_at, 1, 10) = ?", d.day);
+      const needPin = false; // Pinterest has its own daily product pins (fillPins)
       if (n % 2 === 1) return { date: d.day, kind: 'question', audience: AUDIENCES[Math.floor(n / 2) % AUDIENCES.length], morning: needPin ? morning : null };
       if (quotes.length && (!lastReview || (new Date(d.day) - new Date(lastReview)) / 864e5 >= 6)) {
         const quote = quotes.shift();
@@ -804,7 +804,7 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
       for (const platform of platforms) {
         const text = String(e[platform] || '').trim();
         if (!text) continue;
-        if (d.kind !== 'tip' && platform === 'pinterest') continue;
+        if (platform === 'pinterest') continue; // Pinterest is product pins only (fillPins)
         if (['instagram', 'tiktok'].includes(platform) && !cards.square && !p) continue; // these need a picture
         const image = platform === 'pinterest' ? (cards.tall || (p && imageFor(p, s))) : (cards[platform] || cards.square || (p ? imageFor(p, s) : null));
         const ttTitle = d.kind === 'review' ? `What a buyer said about ${p.title}` : e.card_title || p?.title || '';
@@ -1016,6 +1016,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       for (const d of posts) {
         const day = days[d.day - 1]; if (!day) continue;
         for (const platform of platforms) {
+          if (platform === 'pinterest') continue; // Pinterest has its own daily product pins (fillPins)
           if (platform === 'tiktok') d.tiktok = d.instagram;
           if (!String(d[platform] || '').trim()) continue;
           const at = new Date(day.date); at.setUTCHours(hour - 1, STAGGER[platform], 0, 0); // WAT is UTC+1
@@ -1026,6 +1027,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
         }
       }
       created += await fillEvenings().catch(e => { console.error('Evening posts:', e.message); return 0; });
+      created += await fillPins().catch(e => { console.error('Pinterest pins:', e.message); return 0; });
       if (created && mailer.enabled) {
         await mailer.sendOwnerNote({
           to: s.notify_email || supportEmail(s), store: s.store_name, label: 'Social posts', heading: `${created} posts are ready for you to approve`,
@@ -1037,6 +1039,55 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       return { created };
     } finally { generating = false; }
   }
+  // ---------- Pinterest: product pins only, twice every day ----------
+  // Pinterest is a search engine for products, so it gets its own schedule: a pin each morning and each evening, every
+  // day, always a product (least recently pinned first), cycling through the product's covers so repeat pins look new.
+  const PIN_SCHEMA = {
+    type: 'object', additionalProperties: false, required: ['posts'], // claudeJson returns .posts
+    properties: { posts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'title', 'description'],
+      properties: { n: { type: 'integer' }, title: { type: 'string' }, description: { type: 'string' } } } } },
+  };
+  async function fillPins() {
+    const s = getSettings();
+    if (!activePlatforms(s).includes('pinterest') || !configured.ai()) return 0;
+    const hours = { morning: Math.min(Math.max(Number(s.social_hour) || 10, 0), 23), evening: Math.min(Math.max(Number(s.social_evening_hour) || 19, 0), 23) };
+    const slots = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(Date.now() + i * 864e5).toISOString().slice(0, 10);
+      for (const slot of ['morning', 'evening']) {
+        const at = atHour(day, hours[slot], 'pinterest');
+        if (at < new Date(Date.now() + 20 * 60e3)) continue;
+        if (one("SELECT 1 FROM social_posts WHERE platform = 'pinterest' AND slot = ? AND substr(scheduled_at, 1, 10) = ? AND status IN ('draft', 'approved', 'posting', 'posted')", slot, day)) continue;
+        slots.push({ day, slot, at });
+      }
+    }
+    if (!slots.length) return 0;
+    const prods = all(`SELECT p.*, (SELECT MAX(scheduled_at) FROM social_posts sp WHERE sp.product_id = p.id AND sp.platform = 'pinterest') AS last_pin,
+      (SELECT COUNT(*) FROM social_posts sp WHERE sp.product_id = p.id AND sp.platform = 'pinterest') AS pins
+      FROM products p WHERE p.published = 1 ORDER BY last_pin IS NOT NULL, last_pin, p.featured DESC`).filter(p => coversOf(p).some(c => !isVideoCover(c)));
+    if (!prods.length) return 0;
+    const plan = slots.map((sl, i) => {
+      const p = prods[i % prods.length];
+      const covers = coversOf(p).filter(c => !isVideoCover(c));
+      const cover = covers[(p.pins + Math.floor(i / prods.length)) % covers.length];
+      return { ...sl, p, image: `${BASE_URL}/media/covers/${coverFile(cover, 'og')}` };
+    });
+    const brief = plan.map((x, i) => ({ n: i + 1, product: x.p.title, free: !x.p.price_cents, about: shortText(plain(x.p.subtitle) || plain(x.p.description), 700) }));
+    const system = `You write Pinterest pins for ${s.store_name}, an online store of digital products (${BASE_URL.replace(/^https?:\/\//, '')}).
+For each pin: title up to 90 characters, search-friendly, saying what it is and who it helps; description 150 to 400 characters, keyword-rich and natural, what's inside and who it's for.
+When the same product appears more than once, use a different angle each time (a problem it solves, what's inside, who it's for, a use case).
+Only describe what the product details say. No hashtags, no links, no prices, no fake urgency, no invented results. Free products: say they are free. Plain English.`;
+    const res = await claudeJson(system, `Pins:\n${JSON.stringify(brief, null, 1)}`, PIN_SCHEMA);
+    let created = 0;
+    for (const e of res) {
+      const x = plan[e.n - 1]; if (!x || !String(e.description || '').trim()) continue;
+      run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES ('pinterest', ?, ?, ?, ?, ?, ?, ?, 'product')`,
+        x.p.id, finalText('pinterest', e.description, x.p), String(e.title || x.p.title).slice(0, 100), x.image, productUrl(x.p, 'pinterest'), sqlTime(x.at), x.slot);
+      created++;
+    }
+    return created;
+  }
+
   // ---------- schedule upkeep ----------
   // Evening posts go out on a set number of days a week (5 by default); which days rotates at random each week
   // (seeded by the week, so the choice doesn't change between runs). Mornings go out every day at the morning hour.
@@ -1074,7 +1125,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
         .sort((a, b) => order.indexOf(dowOf(a)) - order.indexOf(dowOf(b)));
       while (days.size > n && removable.length) {
         const d = removable.shift();
-        dropped += Number(run("DELETE FROM social_posts WHERE slot = 'evening' AND substr(scheduled_at, 1, 10) = ? AND status IN ('draft', 'approved', 'failed')", d).changes);
+        dropped += Number(run("DELETE FROM social_posts WHERE slot = 'evening' AND platform != 'pinterest' AND substr(scheduled_at, 1, 10) = ? AND status IN ('draft', 'approved', 'failed')", d).changes);
         days.delete(d);
       }
     }
@@ -1132,6 +1183,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       try {
         const n = await fillEvenings(); if (n) console.log(`Social: wrote ${n} evening posts`);
         const m = await fillMornings(); if (m) console.log(`Social: wrote ${m} morning posts for newly connected accounts`);
+        const pn = await fillPins(); if (pn) console.log(`Social: wrote ${pn} Pinterest pins`);
         const c = await cardify(); if (c) console.log(`Social: added cards to ${c} posts`);
       } finally { generating = false; }
     }
@@ -1196,7 +1248,7 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       if (generating) throw new Error('Already writing posts. Give it a minute.');
       generating = true;
       let evenings = 0;
-      try { evenings = await fillEvenings(); evenings += await fillMornings(); } finally { generating = false; }
+      try { evenings = await fillEvenings(); evenings += await fillMornings(); evenings += await fillPins(); } finally { generating = false; }
       if (evenings) return res.json({ created: evenings, evenings: true });
       res.json(await generateWeek({ force: true }));
     } catch (e) { bad(res, e.message); }
