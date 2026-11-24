@@ -145,7 +145,14 @@ const DEFAULT_SETTINGS = {
   social_brand_voice: '',         // extra notes about Francis and how he sounds
   social_brand_story: '',         // true facts from his life; story posts use only these (no facts = no story posts)
   social_brand_cta: '',           // the call to action branding posts end with, e.g. "DM me BRAND for a free profile review"
-  social_x_stats: '1',            // read X post numbers once a day (uses X API credits)
+  social_x_stats: '1',
+  // Pinterest: products that are also on Gumroad get every other pin linking there ({"product-slug": "https://...gumroad.com/l/..."})
+  social_gumroad_links: JSON.stringify({
+    'jingle-color-38-printable-christmas-coloring-pages-for-kids-pdf': 'https://carsinstudio.gumroad.com/l/lprmyr',
+    'the-linkedin-personal-brand-kit': 'https://carsinstudio.gumroad.com/l/suwbch',
+    'pitch-deck-template1': 'https://carsinstudio.gumroad.com/l/yjhtq',
+    'linkedin-authority-banners-vol-1': 'https://carsinstudio.gumroad.com/l/LABVol1',
+  }),            // read X post numbers once a day (uses X API credits)
   social_brand_hooks: [
     '- A blunt truth: "Your LinkedIn banner is working against you."',
     '- A question that stings: "Would you hire you, based on your profile alone?"',

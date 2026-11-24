@@ -390,6 +390,9 @@
         <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">One evening a week quotes a real review (4 or 5 stars) or a testimonial from a product page, word for word, on a card. Each quote is used once; weeks without a new one get a tip instead.</small>
         <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-report" ${s.social_report !== '0' ? 'checked' : ''}><i></i></span>Email me last week's results every Monday</label>
         <small class="dim" style="display:block;margin:0 0 12px;font-size:12px">Visitors and where they came from, sales and free downloads by platform, most viewed products, and posts sent. <a href="#" id="so-report-now" style="color:var(--accent-2)">Send this week's now</a></small>
+        <h4 style="margin:22px 0 8px;font-weight:500">Pinterest</h4>
+        <small class="dim" style="display:block;margin:0 0 10px;font-size:12px">Pinterest gets product pins only, four a day. Products with a Gumroad link below alternate: one pin links to your store, the next to Gumroad, each with a different cover and wording.</small>
+        <div style="display:grid;gap:8px;margin-bottom:12px">${(() => { let g = {}; try { g = JSON.parse(s.social_gumroad_links || '{}'); } catch {} return (d.products || []).map(p => `<label class="field" style="margin:0"><span style="font-size:12.5px">${esc(p.title)}</span><input class="input" data-gum="${esc(p.slug)}" value="${esc(g[p.slug] || '')}" placeholder="Gumroad link (leave empty if it's not on Gumroad)"></label>`).join(''); })()}</div>
         <h4 style="margin:22px 0 8px;font-weight:500">LinkedIn-branding posts (Carsin Studio)</h4>
         <label class="check" style="margin:4px 0 6px"><span class="switch"><input type="checkbox" id="so-brand" ${s.social_brand !== '0' ? 'checked' : ''}><i></i></span>Product posts only on some days; branding posts on the rest</label>
         <div style="display:flex;flex-wrap:wrap;gap:10px 16px;margin:8px 0 6px"><span class="dim" style="font-size:13px">Product days:</span>${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((n, i) => `<label class="check" style="font-size:13px"><input type="checkbox" data-pday="${i}" ${String(s.social_product_days ?? '1,4').split(',').includes(String(i)) ? 'checked' : ''} style="accent-color:var(--accent)">${n}</label>`).join('')}</div>
@@ -423,6 +426,7 @@
         social_brand_hooks: $('#so-hooks').value, social_brand_story: $('#so-story').value, social_brand_cta: $('#so-cta').value, social_brand_voice: $('#so-bvoice').value,
         social_reels: $('#so-reels').checked ? '1' : '0', social_reviews: $('#so-reviews').checked ? '1' : '0', social_report: $('#so-report').checked ? '1' : '0',
         social_platforms: $$('[data-plat]').filter(i => i.checked).map(i => i.dataset.plat).join(','),
+        social_gumroad_links: JSON.stringify(Object.fromEntries($$('[data-gum]').map(i => [i.dataset.gum, i.value.trim()]).filter(([, v]) => v))),
       } });
       const sync = await api('/api/admin/social/sync', { method: 'POST' }).catch(() => ({}));
       toast(sync.moved || sync.dropped ? `Settings saved. ${sync.moved ? sync.moved + ' queued posts moved to the new time' : ''}${sync.moved && sync.dropped ? ', ' : ''}${sync.dropped ? sync.dropped + ' extra evening posts removed' : ''}.` : 'Settings saved');

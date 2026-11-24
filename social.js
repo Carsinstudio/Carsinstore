@@ -1039,22 +1039,32 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       return { created };
     } finally { generating = false; }
   }
-  // ---------- Pinterest: product pins only, twice every day ----------
-  // Pinterest is a search engine for products, so it gets its own schedule: a pin each morning and each evening, every
-  // day, always a product (least recently pinned first), cycling through the product's covers so repeat pins look new.
+  // ---------- Pinterest: product pins only, four a day ----------
+  // Pinterest is a search engine for products, so it gets its own schedule: four pins a day (morning, early afternoon,
+  // evening, night), always a product (least recently pinned first), cycling through the product's covers so repeat pins
+  // look new. Products also sold on Gumroad (setting social_gumroad_links) alternate: one pin to the store, the next to Gumroad.
   const PIN_SCHEMA = {
     type: 'object', additionalProperties: false, required: ['posts'], // claudeJson returns .posts
     properties: { posts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'title', 'description'],
       properties: { n: { type: 'integer' }, title: { type: 'string' }, description: { type: 'string' } } } } },
   };
+  const PIN_SLOTS = ['morning', 'afternoon', 'evening', 'night'];
+  function gumroadLinks(s) {
+    try {
+      const m = JSON.parse(s.social_gumroad_links || '{}');
+      return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, String(v || '').trim()]).filter(([k, v]) => k && /^https:\/\/\S+$/.test(v)));
+    } catch { return {}; }
+  }
+  const isGumroad = link => /gumroad\.com/i.test(String(link || ''));
   async function fillPins() {
     const s = getSettings();
     if (!activePlatforms(s).includes('pinterest') || !configured.ai()) return 0;
-    const hours = { morning: Math.min(Math.max(Number(s.social_hour) || 10, 0), 23), evening: Math.min(Math.max(Number(s.social_evening_hour) || 19, 0), 23) };
+    const clamp = (v, d) => Math.min(Math.max(Number(v) || d, 0), 23);
+    const hours = { morning: clamp(s.social_hour, 10), afternoon: 13, evening: clamp(s.social_evening_hour, 19), night: 21 };
     const slots = [];
     for (let i = 0; i < 7; i++) {
       const day = new Date(Date.now() + i * 864e5).toISOString().slice(0, 10);
-      for (const slot of ['morning', 'evening']) {
+      for (const slot of PIN_SLOTS) {
         const at = atHour(day, hours[slot], 'pinterest');
         if (at < new Date(Date.now() + 20 * 60e3)) continue;
         if (one("SELECT 1 FROM social_posts WHERE platform = 'pinterest' AND slot = ? AND substr(scheduled_at, 1, 10) = ? AND status IN ('draft', 'approved', 'posting', 'posted')", slot, day)) continue;
@@ -1062,27 +1072,33 @@ Rules: never claim results you weren't given, never promise jobs, clients or inc
       }
     }
     if (!slots.length) return 0;
+    slots.sort((a, b) => a.at - b.at);
     const prods = all(`SELECT p.*, (SELECT MAX(scheduled_at) FROM social_posts sp WHERE sp.product_id = p.id AND sp.platform = 'pinterest') AS last_pin,
-      (SELECT COUNT(*) FROM social_posts sp WHERE sp.product_id = p.id AND sp.platform = 'pinterest') AS pins
+      (SELECT COUNT(*) FROM social_posts sp WHERE sp.product_id = p.id AND sp.platform = 'pinterest') AS pins,
+      (SELECT link FROM social_posts sp WHERE sp.product_id = p.id AND sp.platform = 'pinterest' ORDER BY scheduled_at DESC LIMIT 1) AS last_link
       FROM products p WHERE p.published = 1 ORDER BY last_pin IS NOT NULL, last_pin, p.featured DESC`).filter(p => coversOf(p).some(c => !isVideoCover(c)));
     if (!prods.length) return 0;
+    const gum = gumroadLinks(s);
+    const nextGum = new Map(prods.map(p => [p.id, !!gum[p.slug] && !isGumroad(p.last_link)])); // flips each time the product is pinned
     const plan = slots.map((sl, i) => {
       const p = prods[i % prods.length];
       const covers = coversOf(p).filter(c => !isVideoCover(c));
       const cover = covers[(p.pins + Math.floor(i / prods.length)) % covers.length];
-      return { ...sl, p, image: `${BASE_URL}/media/covers/${coverFile(cover, 'og')}` };
+      const toGum = nextGum.get(p.id);
+      if (gum[p.slug]) nextGum.set(p.id, !toGum);
+      return { ...sl, p, image: `${BASE_URL}/media/covers/${coverFile(cover, 'og')}`, link: toGum ? gum[p.slug] : productUrl(p, 'pinterest') };
     });
     const brief = plan.map((x, i) => ({ n: i + 1, product: x.p.title, free: !x.p.price_cents, about: shortText(plain(x.p.subtitle) || plain(x.p.description), 700) }));
-    const system = `You write Pinterest pins for ${s.store_name}, an online store of digital products (${BASE_URL.replace(/^https?:\/\//, '')}).
+    const system = `You write Pinterest pins for ${s.store_name}, a shop of digital products.
 For each pin: title up to 90 characters, search-friendly, saying what it is and who it helps; description 150 to 400 characters, keyword-rich and natural, what's inside and who it's for.
-When the same product appears more than once, use a different angle each time (a problem it solves, what's inside, who it's for, a use case).
-Only describe what the product details say. No hashtags, no links, no prices, no fake urgency, no invented results. Free products: say they are free. Plain English.`;
+When the same product appears more than once, use a different angle and different wording each time (a problem it solves, what's inside, who it's for, a use case), so no two pins read alike.
+Only describe what the product details say. No hashtags, no links, no website names, no prices, no fake urgency, no invented results. Free products: say they are free. Plain English.`;
     const res = await claudeJson(system, `Pins:\n${JSON.stringify(brief, null, 1)}`, PIN_SCHEMA);
     let created = 0;
     for (const e of res) {
       const x = plan[e.n - 1]; if (!x || !String(e.description || '').trim()) continue;
       run(`INSERT INTO social_posts (platform, product_id, text, title, image_url, link, scheduled_at, slot, kind) VALUES ('pinterest', ?, ?, ?, ?, ?, ?, ?, 'product')`,
-        x.p.id, finalText('pinterest', e.description, x.p), String(e.title || x.p.title).slice(0, 100), x.image, productUrl(x.p, 'pinterest'), sqlTime(x.at), x.slot);
+        x.p.id, finalText('pinterest', e.description, x.p), String(e.title || x.p.title).slice(0, 100), x.image, x.link, sqlTime(x.at), x.slot);
       created++;
     }
     return created;
@@ -1203,7 +1219,8 @@ Only describe what the product details say. No hashtags, no links, no prices, no
       accounts,
       settings: { social_enabled: s.social_enabled, social_hour: s.social_hour, social_platforms: s.social_platforms, social_voice: s.social_voice,
         social_evening: s.social_evening, social_evening_hour: s.social_evening_hour, social_evening_days: s.social_evening_days, social_reels: s.social_reels, social_reviews: s.social_reviews, social_report: s.social_report,
-        social_brand: s.social_brand, social_product_days: s.social_product_days, social_brand_voice: s.social_brand_voice, social_brand_story: s.social_brand_story, social_brand_cta: s.social_brand_cta, social_brand_hooks: s.social_brand_hooks },
+        social_brand: s.social_brand, social_product_days: s.social_product_days, social_brand_voice: s.social_brand_voice, social_brand_story: s.social_brand_story, social_brand_cta: s.social_brand_cta, social_brand_hooks: s.social_brand_hooks, social_gumroad_links: JSON.stringify(gumroadLinks(s)) },
+      products: all('SELECT id, slug, title FROM products WHERE published = 1 ORDER BY title'),
       queue: all(`SELECT sp.*, p.title AS product FROM social_posts sp LEFT JOIN products p ON p.id = sp.product_id
         WHERE sp.status IN ('draft', 'approved', 'posting', 'failed') AND sp.scheduled_at >= datetime('now', '-2 days') ORDER BY sp.scheduled_at, sp.platform`),
       history: all(`SELECT sp.id, sp.platform, sp.status, sp.scheduled_at, sp.posted_at, sp.remote_url, sp.error, p.title AS product FROM social_posts sp
