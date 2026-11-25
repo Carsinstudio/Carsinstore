@@ -80,12 +80,13 @@ _Last updated: {{UPDATED}}_
 
 const refunds = `## Refund Policy
 
-Because our products are digital files that are delivered instantly and can't be returned, **all sales are final once a product has been delivered**. We do refund in these cases:
+Because our products are digital and delivered instantly, **all sales are final once a product has been delivered**. Our bundles collect resources that are free online, and every bundle shows where its items come from before you buy, so you are paying for our curation; "I could have found it myself" isn't a reason for a refund. We do refund in these cases:
 
 - **You were charged twice** for the same product.
 - **A file is broken or doesn't open**, and we can't fix it for you within 3 business days.
 - **The product is significantly different** from its description on the product page.
 - **You paid but never received access**, and we can't resolve it.
+- **A link in a bundle stops working** and we can't replace it within 3 business days with a working link or another free resource that does the same job.
 
 ### How to ask
 Email {{EMAIL}} within **7 days** of purchase with:

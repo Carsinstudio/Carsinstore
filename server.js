@@ -169,6 +169,7 @@ function applyNewDirection() {
   set('hero_title', "The best free resources.|Less than $1."); // non-breaking spaces keep "less than $1" on one line
   set('hero_sub', "Hand-picked from Harvard, Google, the NHS and more. You only pay $0.99 for our effort of putting it together.");
   set('tagline', 'Free resources, hand-picked and packed for you.');
+  set('footer_blurb', 'The best free resources online, hand-picked by topic.');
   set('currency', 'usd');
   // Prices are shown in US dollars everywhere. Until Paystack pays out in USD, every buyer pays the day's naira
   // equivalent (international cards work with "Accept international payments" on); clear pay_currency once USD is on.

@@ -392,9 +392,9 @@
     </div></section>` : ''}
 
     <section class="block" style="padding-top:20px"><div class="wrap">
-      <div class="section-head reveal"><div class="left"><span class="label">Delivery</span><h2>Pay once,<br>download instantly.</h2></div><p>Every purchase comes with a private download link, shown on screen right away and emailed to you to keep.</p></div>
+      <div class="section-head reveal"><div class="left"><span class="label">What you get</span><h2>Everything in one place,<br>the moment you pay.</h2></div><p>Every purchase opens a private page with every link and file in the bundle, and we email it to you to keep.</p></div>
       <div class="tabs-layout reveal">
-        <div class="tab-list" id="tabs"><button class="on" data-t="0">Video downloads</button><button data-t="1">Files & bundles</button><button data-t="2">Free previews</button></div>
+        <div class="tab-list" id="tabs"><button class="on" data-t="0">One page, every link</button><button data-t="1">Sources shown</button><button data-t="2">Our own files</button></div>
         <div class="tab-panel"><div class="tab-stage" id="tab-stage"></div><div class="tab-caption" id="tab-cap"></div></div>
       </div>
     </div></section>
@@ -445,14 +445,15 @@
     const previewed = withFiles.filter(p => p.previews).slice(0, 2);
     const locked = withFiles.filter(p => !previewed.includes(p)).slice(0, 3 - previewed.length);
     const lockIco = `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`;
+    const linkRow = (name, site, end) => `<div class="mock-row"><div class="fi">LINK</div><div class="grow"><span class="nm">${name}</span><small>${site}</small></div>${end}</div>`;
+    const exampleLinks = [['Personal finance course', 'khanacademy.org'], ['Budget planner you can fill in online', 'moneysmart.gov.au'], ['Introduction to investing', 'investor.gov'], ['Free resume templates', 'canva.com']];
     const tabs = [
-      { cap: ['Video Downloads', '<b>Keep them offline.</b> Download full-quality video files to watch on any device, or play them right on your download page.'],
-        html: `<div class="mock"><a class="mock-video has-video" href="#/p/pitch-deck-template1" aria-label="NeuronFlow AI Pitch Deck"><video data-src="/showcase/neuronflow-cover.mp4" data-webm="/showcase/neuronflow-cover.webm" muted loop playsinline preload="none"></video></a>
-          <div style="margin-top:12px;font-size:13px">NeuronFlow AI Pitch Deck <small class="dim">· MP4 · HD</small></div></div>` },
-      { cap: ['Files & Bundles', '<b>Everything included.</b> PDFs, ZIP bundles, templates and documents. Download them whenever you need, as often as you like.'],
+      { cap: ['One page, every link', '<b>No more 40 open tabs.</b> Every course, guide and tool in the bundle sits on one private page. Open them whenever you like, as often as you like.'],
+        html: `<div class="mock">${exampleLinks.map(([n, s]) => linkRow(esc(n), 'on ' + s, `<span class="dim">${I.arrow}</span>`)).join('')}</div>` },
+      { cap: ['Sources shown', '<b>Nothing hidden.</b> Every bundle lists where each item comes from and that it is free, before you buy. You pay for the time we save you.'],
+        html: `<div class="mock">${exampleLinks.slice(0, 3).map(([n, s]) => linkRow(esc(n), 'Free on ' + s, '<span class="tag-preview">Free link</span>')).join('')}</div>` },
+      { cap: ['Our own files', '<b>Made by us, too.</b> Templates, guides and courses we made ourselves download straight to your device.'],
         html: `<div class="mock">${withFiles.slice(0, 4).map(p => row(p, filesLine(p), `<span class="dim">${I.down}</span>`)).join('')}</div>` },
-      { cap: ['Free Previews', '<b>Try before you buy.</b> Watch a sample clip or flip through a sample page right on the product page.'],
-        html: `<div class="mock">${previewed.map(p => row(p, 'Free preview', '<span class="tag-preview">Preview</span>')).join('')}${locked.map(p => row(p, 'Unlocks after purchase', lockIco)).join('')}</div>` },
     ];
     const setTab = i => {
       $$('#tabs button').forEach((b, j) => b.classList.toggle('on', i === j));
