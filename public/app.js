@@ -32,6 +32,16 @@
 
   // ---------- formatting ----------
   const money = (cents, cur) => new Intl.NumberFormat(undefined, { style: 'currency', currency: (cur || S.store?.settings.currency || 'ngn').toUpperCase(), currencyDisplay: 'narrowSymbol', minimumFractionDigits: cents % 100 ? 2 : 0 }).format((cents || 0) / 100);
+  const ZONE_CURRENCY = { 'Africa/Lagos': 'ngn', 'Africa/Accra': 'ghs', 'Africa/Nairobi': 'kes', 'Africa/Johannesburg': 'zar' };
+  function visitorCurrency() {
+    let saved = ''; try { saved = localStorage.getItem('cs_currency') || ''; } catch {}
+    if (saved) return saved;
+    let zone = ''; try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch {}
+    return ZONE_CURRENCY[zone] || 'usd';
+  }
+  // The currency to show a product in: the visitor's, when the product has a price in it; otherwise the store's.
+  const curOf = p => { const c = visitorCurrency(); return p?.prices && c in p.prices ? c : (S.store?.settings.currency || 'ngn').toLowerCase(); };
+  const priceOf = p => { const c = curOf(p); return p?.prices && c in p.prices ? p.prices[c] : p.price; };
   const size = b => b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const date = d => new Date(d.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -198,7 +208,8 @@
   const compareOf = p => (p.compare && p.compare > p.price ? p.compare : p.bundle?.worth > p.price ? p.bundle.worth : 0);
   function priceHtml(p) {
     if (!p.price) return '<span class="price free">Free</span>';
-    return `<span class="price">${money(p.price)}${compareOf(p) ? `<s>${money(compareOf(p))}</s>` : ''}</span>`;
+    const c = curOf(p), local = c !== (S.store?.settings.currency || 'ngn').toLowerCase();
+    return `<span class="price">${money(priceOf(p), c)}${compareOf(p) && !local ? `<s>${money(compareOf(p))}</s>` : ''}</span>`;
   }
   function metaHtml(p) {
     const bits = [];
@@ -209,11 +220,11 @@
   // Homepage shelf card: picture, what it is, price, and a clear "View" so it reads as clickable.
   function shelfCard(p) {
     const fmt = !p.price ? 'Free' : formatOf(p);
-    return `<a class="sh-card" href="#/p/${esc(p.slug)}" aria-label="${esc(p.title)}, ${p.price ? money(p.price) : 'free'}">
+    return `<a class="sh-card" href="#/p/${esc(p.slug)}" aria-label="${esc(p.title)}, ${p.price ? money(priceOf(p), curOf(p)) : 'free'}">
       <div class="sh-img">${coverHtml(p)}<span class="sh-fmt ${p.price ? '' : 'free'}">${esc(fmt)}</span></div>
       <div class="sh-body">${p.category ? `<span class="sh-cat">${esc(p.category.name)}</span>` : ''}<h3>${esc(p.title)}</h3>
         ${p.rating ? `<span class="sh-rate">${starsHtml(p.rating.avg)} <small>${p.rating.count}</small></span>` : ''}
-        <div class="sh-foot"><span class="sh-price ${p.price ? '' : 'free'}">${p.price ? money(p.price) : 'Free'}${p.bundle && compareOf(p) ? `<s>${money(compareOf(p))}</s>` : ''}</span><span class="sh-view">View ${I.arrow}</span></div></div></a>`;
+        <div class="sh-foot"><span class="sh-price ${p.price ? '' : 'free'}">${p.price ? money(priceOf(p), curOf(p)) : 'Free'}${p.bundle && compareOf(p) && curOf(p) === (S.store?.settings.currency || 'ngn').toLowerCase() ? `<s>${money(compareOf(p))}</s>` : ''}</span><span class="sh-view">View ${I.arrow}</span></div></div></a>`;
   }
   function productCard(p) {
     return `<a class="card reveal" href="#/p/${esc(p.slug)}">
@@ -628,8 +639,7 @@
     });
     // Price shown in the chosen currency, with the "compare at" price (store currency only) or an applied code.
     const main = (S.store.settings.currency || 'ngn').toLowerCase();
-    let saved = ''; try { saved = localStorage.getItem('cs_currency') || ''; } catch {}
-    const state = { currency: saved in p.prices ? saved : main, coupon: '', discounted: null };
+    const state = { currency: curOf(p), coupon: '', discounted: null };
     const renderPrice = () => {
       const base = p.prices[state.currency], cur = state.currency;
       const d = state.discounted;
