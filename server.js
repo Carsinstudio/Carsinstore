@@ -166,7 +166,7 @@ function applyNewDirection() {
   if (process.env.NEW_DIRECTION !== '1' || getSettings().new_direction_applied) return;
   const set = (k, v) => run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, v);
   set('hero_eyebrow', 'Free resources, hand-picked');
-  set('hero_title', "The best free resources online.|Hand-picked for less than $1.");
+  set('hero_title', "The best free resources online.|Hand-picked for less00a0than00a0$1.");
   set('hero_sub', "Courses, guides, templates and tools from places like Harvard, Google and the NHS, sorted by topic and checked, so you don't lose hours searching. Everything inside is free online. The {price} is for finding it for you.");
   set('tagline', 'Free resources, hand-picked and packed for you.');
   set('currency', 'usd');
