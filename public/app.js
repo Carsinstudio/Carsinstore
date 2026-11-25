@@ -55,7 +55,7 @@
   // A file's icon and its small grey line. Link files (hosted on Google Drive etc.) show a link icon and where they're hosted.
   const LINK_ICO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
   const fileIco = f => `<div class="file-ico ${f.kind}">${f.link ? LINK_ICO : esc(extOf(f.name))}</div>`;
-  const fileMeta = f => (f.link ? [f.kind === 'video' ? 'Videos' : 'Files', 'on ' + esc(f.host), f.size ? size(f.size) : ''].filter(Boolean).join(' · ') : size(f.size));
+  const fileMeta = f => (f.link ? [f.kind === 'video' ? 'Videos' : 'Free link', 'on ' + esc(f.host), f.size ? size(f.size) : ''].filter(Boolean).join(' · ') : size(f.size));
 
   function md(src) {
     // Tiny markdown: headings, bullet lists, bold, italics, links, paragraphs.
@@ -860,7 +860,7 @@
         ${groups.some(g => g.files.length) ? groups.filter(g => g.files.length).map((g, i) => `<div class="box"${i ? ' style="margin-top:18px"' : ''}><div class="box-head"><h3>${esc(g.title)}</h3><span class="muted" style="font-size:13px">${plural(g.files.length, 'file')}${(t => t ? ' · ' + size(t) : '')(g.files.reduce((n, f) => n + f.size, 0))}</span></div>
           ${g.files.map(f => `<div class="file-row">${fileIco(f)}<div class="grow"><div class="nm">${esc(f.name)}</div><small>${fileMeta(f)}</small></div>
             ${viewable(f) ? `<button class="btn btn-sm btn-ghost" data-view="${f.id}">${f.kind === 'video' || f.kind === 'audio' ? 'Play' : 'View'}</button>` : ''}
-            ${f.link ? `<a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" target="_blank" rel="noopener noreferrer">${I.down} Download</a>` : `<a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" download>${I.down} Download</a>`}</div>`).join('')}${g.files.some(f => f.link) ? `<p class="dim" style="font-size:12.5px;margin:12px 0 0">Files marked with a link open on ${esc([...new Set(g.files.filter(f => f.link).map(f => f.host))].join(', '))} in a new tab, where you can download or watch them.</p>` : ''}
+            ${f.link ? `<a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" target="_blank" rel="noopener noreferrer">Open ${I.arrow}</a>` : `<a class="btn btn-sm btn-primary" href="${fileUrl(f, token)}" download>${I.down} Download</a>`}</div>`).join('')}${g.files.some(f => f.link) ? `<p class="dim" style="font-size:12.5px;margin:12px 0 0">Links open the free resource on its own site in a new tab. Bookmark this page to come back to all of them.</p>` : ''}
         </div>`).join('') : '<div class="empty"><h3>Files coming soon</h3><p>The files for this product haven\'t been uploaded yet. This same link will work once they are.</p></div>'}
         <div class="box" style="margin-top:18px;padding:16px 20px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
           <span class="muted" style="font-size:13.5px">This private link is your access. Keep it safe and don't share it.</span>
