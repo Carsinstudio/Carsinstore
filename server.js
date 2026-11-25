@@ -166,8 +166,8 @@ function applyNewDirection() {
   if (process.env.NEW_DIRECTION !== '1' || getSettings().new_direction_applied) return;
   const set = (k, v) => run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, v);
   set('hero_eyebrow', 'Free resources, hand-picked');
-  set('hero_title', "It's all free.|You pay for the finding.");
-  set('hero_sub', "Ebooks, templates, playlists and guides that are already free online, hand-picked, checked and packed into one bundle per topic. You only pay for the hours it took to put together.");
+  set('hero_title', "The best free resources online.|Hand-picked for {price}.");
+  set('hero_sub', "Courses, guides, templates and tools from places like Harvard, Google and the NHS, sorted by topic and checked, so you don't lose hours searching. Everything inside is free online. The {price} is for finding it for you.");
   set('tagline', 'Free resources, hand-picked and packed for you.');
   set('currency', 'usd');
   set('extra_currencies', 'ngn,ghs,kes,zar');
@@ -1981,7 +1981,8 @@ const shareImage = s => (s.share_image ? `${BASE_URL}/media/covers/${coverFile(s
 function sendHome(res) {
   const s = getSettings();
   const social = ['instagram', 'x', 'youtube', 'tiktok', 'linkedin'].map(k => s[k]).filter(Boolean);
-  sendPage(res, { title: `${s.store_name} | ${plain(s.tagline)}`, ogTitle: s.store_name, description: shortText(plain(s.hero_sub || s.tagline)), url: `${BASE_URL}/`, site: s.store_name, image: shareImage(s),
+  const priced = t => String(t || '').split('{price}').join('$0.99'); // link previews can't know the visitor's currency
+  sendPage(res, { title: `${s.store_name} | ${plain(priced(s.tagline))}`, ogTitle: s.store_name, description: shortText(plain(priced(s.hero_sub || s.tagline))), url: `${BASE_URL}/`, site: s.store_name, image: shareImage(s),
     jsonld: { '@context': 'https://schema.org', '@graph': [
       { '@type': 'Organization', '@id': `${BASE_URL}/#org`, name: s.store_name, url: `${BASE_URL}/`, logo: `${BASE_URL}/brand/apple-touch-icon.png`, ...(social.length ? { sameAs: social } : {}) },
       { '@type': 'WebSite', name: s.store_name, url: `${BASE_URL}/`, publisher: { '@id': `${BASE_URL}/#org` } },

@@ -334,7 +334,10 @@
     const [featured, all, top] = await Promise.all([api('/api/products?featured=1&limit=8'), api('/api/products?limit=60'), api('/api/reviews/top').catch(() => ({ reviews: [] }))]);
     const free = all.filter(p => !p.price).slice(0, 3);
     const highlight = (featured.length ? featured : all).slice(0, 8);
-    const [t1, t2] = String(s.hero_title || '').split('|');
+    // {price} in the homepage words: the bundle price in the visitor's currency.
+    const firstPaid = all.find(p => p.price);
+    const withPrice = v => String(v || '').split('{price}').join(firstPaid ? money(priceOf(firstPaid), curOf(firstPaid)) : '$0.99');
+    const [t1, t2] = withPrice(s.hero_title).split('|');
     const cats = S.store.categories;
     const catIcons = [I.playO, I.file, I.grid, I.book, I.bolt, I.gift];
     const faq = s.faq || [];
@@ -350,9 +353,9 @@
     <section class="hero">
       <div class="aurora"><i></i></div><div class="grain"></div><div class="hero-fade"></div>
       <div class="wrap hero-content">
-        <span class="pill">${esc(s.hero_eyebrow).replace(/(\S+)$/, '<b>$1</b>')}</span>
+        <span class="pill">${esc(withPrice(s.hero_eyebrow)).replace(/(\S+)$/, '<b>$1</b>')}</span>
         <h1><span>${esc(t1)}</span>${t2 ? `<span class="line2 fade-2">${esc(t2)}</span>` : ''}</h1>
-        <p class="lead">${esc(s.hero_sub)}</p>
+        <p class="lead">${esc(withPrice(s.hero_sub))}</p>
         <div class="actions"><a class="btn btn-primary btn-lg" href="#/shop">Browse the bundles ${I.arrow}</a><a class="btn btn-lg" href="#/shop?price=free">Start with a free one</a></div>
       </div>
     </section>
@@ -412,7 +415,7 @@
 
     <section class="cta"><div class="wrap reveal">
       <span class="label">Get started</span><h2>Stop searching. Start using.</h2>
-      <p>${esc(s.tagline)}</p>
+      <p>${esc(withPrice(s.tagline))}</p>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><a class="btn btn-primary" href="#/shop">Browse the bundles ${I.arrow}</a><a class="btn" href="#/shop?price=free">Get free resources</a></div>
     </div></section>`);
 
