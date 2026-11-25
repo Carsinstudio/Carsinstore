@@ -146,6 +146,11 @@ h3 { font-size: 22px; }
 .hero-content { position: relative; z-index: 2; }
 .hero h1 { margin: 22px auto 18px; max-width: 900px; }
 .hero h1 .line2 { display: block; }
+/* second headline line: soft light purple with a slow, gentle glow */
+.hero h1 .line2.fade-2 { background: linear-gradient(90deg, #efe9ff 0%, #c9b8ff 55%, #a58bff 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 18px rgba(var(--accent-rgb), .45)); animation: line2-glow 4.5s ease-in-out infinite alternate; }
+@keyframes line2-glow { from { filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .3)); } to { filter: drop-shadow(0 0 26px rgba(var(--accent-rgb), .6)); } }
+@media (prefers-reduced-motion: reduce) { .hero h1 .line2.fade-2 { animation: none; } }
 .hero p.lead { max-width: 520px; margin: 0 auto 30px; color: #cdc8c1; font-size: 16.5px; }
 .hero .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 

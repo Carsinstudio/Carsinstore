@@ -40,7 +40,11 @@
   // Prices are shown in the store's currency everywhere. At checkout, buyers pay in their own currency when the
   // product has a price in it (e.g. naira in Nigeria), and see that amount before they pay.
   const curOf = () => (S.store?.settings.currency || 'ngn').toLowerCase();
-  const payCurOf = p => { const c = visitorCurrency(); return p?.prices && p.price && c in p.prices ? c : curOf(p); };
+  const payCurOf = p => {
+    const fixed = String(S.store?.settings.pay_currency || '').toLowerCase(); // one checkout currency for everyone, if set
+    if (fixed && p?.prices && fixed in p.prices) return fixed;
+    const c = visitorCurrency(); return p?.prices && p.price && c in p.prices ? c : curOf(p);
+  };
   const CURRENCY_NAMES = { ngn: 'naira', ghs: 'cedis', kes: 'shillings', zar: 'rand', usd: 'US dollars' };
   const priceOf = p => { const c = curOf(p); return p?.prices && c in p.prices ? p.prices[c] : p.price; };
   const size = b => b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
@@ -670,7 +674,9 @@
       // What they'll actually be charged, in their own currency, before they pay.
       const local = state.pay !== cur && paid ? (state.payDiscounted ?? p.prices[state.pay]) : null;
       $('#pay-local').hidden = !local;
-      if (local) $('#pay-local').innerHTML = `You'll pay <b>${money(local, state.pay)}</b> in ${CURRENCY_NAMES[state.pay] || state.pay.toUpperCase()} at checkout, at today's rate.`;
+      if (local) $('#pay-local').innerHTML = visitorCurrency() === state.pay
+        ? `You'll pay <b>${money(local, state.pay)}</b> in ${CURRENCY_NAMES[state.pay] || state.pay.toUpperCase()} at checkout, at today's rate.`
+        : `You'll pay <b>${money(local, state.pay)}</b> at checkout. We process payments in ${state.pay === 'ngn' ? 'Nigerian naira' : state.pay.toUpperCase()}, and your bank converts it, so your statement may differ slightly.`;
       if (local) $('#buy').innerHTML = `Pay ${money(local, state.pay)} ${I.arrow}`;
     };
     const applyCoupon = async (code, quiet) => {

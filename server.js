@@ -170,8 +170,10 @@ function applyNewDirection() {
   set('hero_sub', "Hand-picked from Harvard, Google, the NHS and more. You only pay $0.99 for our effort of putting it together.");
   set('tagline', 'Free resources, hand-picked and packed for you.');
   set('currency', 'usd');
-  // Prices are shown in US dollars everywhere; buyers in these countries pay the day's equivalent in their own currency.
-  set('extra_currencies', 'ngn,ghs,kes,zar');
+  // Prices are shown in US dollars everywhere. Until Paystack pays out in USD, every buyer pays the day's naira
+  // equivalent (international cards work with "Accept international payments" on); clear pay_currency once USD is on.
+  set('extra_currencies', 'ngn');
+  set('pay_currency', 'ngn');
   set('fx_auto', '1');
   let faq = []; try { faq = JSON.parse(getSettings().faq || '[]'); } catch {}
   if (!Array.isArray(faq)) faq = [];
