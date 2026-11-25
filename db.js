@@ -145,6 +145,7 @@ const DEFAULT_SETTINGS = {
   social_brand_voice: '',         // extra notes about Francis and how he sounds
   social_brand_story: '',         // true facts from his life; story posts use only these (no facts = no story posts)
   social_brand_cta: '',           // the call to action branding posts end with, e.g. "DM me BRAND for a free profile review"
+  fx_auto: '0',                  // '1': extra-currency prices are converted from the main price at the day's exchange rate
   social_x_stats: '1',
   // Pinterest: products that are also on Gumroad get every other pin linking there ({"product-slug": "https://...gumroad.com/l/..."})
   social_gumroad_links: JSON.stringify({

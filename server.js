@@ -143,9 +143,43 @@ function productPrices(p, s = getSettings()) {
   let alt = {};
   try { alt = JSON.parse(p.alt_prices || '{}'); } catch {}
   const prices = { [main]: p.price_cents };
-  // Free products stay free everywhere; paid ones only get an extra currency once a price is set for it.
-  for (const c of extra) if (p.price_cents === 0 || alt[c] > 0) prices[c] = p.price_cents === 0 ? 0 : alt[c];
+  const auto = s.fx_auto === '1';
+  const rates = auto ? fxRates(s, main) : null;
+  for (const c of extra) {
+    if (p.price_cents === 0) prices[c] = 0; // free stays free everywhere
+    // Automatic: today's exchange rate, rounded to a friendly amount. No rate yet: that currency isn't offered.
+    else if (auto) { if (rates?.[c.toUpperCase()] > 0) prices[c] = friendlyAmount(p.price_cents * rates[c.toUpperCase()], c); }
+    else if (alt[c] > 0) prices[c] = alt[c]; // manual: only once a price is set for that currency
+  }
   return prices;
+}
+// ----- exchange rates (for "convert prices automatically") -----
+// Fetched about twice a day from a free public rates service (no key, nothing about visitors is sent) and kept in
+// settings.fx_rates, so prices keep working if the service is briefly down. Rates older than 4 days aren't used.
+const FX_URL = process.env.FX_URL || 'https://open.er-api.com/v6/latest/';
+const FX_STEP = { ngn: 10000, kes: 1000, ghs: 100, zar: 100 }; // round to ₦100, KSh 10, GH₵1, R1
+function friendlyAmount(cents, cur) {
+  const step = FX_STEP[cur] || 1;
+  return Math.max(step, Math.round(cents / step) * step);
+}
+function fxRates(s, main) {
+  try {
+    const fx = JSON.parse(s.fx_rates || '{}');
+    if (fx.base !== main.toUpperCase() || Date.now() - Date.parse(fx.at) > 4 * 864e5) return null;
+    return fx.rates;
+  } catch { return null; }
+}
+async function refreshFx(force) {
+  const s = getSettings();
+  if (s.fx_auto !== '1') return;
+  const { main } = storeCurrencies(s);
+  let old = {}; try { old = JSON.parse(s.fx_rates || '{}'); } catch {}
+  if (!force && old.base === main.toUpperCase() && Date.now() - Date.parse(old.at) < 12 * 3600e3) return;
+  const r = await fetch(FX_URL + main.toUpperCase(), { signal: AbortSignal.timeout(15000) }).then(x => x.json());
+  if (r?.result !== 'success' || !r.rates) throw new Error('rates service said ' + (r?.['error-type'] || r?.result || 'nothing'));
+  const keep = Object.fromEntries(['NGN', 'GHS', 'KES', 'ZAR', 'USD', 'EUR', 'GBP'].filter(c => r.rates[c] > 0).map(c => [c, r.rates[c]]));
+  run("INSERT INTO settings (key, value) VALUES ('fx_rates', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    JSON.stringify({ base: main.toUpperCase(), at: new Date().toISOString(), rates: keep }));
 }
 
 // The affiliate whose ?ref= code brought this buyer, unless they're buying through their own link.
@@ -1790,7 +1824,7 @@ admin.post('/share-image', upload.single('cover'), (req, res) => {
   makeVariants(req.file.filename).catch(e => console.error('Share image resize failed:', e.message));
   res.json({ image: `/media/covers/${req.file.filename}` });
 });
-admin.put('/settings', (req, res) => {
+admin.put('/settings', wrap(async (req, res) => {
   const before = adminSettings();
   let legalChanged = false;
   for (let [k, v] of Object.entries(req.body || {})) {
@@ -1805,8 +1839,9 @@ admin.put('/settings', (req, res) => {
     run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, typeof v === 'string' ? v : JSON.stringify(v));
   }
   if (legalChanged) run("INSERT INTO settings (key, value) VALUES ('legal_updated', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", new Date().toISOString().slice(0, 10));
+  if ('fx_auto' in (req.body || {}) || 'currency' in (req.body || {})) await refreshFx(true).catch(e => console.error('Exchange rates:', e.message));
   res.json(adminSettings());
-});
+}));
 
 // ----- backups: move the whole store between computers/hosts -----
 admin.get('/backup', wrap(async (req, res) => {
@@ -2000,6 +2035,9 @@ async function sweepUnusedCovers() {
 const runSweep = () => sweepUnusedCovers().catch(e => console.error('Picture cleanup:', e.message));
 setTimeout(runSweep, Number(process.env.COVER_SWEEP_DELAY_SECONDS ?? 600) * 1000).unref();
 setInterval(runSweep, 24 * 3600 * 1000).unref();
+const fxTick = force => refreshFx(force).catch(e => console.error('Exchange rates:', e.message));
+setTimeout(fxTick, 5000).unref();
+setInterval(fxTick, 3600 * 1000).unref(); // refreshes when older than 12 hours
 
 app.listen(PORT, () => {
   shrinkExistingCovers().catch(e => console.error('Cover resize:', e.message));

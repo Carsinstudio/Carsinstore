@@ -1638,7 +1638,15 @@
         <small class="dim" style="display:block;margin:0 0 16px;font-size:12px">One "How was it?" email per order, with stars to tap. Skipped if they already left a review. Free downloads count too; gifts you send don't.</small>
         <span style="display:block;font-size:13px;color:#c9c5bf;margin-bottom:8px;font-weight:500">Also sell in</span>
         <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-bottom:6px">${['ngn', 'ghs', 'kes', 'zar', 'usd'].filter(c => c !== (s.currency || 'ngn')).map(c => `<label class="check" style="font-size:13px"><input type="checkbox" data-extra-cur="${c}" ${String(s.extra_currencies || '').split(',').includes(c) ? 'checked' : ''} style="accent-color:var(--accent)">${c.toUpperCase()}</label>`).join('')}</div>
-        <small class="dim" style="display:block;font-size:12px">Then set a price in that currency on each product. Your Paystack account must be enabled for it. USD needs Paystack's approval.</small>
+        <label class="check" style="margin:12px 0 6px"><span class="switch"><input type="checkbox" data-flag="fx_auto" ${s.fx_auto === '1' ? 'checked' : ''}><i></i></span>Convert prices automatically</label>
+        <small class="dim" style="display:block;font-size:12px">${(() => {
+          let fx = {}; try { fx = JSON.parse(s.fx_rates || '{}'); } catch {}
+          const main = (s.currency || 'ngn').toUpperCase();
+          const extra = String(s.extra_currencies || '').split(',').filter(Boolean).map(c => c.toUpperCase());
+          const live = s.fx_auto === '1' && fx.base === main && fx.rates;
+          return 'On: each product\'s ' + main + ' price is converted at the day\'s exchange rate (updated twice a day) and rounded to a friendly amount (₦100, KSh 10, GH₵1, R1), so prices follow the currency. Off: set a price per currency on each product.'
+            + (live ? ` Today: 1 ${main} = ${extra.filter(c => fx.rates[c]).map(c => `${fx.rates[c].toLocaleString(undefined, { maximumFractionDigits: 2 })} ${c}`).join(', ')} (${new Date(fx.at).toLocaleString()}).` : '');
+        })()} Your Paystack account must be enabled for each currency. USD needs Paystack's approval.</small>
       </div>
       <div class="panel"><h3>Analytics</h3>
         <p class="muted" style="margin:-8px 0 14px;font-size:12.5px">Optional. Paste an ID to switch a tool on; leave empty to keep it off. Visits, product views, checkouts and purchases are tracked, never names or emails. Your own visits while signed in aren't counted.</p>
