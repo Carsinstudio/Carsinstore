@@ -695,6 +695,11 @@
           ${extraCurrencies().length ? `<div class="row" style="margin-top:4px">${extraCurrencies().map(c => `<label class="field"><span>Price in ${c.toUpperCase()}</span><input class="input" form="pf" name="price_${c}" inputmode="decimal" value="${dollars(alt[c])}" placeholder="not sold in ${c.toUpperCase()}"></label>`).join('')}</div>` : ''}
           <small class="dim" style="font-size:12px">Leave price at 0 to make it a free product (buyers just enter their name and email).${extraCurrencies().length ? ' Leave an extra currency empty to sell only in ' + (S.store.settings.currency || 'ngn').toUpperCase() + '.' : ''}</small>
         </div>
+        <div class="panel"><h3>Sources &amp; licences <span class="muted" id="src-sum" style="font:13px var(--sans)"></span></h3>
+          <p class="muted" style="margin:-8px 0 10px;font-size:12.5px">One line per item: <code>Name | link | licence | credit</code>. Licence is one of <b>public domain</b>, <b>cc0</b>, <b>cc by</b> (add the credit), <b>plr</b>, <b>own</b> or <b>link</b> (you only point to it). Anything else counts as not checked, and the product can't be published until it is. Never use "personal use only" or "non-commercial" items.</p>
+          <textarea class="input" form="pf" name="sources_text" rows="8" style="font:12.5px/1.5 var(--mono, monospace)" placeholder="Pride and Prejudice | https://www.gutenberg.org/ebooks/1342 | public domain&#10;Budget planner | https://example.com/planner | link">${esc((e0.sources || []).map(o => [o.title, o.url, { public_domain: 'public domain', cc0: 'cc0', cc_by: 'cc by', plr: 'plr', own: 'own', link: 'link', check: 'check' }[o.licence], o.credit].filter((x, i) => x || i < 3).join(' | ')).join('\n'))}</textarea>
+          <small class="dim" style="display:block;margin-top:8px;font-size:12px">Visitors see each item's name, the site it's free on and its licence. The links themselves are only for you.</small>
+        </div>
         <div class="panel"><h3>Categories</h3>
           <div class="check-list">${cats.map(c => `<label class="check"><input type="checkbox" form="pf" name="category_ids" value="${c.id}" ${e0.category_ids.includes(c.id) ? 'checked' : ''}>${esc(c.name)}</label>`).join('') || '<p class="muted" style="margin:0;font-size:13px">No categories yet.</p>'}</div>
           <small class="dim" style="display:block;margin-top:10px;font-size:12px">Pick as many as fit. <a href="#/admin/categories" style="color:var(--accent-2)">Manage categories</a></small>
@@ -748,6 +753,8 @@
         bundle_items: fd.getAll('bundle_items').map(Number), cover_ratio: f.cover_ratio || '1:1',
         alt_prices: Object.fromEntries(extraCurrencies().map(c => [c, Math.round(parseFloat(f['price_' + c] || 0) * 100) || 0])),
         sales: { reviews: sales.reviews.filter(x => x.quote.trim()) },
+        sources: String(f.sources_text || '').split('\n').map(l => l.split('|').map(x => x.trim())).filter(x => x[0] || x[1])
+          .map(([title = '', url = '', licence = '', credit = '']) => ({ title, url, licence: ({ 'public domain': 'public_domain', 'cc0': 'cc0', 'cc by': 'cc_by', 'plr': 'plr', 'own': 'own', 'link': 'link' })[licence.toLowerCase().replace(/\s+/g, ' ')] || licence, credit })),
       };
     };
     const flush = () => {
@@ -1011,7 +1018,7 @@
           <label class="field"><span>What's there</span><select class="input" name="kind"><option value="video"${f?.kind === 'video' || !f ? ' selected' : ''}>Videos</option><option value="file"${f && f.kind !== 'video' ? ' selected' : ''}>Files (ZIP, PDFs, other)</option></select></label>
           <label class="field"><span>Size (optional)</span><input class="input" name="size" placeholder="e.g. 4.5 GB" value="${f?.size ? esc(size(f.size)) : ''}"></label>
         </div>
-        <div style="font-size:13px;margin:4px 0 0;padding:10px 12px;border-radius:10px;background:rgba(243,178,108,.08);border:1px solid rgba(243,178,108,.25);color:var(--muted)">On Google Drive, set sharing to <b>Anyone with the link</b> (Viewer), or buyers will be asked to request access.</div>
+        <div style="font-size:13px;margin:4px 0 0;padding:10px 12px;border-radius:10px;background:rgba(200, 176, 255,.08);border:1px solid rgba(200, 176, 255,.25);color:var(--muted)">On Google Drive, set sharing to <b>Anyone with the link</b> (Viewer), or buyers will be asked to request access.</div>
         <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-primary">${f ? 'Save' : 'Add link'}</button></div>
       </form>`, (m, close) => {
       $('#lf', m).addEventListener('submit', async e => {
@@ -1222,7 +1229,7 @@
         <select data-block title="Text style" aria-label="Text style"><option value="p">Normal</option><option value="h2">Heading 1</option><option value="h3">Heading 2</option><option value="h4">Heading 3</option><option value="blockquote">Quote</option></select><span class="sep"></span>
         ${btn('bold', RI.b, 'Bold (Ctrl+B)')}${btn('italic', RI.i, 'Italic (Ctrl+I)')}${btn('underline', RI.u, 'Underline (Ctrl+U)')}${btn('strikeThrough', RI.s, 'Strikethrough')}<span class="sep"></span>
         ${btn('link', RI.link, 'Link')}${productId ? btn('image', RI.img, 'Add a picture') : ''}${btn('video', RI.video, 'Add a YouTube or Vimeo video')}${btn('code', RI.code, 'Code')}<span class="sep"></span>
-        <label class="rte-col" title="Text colour">${RI.color}<i style="background:#f3b26c"></i><input type="color" data-color="foreColor" value="#f3b26c" aria-label="Text colour"></label>
+        <label class="rte-col" title="Text colour">${RI.color}<i style="background:#c8b0ff"></i><input type="color" data-color="foreColor" value="#c8b0ff" aria-label="Text colour"></label>
         <label class="rte-col" title="Highlight">${RI.mark}<i style="background:#5a3a12"></i><input type="color" data-color="hiliteColor" value="#5a3a12" aria-label="Highlight"></label><span class="sep"></span>
         ${btn('justifyLeft', RI.left, 'Align left')}${btn('justifyCenter', RI.center, 'Centre')}${btn('justifyRight', RI.right, 'Align right')}<span class="sep"></span>
         ${btn('insertOrderedList', RI.ol, 'Numbered list')}${btn('insertUnorderedList', RI.ul, 'Bullet list')}<span class="sep"></span>

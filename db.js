@@ -267,6 +267,7 @@ function migrate(db) {
   if (!hasColumn(db, 'products', 'draft')) db.exec('ALTER TABLE products ADD COLUMN draft TEXT');
   if (!hasColumn(db, 'products', 'cover_ratio')) db.exec("ALTER TABLE products ADD COLUMN cover_ratio TEXT NOT NULL DEFAULT '1:1'");
   db.exec("UPDATE products SET cover_ratio = CASE cover_ratio WHEN '16:9' THEN '4:3' ELSE '1:1' END WHERE cover_ratio NOT IN ('1:1', '4:3')"); // only square and 4:3 are offered now
+  if (!hasColumn(db, 'products', 'sources')) db.exec("ALTER TABLE products ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'"); // [{title, url, licence, credit}], see cleanSources
   if (!hasColumn(db, 'products', 'cross_sells')) db.exec("ALTER TABLE products ADD COLUMN cross_sells TEXT NOT NULL DEFAULT '[]'");
   // Bundles: buying this product also unlocks the files of the products listed here (ids).
   // New-product announcements: one email per person, sent a few at a time; people can unsubscribe from them.

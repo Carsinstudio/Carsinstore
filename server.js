@@ -153,6 +153,45 @@ function productPrices(p, s = getSettings()) {
   }
   return prices;
 }
+// ----- the new direction: free resources, hand-picked, $0.99 for the curation -----
+// With NEW_DIRECTION=1 (set on staging now, on the live store at launch), the store is switched over once:
+// homepage words, US dollars with automatic local prices, and every paid product at $0.99. Runs again after a
+// restore (a restored catalog is the old one). Marked done in settings.new_direction_applied.
+const NEW_DIRECTION_PRICE = 99;
+const NEW_DIRECTION_FAQ = [
+  { q: 'If everything is free, what am I paying for?', a: "The time it takes to find it. Every bundle is hours of searching, testing what's actually good, checking each item is free to share, and putting it in order. You could find each item yourself, and every bundle shows where it comes from. The small price is for not having to." },
+  { q: 'Is it allowed to share these?', a: "Yes. Every item is public domain, openly licensed for sharing (credited where the licence asks), sold with resale rights, made by us, or simply a link to the place it's free. Nothing marked personal use only goes in." },
+];
+function applyNewDirection() {
+  if (process.env.NEW_DIRECTION !== '1' || getSettings().new_direction_applied) return;
+  const set = (k, v) => run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, v);
+  set('hero_eyebrow', 'Free resources, hand-picked');
+  set('hero_title', "It's all free.|You pay for the finding.");
+  set('hero_sub', "Ebooks, templates, playlists and guides that are already free online, hand-picked, checked and packed into one bundle per topic. You only pay for the hours it took to put together.");
+  set('tagline', 'Free resources, hand-picked and packed for you.');
+  set('currency', 'usd');
+  set('extra_currencies', 'ngn,ghs,kes,zar');
+  set('fx_auto', '1');
+  let faq = []; try { faq = JSON.parse(getSettings().faq || '[]'); } catch {}
+  if (!Array.isArray(faq)) faq = [];
+  set('faq', JSON.stringify([...NEW_DIRECTION_FAQ.filter(f => !faq.some(x => x.q === f.q)), ...faq]));
+  for (const p of all('SELECT id, price_cents, draft FROM products')) {
+    const paid = p.price_cents > 0;
+    run('UPDATE products SET price_cents = ?, compare_cents = NULL, alt_prices = ? WHERE id = ?', paid ? NEW_DIRECTION_PRICE : 0, '{}', p.id);
+    if (p.draft) {
+      const d = parseJson(p.draft, {});
+      if (d && typeof d === 'object') {
+        if (Number(d.price_cents) > 0) d.price_cents = NEW_DIRECTION_PRICE;
+        d.compare_cents = null; d.alt_prices = {};
+        run('UPDATE products SET draft = ? WHERE id = ?', JSON.stringify(d), p.id);
+      }
+    }
+  }
+  set('new_direction_applied', new Date().toISOString());
+  console.log('New direction applied: $0.99 bundles, automatic local prices, new homepage words.');
+  refreshFx(true).catch(e => console.error('Exchange rates:', e.message));
+}
+
 // ----- exchange rates (for "convert prices automatically") -----
 // Fetched about twice a day from a free public rates service (no key, nothing about visitors is sent) and kept in
 // settings.fx_rates, so prices keep working if the service is briefly down. Rates older than 4 days aren't used.
@@ -266,6 +305,26 @@ function cleanSales(v) {
   return { reviews: reviews.filter(o => o.quote).slice(0, 12) };
 }
 
+// Where each item in a product comes from. Only licences that allow passing the item on (or a plain link to it) can be
+// published; 'check' means not checked yet and blocks publishing.
+const LICENCES = {
+  public_domain: 'Public domain', cc0: 'CC0', cc_by: 'CC BY (credit given)', plr: 'Resale rights (PLR)', own: 'Made by us',
+  link: 'Free link (we point you to it)', check: 'Licence not checked yet',
+};
+const LICENCE_WORDS = [[/^(pd|public)/i, 'public_domain'], [/^cc0|^cc-?zero/i, 'cc0'], [/^cc[ -]?by(?![ -]?nc)/i, 'cc_by'], [/^plr|resale|private label/i, 'plr'], [/^(own|mine|ours|made)/i, 'own'], [/^link/i, 'link']];
+function cleanSources(v) {
+  const list = typeof v === 'string' ? parseJson(v || '[]', []) : v;
+  return (Array.isArray(list) ? list : []).map(o => {
+    const url = String(o?.url ?? '').trim().slice(0, 500);
+    let licence = String(o?.licence ?? '').trim();
+    if (!LICENCES[licence]) licence = (LICENCE_WORDS.find(([re]) => re.test(licence)) || [, 'check'])[1];
+    return { title: String(o?.title ?? '').trim().slice(0, 200), url: /^https?:\/\/\S+$/i.test(url) ? url : '', licence, credit: String(o?.credit ?? '').trim().slice(0, 200) };
+  }).filter(o => o.title || o.url).slice(0, 300);
+}
+const siteOf = url => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+// What visitors see before buying: item names, the site each is free on and its licence (not the links themselves).
+const publicSources = p => cleanSources(p.sources).map(o => ({ title: o.title, site: siteOf(o.url), licence: LICENCES[o.licence], credit: o.licence === 'cc_by' ? o.credit : '' }));
+
 const MAX_COVERS = 4;
 const RATIOS = ['1:1', '4:3'];
 const OLD_RATIOS = { '16:9': '4:3', '3:4': '1:1' }; // shapes offered earlier, mapped to the closest one still offered
@@ -323,6 +382,7 @@ function cleanState(s, productId) {
     featured: !!s.featured,
     alt_prices: alt,
     sales: cleanSales(s.sales),
+    sources: cleanSources(s.sources),
     covers: [...new Set((Array.isArray(s.covers) ? s.covers : []).map(c => path.basename(String(c))))].slice(0, MAX_COVERS),
     cover_ratio: RATIOS.includes(s.cover_ratio) ? s.cover_ratio : OLD_RATIOS[s.cover_ratio] || '1:1',
     cross_sells: ids(s.cross_sells, 4).filter(id => id !== Number(productId)),
@@ -331,7 +391,7 @@ function cleanState(s, productId) {
   };
 }
 const liveState = p => cleanState({
-  ...p, featured: p.featured, alt_prices: parseJson(p.alt_prices || '{}', {}), sales: p.sales,
+  ...p, featured: p.featured, alt_prices: parseJson(p.alt_prices || '{}', {}), sales: p.sales, sources: p.sources,
   covers: coversOf(p), cross_sells: parseJson(p.cross_sells || '[]', []), category_ids: categoryIds(p.id), bundle_items: bundleIds(p),
 }, p.id);
 const draftState = p => p.draft ? cleanState({ ...liveState(p), ...parseJson(p.draft, {}) }, p.id) : liveState(p);
@@ -339,7 +399,7 @@ const hasChanges = p => !!p.draft && JSON.stringify(draftState(p)) !== JSON.stri
 // A products row as it would look with the draft applied (for the owner's preview).
 const rowWithDraft = p => {
   const d = draftState(p);
-  return { ...p, ...d, featured: d.featured ? 1 : 0, alt_prices: JSON.stringify(d.alt_prices), sales: JSON.stringify(d.sales), covers: JSON.stringify(d.covers),
+  return { ...p, ...d, featured: d.featured ? 1 : 0, alt_prices: JSON.stringify(d.alt_prices), sales: JSON.stringify(d.sales), sources: JSON.stringify(d.sources), covers: JSON.stringify(d.covers),
     cover_path: d.covers[0] || null, cross_sells: JSON.stringify(d.cross_sells), bundle_items: JSON.stringify(d.bundle_items), category_id: d.category_ids[0] || null, slug: p.slug };
 };
 function saveDraft(p, changes) {
@@ -356,10 +416,10 @@ function publishProduct(p) {
   const d = draftState(p);
   const before = coversOf(p);
   const slug = uniqueSlug('products', d.slug, p.id);
-  run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, featured=?, alt_prices=?, sales=?,
+  run(`UPDATE products SET slug=?, title=?, subtitle=?, description=?, price_cents=?, compare_cents=?, category_id=?, featured=?, alt_prices=?, sales=?, sources=?,
     covers=?, cover_path=?, cover_ratio=?, cross_sells=?, bundle_items=?, published=1, draft=NULL WHERE id=?`,
     slug, d.title || 'Untitled product', d.subtitle, d.description, d.price_cents, d.compare_cents, d.category_ids[0] || null, d.featured ? 1 : 0,
-    JSON.stringify(d.alt_prices), JSON.stringify(d.sales), JSON.stringify(d.covers), d.covers[0] || null, d.cover_ratio, JSON.stringify(d.cross_sells), JSON.stringify(d.bundle_items), p.id);
+    JSON.stringify(d.alt_prices), JSON.stringify(d.sales), JSON.stringify(d.sources), JSON.stringify(d.covers), d.covers[0] || null, d.cover_ratio, JSON.stringify(d.cross_sells), JSON.stringify(d.bundle_items), p.id);
   run('DELETE FROM product_categories WHERE product_id = ?', p.id);
   d.category_ids.forEach((c, i) => run('INSERT INTO product_categories (product_id, category_id, sort) VALUES (?, ?, ?)', p.id, c, i));
   // Newly featured products go to the end of the Featured section, after the ones already arranged.
@@ -848,7 +908,7 @@ app.get('/api/products/:slug', (req, res) => {
     return { name: f.name, size: f.size, kind: f.kind, preview, ...(f.link ? { link: true, host: f.host } : {}),...(preview ? { id: f.id } : {}), ...(preview && f.kind === 'pdf' ? { previewPages: f.previewPages } : {}) };
   });
   const reviews = all('SELECT name, rating, body, created_at FROM reviews WHERE product_id = ? AND hidden = 0 ORDER BY updated_at DESC LIMIT 30', p.id);
-  res.json({ ...productCard(p, cats), covers: coverUrls(p), description: p.description, sales: cleanSales(p.sales), fileList: files,
+  res.json({ ...productCard(p, cats), covers: coverUrls(p), description: p.description, sales: cleanSales(p.sales), sources: publicSources(p), fileList: files,
     reviews, crossSells: crossSellsFor(p, draft ? draftState(live).cross_sells : undefined), bundleItems: bundleProducts(p).map(bundleItemCard),
     // For the owner: whether this is unpublished, and whether it differs from what visitors see.
     draft: !!draft, owner: req.user?.is_admin ? { id: live.id, published: !!live.published, changes: hasChanges(live) } : undefined });
@@ -1341,6 +1401,8 @@ admin.post('/products/:id/publish', (req, res) => {
   const p = one('SELECT * FROM products WHERE id = ?', req.params.id);
   if (!p) return bad(res, 'Not found', 404);
   if (!draftState(p).title) return bad(res, 'Add a title before publishing.');
+  const unchecked = draftState(p).sources.filter(o => o.licence === 'check');
+  if (unchecked.length) return bad(res, `Check the licence of ${unchecked.length === 1 ? '"' + (unchecked[0].title || unchecked[0].url) + '"' : unchecked.length + ' items'} under Sources before publishing.`);
   const fresh = publishProduct(p);
   res.json({ ok: true, slug: fresh.slug, link: productLink(fresh) });
 });
@@ -1856,6 +1918,7 @@ admin.post('/restore', restoreUpload.single('backup'), wrap(async (req, res) => 
   if (!req.file) return bad(res, 'Choose a backup file to restore.');
   try {
     const info = await backup.restoreBackup(req.file.path);
+    try { applyNewDirection(); } catch (e) { console.error('New direction:', e.message); }
     // The restored database has its own owner account: sign everyone out, including this browser.
     bumpSessionEpoch();
     res.setHeader('Set-Cookie', 'cs_sess=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
@@ -2035,6 +2098,7 @@ async function sweepUnusedCovers() {
 const runSweep = () => sweepUnusedCovers().catch(e => console.error('Picture cleanup:', e.message));
 setTimeout(runSweep, Number(process.env.COVER_SWEEP_DELAY_SECONDS ?? 600) * 1000).unref();
 setInterval(runSweep, 24 * 3600 * 1000).unref();
+try { applyNewDirection(); } catch (e) { console.error('New direction:', e.message); }
 const fxTick = force => refreshFx(force).catch(e => console.error('Exchange rates:', e.message));
 setTimeout(fxTick, 5000).unref();
 setInterval(fxTick, 3600 * 1000).unref(); // refreshes when older than 12 hours

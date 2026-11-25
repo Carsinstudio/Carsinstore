@@ -24,7 +24,7 @@ function loadFonts() {
 let satoriFn;
 const satori = async (...a) => { satoriFn ||= (await import('satori')).default; return satoriFn(...a); };
 
-const C = { bg: '#080808', text: '#f4f1ec', soft: '#cfcac3', muted: '#a9a49d', accent: '#e5573d', accent2: '#f2805a' };
+const C = { bg: '#080808', text: '#f4f1ec', soft: '#cfcac3', muted: '#a9a49d', accent: '#7c5cff', accent2: '#a58bff' };
 const h = (type, style, children) => ({ type, props: { style: { display: 'flex', ...style }, children } });
 const img = (src, style) => ({ type: 'img', props: { src, style } });
 const dataUrl = (buf, mime) => `data:${mime};base64,${buf.toString('base64')}`;
@@ -38,7 +38,7 @@ async function coverUrl(file) {
   if (!file || !fs.existsSync(file)) return null;
   try { return dataUrl(await sharp(file).resize(240, 240, { fit: 'cover' }).png().toBuffer(), 'image/png'); } catch { return null; }
 }
-const STAR = dataUrl(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#f2805a" d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"/></svg>'), 'image/svg+xml');
+const STAR = dataUrl(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#a58bff" d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"/></svg>'), 'image/svg+xml');
 const clip = (s, n) => { s = String(s || '').trim(); return s.length > n ? s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : s; };
 
 async function renderCard({ kind, label, title, points = [], product, site = 'carsin.store', publicDir }, { width = 1080, height = 1350 } = {}) {
@@ -55,9 +55,9 @@ async function renderCard({ kind, label, title, points = [], product, site = 'ca
   const blob = (x, y, size, rgba) => h('div', { position: 'absolute', left: x - size / 2, top: y - size / 2, width: size, height: size, borderRadius: 9999,
     backgroundImage: `radial-gradient(circle, ${rgba} 0%, rgba(8,8,8,0) 65%)` });
   const glow = [
-    blob(width * 0.86, height * 0.2, width * 1.05, 'rgba(229,87,61,0.75)'),
-    blob(width * 0.12, height * 0.62, width * 0.9, 'rgba(242,128,90,0.45)'),
-    blob(width * 0.7, height * 0.95, width * 0.8, 'rgba(160,40,30,0.55)'),
+    blob(width * 0.86, height * 0.2, width * 1.05, 'rgba(124, 92, 255,0.75)'),
+    blob(width * 0.12, height * 0.62, width * 0.9, 'rgba(165, 139, 255,0.45)'),
+    blob(width * 0.7, height * 0.95, width * 0.8, 'rgba(70,40,160,0.55)'),
   ];
   const glass = (style, children) => h('div', {
     flexDirection: 'column', borderRadius: 40, border: '2px solid rgba(255,255,255,0.2)',
@@ -93,7 +93,7 @@ async function renderCard({ kind, label, title, points = [], product, site = 'ca
       h('div', { flexDirection: 'column', gap: 24 }, steps.map((s, i) => h('div', { alignItems: 'flex-start', gap: 22 }, [
         h('div', { width: 52, height: 52, borderRadius: 999, flexShrink: 0, alignItems: 'center', justifyContent: 'center',
           backgroundImage: `linear-gradient(180deg, ${C.accent2}, ${C.accent})`, color: '#fff', fontFamily: 'Inter', fontWeight: 600, fontSize: 25,
-          boxShadow: '0 8px 20px rgba(229,87,61,0.45)' }, String(i + 1)),
+          boxShadow: '0 8px 20px rgba(124, 92, 255,0.45)' }, String(i + 1)),
         h('div', { fontFamily: 'Inter', fontSize: steps.length > 4 ? 29 : 32, lineHeight: 1.38, color: '#f1ede7', paddingTop: 4, flex: 1 }, s),
       ]))),
     ]);

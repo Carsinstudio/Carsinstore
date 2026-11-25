@@ -353,9 +353,17 @@
         <span class="pill">${esc(s.hero_eyebrow).replace(/(\S+)$/, '<b>$1</b>')}</span>
         <h1><span>${esc(t1)}</span>${t2 ? `<span class="line2 fade-2">${esc(t2)}</span>` : ''}</h1>
         <p class="lead">${esc(s.hero_sub)}</p>
-        <div class="actions"><a class="btn btn-primary btn-lg" href="#/shop">Explore the store ${I.arrow}</a><a class="btn btn-lg" href="#/shop?price=free">Get free resources</a></div>
+        <div class="actions"><a class="btn btn-primary btn-lg" href="#/shop">Browse the bundles ${I.arrow}</a><a class="btn btn-lg" href="#/shop?price=free">Start with a free one</a></div>
       </div>
     </section>
+
+    <section class="block why-free" style="padding-bottom:10px"><div class="wrap">
+      <div class="why-grid reveal">
+        <div class="why-card"><span class="k">01</span><h3>Everything inside is free</h3><p>Every ebook, template, playlist and guide in a bundle is already free somewhere online. We show you where on every bundle.</p></div>
+        <div class="why-card"><span class="k">02</span><h3>You pay for the finding</h3><p>Hours of searching, testing what's actually good, checking each item is free to share, and putting it in order. That's what the small price covers.</p></div>
+        <div class="why-card"><span class="k">03</span><h3>One topic, one click</h3><p>Money, relationships, parenting, careers, design and more. Pick a topic and get the best free stuff on it, all in one place.</p></div>
+      </div>
+    </div></section>
 
     <section class="block shelf" id="shelf"><div class="wrap">
       <div class="shelf-head reveal"><div><span class="label">${featured.length ? 'Featured' : 'Latest'}</span><h2>Start with these</h2></div><a class="see-all" id="shelf-all" href="#/shop">Browse all ${plural(all.length, 'product')} ${I.arrow}</a></div>
@@ -371,7 +379,7 @@
     </div></section>` : ''}
 
     ${cats.length ? `<section class="block" style="padding-top:20px"><div class="wrap">
-      <div class="section-head reveal"><div class="left"><span class="label">Categories</span><h2>Find exactly what<br>you came for.</h2></div><p>Videos, templates, guides and toolkits, organised so you can get straight to the good stuff.</p></div>
+      <div class="section-head reveal"><div class="left"><span class="label">Categories</span><h2>Find exactly what<br>you came for.</h2></div><p>From money and relationships to parenting, careers and design. Pick a topic and go straight to the good stuff.</p></div>
       <div class="cat-grid">${cats.map((c, i) => `<a class="cat-card reveal" href="#/shop?cat=${esc(c.slug)}"><span class="n">${String(c.count).padStart(2, '0')}</span><div class="ico">${catIcons[i % catIcons.length]}</div><div><h3>${esc(c.name)}</h3><p>${esc(c.description || plural(c.count, 'product'))}</p></div></a>`).join('')}</div>
     </div></section>` : ''}
 
@@ -386,9 +394,9 @@
     <section class="block" style="padding-top:40px"><div class="glow-bg"></div><div class="wrap" style="position:relative">
       <div class="section-head center reveal"><span class="label">How it works</span><h2>From checkout to<br>download in seconds.</h2></div>
       <div class="flow reveal">
-        <div class="flow-step"><div class="flow-node"><span class="k">01</span>${I.search}</div><h4>Pick a product</h4><p>Browse by category, watch a free preview and see every file included.</p></div>
-        <div class="flow-step"><div class="flow-node"><span class="k">02</span>${I.shield}</div><h4>Check out securely</h4><p>Pay by card, bank transfer or USSD through Paystack, or grab free products with just your email.</p></div>
-        <div class="flow-step"><div class="flow-node"><span class="k">03</span>${I.bolt}</div><h4>Download instantly</h4><p>Your private download link appears the moment you pay, and lands in your inbox too.</p></div>
+        <div class="flow-step"><div class="flow-node"><span class="k">01</span>${I.search}</div><h4>Pick a bundle</h4><p>Browse by topic and see every item inside and where each one comes from.</p></div>
+        <div class="flow-step"><div class="flow-node"><span class="k">02</span>${I.shield}</div><h4>Pay for the curation</h4><p>One small payment by card, bank transfer or USSD through Paystack, in your own currency. Free bundles just need your email.</p></div>
+        <div class="flow-step"><div class="flow-node"><span class="k">03</span>${I.bolt}</div><h4>Get everything at once</h4><p>Every file and link opens on one private page the moment you pay, and lands in your inbox too.</p></div>
       </div>
     </div></section>
 
@@ -403,9 +411,9 @@
     </div></section>` : ''}
 
     <section class="cta"><div class="wrap reveal">
-      <span class="label">Get started</span><h2>Ready to level up?</h2>
+      <span class="label">Get started</span><h2>Stop searching. Start using.</h2>
       <p>${esc(s.tagline)}</p>
-      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><a class="btn btn-primary" href="#/shop">Browse products ${I.arrow}</a><a class="btn" href="#/shop?price=free">Get free resources</a></div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><a class="btn btn-primary" href="#/shop">Browse the bundles ${I.arrow}</a><a class="btn" href="#/shop?price=free">Get free resources</a></div>
     </div></section>`);
 
     // Shelf: show a tab's products (8 at most) and point "Browse all" at the same group.
@@ -577,6 +585,10 @@
           ${p.fileList.length ? `<div class="box" style="margin-top:${items.length ? 18 : 36}px"><div class="box-head"><h3>${items.length ? 'Bonus files' : "What's included"}</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')}${items.length || !p.totalSize ? '' : ' · ' + size(p.totalSize)}</span></div>
             ${p.fileList.map(f => `<div class="file-row">${fileIco(f)}<div class="grow"><div class="nm">${esc(f.name)}</div><small>${fileMeta(f)}</small></div>
               ${f.preview ? `<button class="tag-preview" style="background:none;cursor:pointer" data-preview="${f.id}">Preview</button>` : `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`}</div>`).join('')}
+          </div>` : ''}
+          ${p.sources?.length ? `<div class="box sources-box" style="margin-top:18px"><div class="box-head"><h3>Where everything comes from</h3><span class="muted" style="font-size:13px">${plural(p.sources.length, 'item')}</span></div>
+            <p class="src-note">Everything in here is free to find online. ${p.price ? `The ${money(priceOf(p), curOf(p))} is for the hours spent finding the good ones, checking each is free to share, and putting them in one place for you.` : 'Grab it free.'}</p>
+            ${p.sources.map(o => `<div class="src-row"><div class="grow"><div class="nm">${esc(o.title || o.site)}</div><small>${o.site ? `Free on ${esc(o.site)}` : 'Free'}${o.credit ? ` · by ${esc(o.credit)}` : ''}</small></div><span class="src-lic">${esc(o.licence)}</span></div>`).join('')}
           </div>` : ''}
           ${p.reviews.length || sales.reviews.length ? `<section class="sales-sec" id="reviews"><h3>Reviews${p.rating ? ` <span class="rating-sum">${starsHtml(p.rating.avg)} ${p.rating.avg.toFixed(1)} · ${plural(p.rating.count, 'rating')}</span>` : ''}</h3><div class="reviews">
             ${p.reviews.map(r => `<figure class="review">${starsHtml(r.rating)}${r.body ? `<blockquote class="no-quote">${esc(r.body)}</blockquote>` : ''}<figcaption><b>${esc(r.name)}</b><span>Verified buyer · ${date(r.created_at)}</span></figcaption></figure>`).join('')}
