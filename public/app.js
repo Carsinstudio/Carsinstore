@@ -582,7 +582,7 @@
             ${items.map(x => `<${x.published ? `a href="#/p/${esc(x.slug)}"` : 'div'} class="bundle-row"><div class="bundle-img" style="aspect-ratio:${ratioCss(x.ratio)}">${coverHtml(x)}</div><div class="grow"><div class="nm">${esc(x.title)}</div><small>${plural(x.files, 'file')}${x.subtitle ? ' · ' + esc(x.subtitle) : ''}</small></div><span class="bundle-worth">${x.price ? money(x.price) : 'Free'}</span></${x.published ? 'a' : 'div'}>`).join('')}
             ${p.bundle?.worth > p.price ? `<div class="bundle-save"><span>Bought one by one</span><s>${money(p.bundle.worth)}</s><span>In this bundle</span><b>${p.price ? money(p.price) : 'Free'}</b><em>You save ${money(p.bundle.worth - p.price)}</em></div>` : ''}
           </div>` : ''}
-          ${p.fileList.length ? `<div class="box" style="margin-top:${items.length ? 18 : 36}px"><div class="box-head"><h3>${items.length ? 'Bonus files' : "What's included"}</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')}${items.length || !p.totalSize ? '' : ' · ' + size(p.totalSize)}</span></div>
+          ${p.fileList.length && !p.sources?.length ? `<div class="box" style="margin-top:${items.length ? 18 : 36}px"><div class="box-head"><h3>${items.length ? 'Bonus files' : "What's included"}</h3><span class="muted" style="font-size:13px">${plural(p.fileList.length, 'file')}${items.length || !p.totalSize ? '' : ' · ' + size(p.totalSize)}</span></div>
             ${p.fileList.map(f => `<div class="file-row">${fileIco(f)}<div class="grow"><div class="nm">${esc(f.name)}</div><small>${fileMeta(f)}</small></div>
               ${f.preview ? `<button class="tag-preview" style="background:none;cursor:pointer" data-preview="${f.id}">Preview</button>` : `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`}</div>`).join('')}
           </div>` : ''}
@@ -611,10 +611,10 @@
           ${p.price ? `<button class="coupon-toggle" id="coupon-toggle">Have a discount code?</button><form class="coupon hidden" id="coupon-form"><input class="input" name="code" placeholder="CODE"><button class="btn btn-sm">Apply</button></form>` : ''}
           <ul class="includes">
             ${items.length ? `<li>${I.checkC}${plural(items.length, 'product')} in one checkout</li>` : ''}
-            ${p.files ? `<li>${I.checkC}${plural(p.files, 'downloadable file')}${kinds.length ? ` (${kinds.map(k => kindLabel[k]).join(', ')})` : ''}</li>` : ''}
-            <li>${I.checkC}Instant download link after checkout</li>
+            ${p.sources?.length ? `<li>${I.checkC}${plural(p.sources.length, 'hand-picked free resource')}, sources shown</li>` : p.files ? `<li>${I.checkC}${plural(p.files, 'downloadable file')}${kinds.length ? ` (${kinds.map(k => kindLabel[k]).join(', ')})` : ''}</li>` : ''}
+            <li>${I.checkC}${p.sources?.length ? 'Every link on one page, right after checkout' : 'Instant download link after checkout'}</li>
             <li>${I.checkC}No account needed, just your email</li>
-            <li>${I.checkC}Yours to keep, with free updates</li>
+            <li>${I.checkC}${p.sources?.length ? 'Yours to keep, with new finds added free' : 'Yours to keep, with free updates'}</li>
             ${p.price ? `<li>${I.checkC}Secure payment by Paystack</li>` : ''}
           </ul>
           <div style="display:flex;gap:8px;align-items:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13px">
