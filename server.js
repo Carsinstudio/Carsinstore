@@ -159,15 +159,15 @@ function productPrices(p, s = getSettings()) {
 // restore (a restored catalog is the old one). Marked done in settings.new_direction_applied.
 const NEW_DIRECTION_PRICE = 99;
 const NEW_DIRECTION_FAQ = [
-  { q: 'If everything is free, what am I paying for?', a: "The time it takes to find it. Every bundle is hours of searching, testing what's actually good, checking each item is free to share, and putting it in order. You could find each item yourself, and every bundle shows where it comes from. The small price is for not having to." },
-  { q: 'Is it allowed to share these?', a: "Yes. Every item is public domain, openly licensed for sharing (credited where the licence asks), sold with resale rights, made by us, or simply a link to the place it's free. Nothing marked personal use only goes in." },
+  { q: 'If everything is free, what am I paying for?', a: "Our time. Every bundle takes us hours of searching, testing what's actually good, checking each item is free to share, and putting it in order. You could find each item yourself, and every bundle shows where it comes from. The small price is for us doing it for you." },
+  { q: 'Is it allowed to share these?', a: "Yes. Every item is public domain, openly licensed for sharing (credited where the licence asks), sold with resale rights, made by us, or simply a link to the place it's free. We never include anything marked personal use only." },
 ];
 function applyNewDirection() {
   if (process.env.NEW_DIRECTION !== '1' || getSettings().new_direction_applied) return;
   const set = (k, v) => run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, v);
   set('hero_eyebrow', 'Free resources, hand-picked');
   set('hero_title', "The best free resources.|Less than $1."); // non-breaking spaces keep "less than $1" on one line
-  set('hero_sub', "Hand-picked from Harvard, Google, the NHS and more. You only pay {price} for the finding.");
+  set('hero_sub', "Hand-picked from Harvard, Google, the NHS and more. You only pay {price} for our effort of putting it together.");
   set('tagline', 'Free resources, hand-picked and packed for you.');
   set('currency', 'usd');
   set('extra_currencies', 'ngn,ghs,kes,zar');

@@ -493,7 +493,7 @@
               <small class="dim" style="font-size:11.5px">Free, no card. You'll also get the occasional email about new products; unsubscribe any time. <a href="#/privacy" style="text-decoration:underline">Privacy</a></small>
             </form>
           </div></section>` : ''}
-        ${d.recent.length ? `<h3 style="margin:0 0 14px">From my recent posts</h3><div class="grid">${d.recent.map(productCard).join('')}</div>` : ''}
+        ${d.recent.length ? `<h3 style="margin:0 0 14px">From our recent posts</h3><div class="grid">${d.recent.map(productCard).join('')}</div>` : ''}
         ${d.free.length > 1 ? `<h3 style="margin:30px 0 14px">More free downloads</h3><div class="grid">${d.free.slice(1).map(productCard).join('')}</div>` : ''}
         <div style="text-align:center;margin:30px 0 10px"><a class="btn btn-lg" href="#/shop">Browse the whole store ${I.arrow}</a></div>
       </div>`);
@@ -590,7 +590,7 @@
               ${f.preview ? `<button class="tag-preview" style="background:none;cursor:pointer" data-preview="${f.id}">Preview</button>` : `<span class="dim">${I.lock.replace('<svg', '<svg width="15" height="15"')}</span>`}</div>`).join('')}
           </div>` : ''}
           ${p.sources?.length ? `<div class="box sources-box" style="margin-top:18px"><div class="box-head"><h3>Where everything comes from</h3><span class="muted" style="font-size:13px">${plural(p.sources.length, 'item')}</span></div>
-            <p class="src-note">Everything in here is free to find online. ${p.price ? `The ${money(priceOf(p), curOf(p))} is for the hours spent finding the good ones, checking each is free to share, and putting them in one place for you.` : 'Grab it free.'}</p>
+            <p class="src-note">Everything in here is free to find online. ${p.price ? `The ${money(priceOf(p), curOf(p))} is for the hours we spent finding the good ones, checking each is free to share, and putting them in one place for you.` : 'Grab it free.'}</p>
             ${p.sources.map(o => `<div class="src-row"><div class="grow"><div class="nm">${esc(o.title || o.site)}</div><small>${o.site ? `Free on ${esc(o.site)}` : 'Free'}${o.credit ? ` · by ${esc(o.credit)}` : ''}</small></div><span class="src-lic">${esc(o.licence)}</span></div>`).join('')}
           </div>` : ''}
           ${p.reviews.length || sales.reviews.length ? `<section class="sales-sec" id="reviews"><h3>Reviews${p.rating ? ` <span class="rating-sum">${starsHtml(p.rating.avg)} ${p.rating.avg.toFixed(1)} · ${plural(p.rating.count, 'rating')}</span>` : ''}</h3><div class="reviews">
