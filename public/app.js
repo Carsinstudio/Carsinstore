@@ -252,7 +252,7 @@
         <div class="dropdown" id="cat-dd"><button>Categories ${I.chev}</button>
           <div class="dropdown-menu">${cats.length ? cats.map(c => `<a href="#/shop?cat=${esc(c.slug)}">${esc(c.name)}<span class="count">${c.count}</span></a>`).join('') : '<a href="#/shop">Everything</a>'}</div>
         </div>
-        <a href="#/shop?kind=video" class="${active === 'videos' ? 'active' : ''}">Videos</a>
+        ${[...cats].filter(c => c.count).sort((a, b) => b.count - a.count || a.sort - b.sort).slice(0, 3).map(c => `<a href="#/shop?cat=${esc(c.slug)}" class="${active === 'cat:' + c.slug ? 'active' : ''}">${esc(c.name)}</a>`).join('')}
         <a href="#/shop?price=free" class="${active === 'free' ? 'active' : ''}">Free</a>
       </nav>
       <div class="nav-right">
@@ -273,7 +273,7 @@
       <div class="foot-grid">
         <div><a class="brand" href="#/"><img class="brand-logo" src="/brand/logo-horizontal.svg" alt="${esc(s.store_name)}"></a><p class="foot-blurb">${esc(s.footer_blurb)}</p>
           ${social.length ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Stay connected</div><div class="socials">${social.map(([k, ic]) => `<a href="${esc(s[k])}" target="_blank" rel="noopener" aria-label="${k}">${ic}</a>`).join('')}</div>` : ''}</div>
-        <div><h5>Store</h5><a href="#/shop">All products</a><a href="#/shop?kind=video">Videos</a><a href="#/shop?kind=pdf">PDFs & guides</a><a href="#/shop?price=free">Free resources</a></div>
+        <div><h5>Store</h5><a href="#/shop">All products</a><a href="#/shop?price=free">Free resources</a></div>
         <div><h5>Categories</h5>${cats.map(c => `<a href="#/shop?cat=${esc(c.slug)}">${esc(c.name)}</a>`).join('') || '<a href="#/shop">Browse all</a>'}</div>
         <div><h5>Help</h5><a href="#/find">Find my downloads</a><a href="#/" data-faq>FAQ</a>${s.whatsapp ? `<a href="${waLink()}" target="_blank" rel="noopener">Chat on WhatsApp</a>` : ''}${s.support_email ? `<a href="mailto:${esc(s.support_email)}">Contact us</a>` : ''}<a href="#/refunds">Refund policy</a></div>
       </div>
@@ -519,8 +519,8 @@
     const catObj = S.store.categories.find(c => c.slug === cat);
     const kindName = kinds.find(k => k[0] === kind)?.[1];
     const title = catObj ? catObj.name : price === 'free' ? 'Free resources' : kindName || 'All products';
-    const desc = catObj?.description || (price === 'free' ? 'Grab these with just your name and email. No card required.' : 'Videos, guides, templates and toolkits: everything in the store.');
-    const active = price === 'free' ? 'free' : kind === 'video' ? 'videos' : 'shop';
+    const desc = catObj?.description || (price === 'free' ? 'Grab these with just your name and email. No card required.' : 'Hand-picked free resources by topic, plus templates and courses: everything in the store.');
+    const active = price === 'free' ? 'free' : cat ? 'cat:' + cat : 'shop';
     const link = (patch) => {
       const n = new URLSearchParams({ cat, price, kind, sort, q: term, ...patch });
       for (const [k, v] of [...n]) if (!v) n.delete(k);
