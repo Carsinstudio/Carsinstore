@@ -34,13 +34,14 @@
   const money = (cents, cur) => new Intl.NumberFormat(undefined, { style: 'currency', currency: (cur || S.store?.settings.currency || 'ngn').toUpperCase(), currencyDisplay: 'narrowSymbol', minimumFractionDigits: cents % 100 ? 2 : 0 }).format((cents || 0) / 100);
   const ZONE_CURRENCY = { 'Africa/Lagos': 'ngn', 'Africa/Accra': 'ghs', 'Africa/Nairobi': 'kes', 'Africa/Johannesburg': 'zar' };
   function visitorCurrency() {
-    let saved = ''; try { saved = localStorage.getItem('cs_currency') || ''; } catch {}
-    if (saved) return saved;
     let zone = ''; try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch {}
     return ZONE_CURRENCY[zone] || 'usd';
   }
-  // The currency to show a product in: the visitor's, when the product has a price in it; otherwise the store's.
-  const curOf = p => { const c = visitorCurrency(); return p?.prices && c in p.prices ? c : (S.store?.settings.currency || 'ngn').toLowerCase(); };
+  // Prices are shown in the store's currency everywhere. At checkout, buyers pay in their own currency when the
+  // product has a price in it (e.g. naira in Nigeria), and see that amount before they pay.
+  const curOf = () => (S.store?.settings.currency || 'ngn').toLowerCase();
+  const payCurOf = p => { const c = visitorCurrency(); return p?.prices && p.price && c in p.prices ? c : curOf(p); };
+  const CURRENCY_NAMES = { ngn: 'naira', ghs: 'cedis', kes: 'shillings', zar: 'rand', usd: 'US dollars' };
   const priceOf = p => { const c = curOf(p); return p?.prices && c in p.prices ? p.prices[c] : p.price; };
   const size = b => b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -601,8 +602,8 @@
         </div>
         <aside><div class="buy-card">
           <span class="label">${formatOf(p) === 'Download' ? 'Digital download' : formatOf(p) + ' download'}</span>
-          ${Object.keys(p.prices).length > 1 && p.price ? `<div class="seg" id="cur-switch" style="float:right;margin-top:-2px">${Object.keys(p.prices).map(c => `<button type="button" data-cur="${c}">${c.toUpperCase()}</button>`).join('')}</div>` : ''}
           <div class="big-price" id="price"></div>
+          <div class="pay-local" id="pay-local" hidden></div>
           <form id="buy-form" class="buy-form" novalidate>
             <input class="input" name="name" placeholder="Your name" autocomplete="name" required>
             <input class="input" name="email" type="email" placeholder="Your email" autocomplete="email" inputmode="email" required>
@@ -654,7 +655,7 @@
     });
     // Price shown in the chosen currency, with the "compare at" price (store currency only) or an applied code.
     const main = (S.store.settings.currency || 'ngn').toLowerCase();
-    const state = { currency: curOf(p), coupon: '', discounted: null };
+    const state = { currency: curOf(p), pay: payCurOf(p), coupon: '', discounted: null, payDiscounted: null };
     const renderPrice = () => {
       const base = p.prices[state.currency], cur = state.currency;
       const d = state.discounted;
@@ -666,22 +667,22 @@
       $('.mobile-buy span').textContent = base ? money(d ?? base, cur) : 'Free';
       if ($('#end-price')) $('#end-price').textContent = base ? money(d ?? base, cur) : 'Free';
       if ($('#end-buy')) $('#end-buy').innerHTML = (paid ? 'Buy now' : 'Get it free') + ' ' + I.arrow;
-      $$('#cur-switch button').forEach(b => b.classList.toggle('on', b.dataset.cur === cur));
+      // What they'll actually be charged, in their own currency, before they pay.
+      const local = state.pay !== cur && paid ? (state.payDiscounted ?? p.prices[state.pay]) : null;
+      $('#pay-local').hidden = !local;
+      if (local) $('#pay-local').innerHTML = `You'll pay <b>${money(local, state.pay)}</b> in ${CURRENCY_NAMES[state.pay] || state.pay.toUpperCase()} at checkout, at today's rate.`;
+      if (local) $('#buy').innerHTML = `Pay ${money(local, state.pay)} ${I.arrow}`;
     };
     const applyCoupon = async (code, quiet) => {
       try {
         const r = await api('/api/coupons/validate', { method: 'POST', body: { code, productId: p.id, currency: state.currency } });
-        Object.assign(state, { coupon: code, discounted: r.price });
+        const rl = state.pay !== state.currency ? await api('/api/coupons/validate', { method: 'POST', body: { code, productId: p.id, currency: state.pay } }) : r;
+        Object.assign(state, { coupon: code, discounted: r.price, payDiscounted: rl.price });
         if (!quiet) toast('Discount applied');
-      } catch (err) { Object.assign(state, { coupon: '', discounted: null }); toast(err.message, true); }
+      } catch (err) { Object.assign(state, { coupon: '', discounted: null, payDiscounted: null }); toast(err.message, true); }
       renderPrice();
     };
     renderPrice();
-    $$('#cur-switch button').forEach(b => b.addEventListener('click', () => {
-      state.currency = b.dataset.cur;
-      try { localStorage.setItem('cs_currency', state.currency); } catch {}
-      state.coupon ? applyCoupon(state.coupon, true) : renderPrice();
-    }));
     $('#coupon-toggle')?.addEventListener('click', () => { $('#coupon-form').classList.remove('hidden'); $('#coupon-toggle').remove(); $('#coupon-form input').focus(); });
     $('#coupon-form')?.addEventListener('submit', e => { e.preventDefault(); applyCoupon(e.target.code.value.trim()); });
     // Remember the buyer's details on this device so repeat purchases are one click.
@@ -751,15 +752,16 @@
     try { localStorage.setItem('cs_buyer', JSON.stringify({ name, email, phone })); } catch {}
     const btn = $('#buy'), label = btn.innerHTML;
     const paid = p.prices[state.currency] && state.discounted !== 0;
+    const cur = paid ? state.pay : state.currency;
     btn.disabled = true; btn.textContent = paid ? 'Opening secure checkout…' : 'Getting your files…';
     try {
-      if (paid) window.Analytics?.track('begin_checkout', { slug: p.slug, title: p.title, amount: state.discounted ?? p.prices[state.currency], currency: state.currency });
-      const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon: state.coupon, currency: state.currency, name, email, phone, ref: referral(), src: firstSource() } });
+      if (paid) window.Analytics?.track('begin_checkout', { slug: p.slug, title: p.title, amount: (cur === state.pay ? state.payDiscounted : state.discounted) ?? p.prices[cur], currency: cur });
+      const r = await api('/api/checkout', { method: 'POST', body: { productId: p.id, coupon: state.coupon, currency: cur, name, email, phone, ref: referral(), src: firstSource() } });
       if (r.url) return void (location.href = r.url);
       if (r.demo) {
         modal(`<span class="label">Test checkout</span><h3 style="margin-top:14px">${esc(p.title)}</h3>
           <p class="muted" style="margin:0 0 18px">Paystack isn't connected yet, so this is a simulated payment. No money is charged.</p>
-          <div class="box" style="padding:16px 18px;display:flex;justify-content:space-between"><span>Total</span><b>${money(r.amount, state.currency)}</b></div>
+          <div class="box" style="padding:16px 18px;display:flex;justify-content:space-between"><span>Total</span><b>${money(r.amount, cur)}</b></div>
           <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="pay">Complete test payment</button></div>`,
           (m, close) => {
             $('#pay', m).onclick = async () => {

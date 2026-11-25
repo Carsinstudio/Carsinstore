@@ -868,3 +868,7 @@ main.page-in { animation: pageIn .28s ease-out; }
 .why-card h3{margin:10px 0 8px;font-size:19px;font-weight:500}
 .why-card p{margin:0;color:var(--muted);font-size:14px;line-height:1.6}
 @media (max-width:820px){.why-grid{grid-template-columns:1fr}}
+
+/* "You'll pay ₦1,400 in naira at checkout" under the price */
+.pay-local{margin:-4px 0 14px;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.45;color:var(--muted);background:rgba(var(--accent-rgb),.08);border:1px solid rgba(var(--accent-rgb),.25)}
+.pay-local b{color:var(--text);font-weight:600}

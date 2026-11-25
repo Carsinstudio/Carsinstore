@@ -170,8 +170,9 @@ function applyNewDirection() {
   set('hero_sub', "Hand-picked from Harvard, Google, the NHS and more. You only pay $0.99 for our effort of putting it together.");
   set('tagline', 'Free resources, hand-picked and packed for you.');
   set('currency', 'usd');
-  set('extra_currencies', ''); // US dollars for everyone (owner's choice); the converter stays available in settings
-  set('fx_auto', '0');
+  // Prices are shown in US dollars everywhere; buyers in these countries pay the day's equivalent in their own currency.
+  set('extra_currencies', 'ngn,ghs,kes,zar');
+  set('fx_auto', '1');
   let faq = []; try { faq = JSON.parse(getSettings().faq || '[]'); } catch {}
   if (!Array.isArray(faq)) faq = [];
   set('faq', JSON.stringify([...NEW_DIRECTION_FAQ.filter(f => !faq.some(x => x.q === f.q)), ...faq]));
