@@ -1,5 +1,5 @@
 // Builds the Carsinstore email templates (HTML + plain text) in one shared style:
-// near-black page, orange-red glow behind a large thin serif heading, form-style rows,
+// near-black page, purple glow behind a large thin serif heading, form-style rows,
 // and the website's primary button. {{{VARS}}} are filled in by Resend at send time.
 //   node emails/build.js            writes emails/dist (open the preview-*.html files to check the design)
 //   node emails/publish.js <alias>  creates or updates that template in Resend and publishes it
@@ -9,15 +9,15 @@ const out = path.join(__dirname, 'dist');
 
 const C = {
   page: '#080808', card: '#111111', line: '#2b2b2b', text: '#f1ede7', soft: '#c9c4bd', muted: '#8d8a85', dim: '#66635f',
-  accent: '#e5573d', accent2: '#f2805a',
+  accent: '#7c5cff', accent2: '#a58bff',
 };
 const SANS = "Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const SERIF = "Newsreader,Georgia,'Times New Roman',serif";
 
-// The website's .btn-primary: orange gradient, soft glow, 10px corners, white 600 text with an arrow.
+// The website's .btn-primary: purple gradient, soft glow, 10px corners, white 600 text with an arrow.
 function button(href, label) {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-    <td bgcolor="${C.accent}" style="border-radius:10px;background-color:${C.accent};background-image:linear-gradient(180deg,#ee6a4c 0%,#d9472e 100%);border:1px solid #f0896f;box-shadow:0 8px 30px -8px rgba(229,87,61,0.7),inset 0 1px 0 rgba(255,255,255,0.25);">
+    <td bgcolor="${C.accent}" style="border-radius:10px;background-color:${C.accent};background-image:linear-gradient(180deg,#8a6bff 0%,#6a48f0 100%);border:1px solid #a58bff;box-shadow:0 8px 30px -8px rgba(124,92,255,0.7),inset 0 1px 0 rgba(255,255,255,0.25);">
       <a href="${href}" target="_blank" style="display:inline-block;padding:15px 26px;font-family:${SANS};font-size:15px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:10px;">${label}&nbsp;&nbsp;&rarr;</a>
     </td></tr></table>`;
 }
@@ -60,12 +60,12 @@ function layout({ preheader, label, heading, sub, details = [], cta, note, secon
   @media (prefers-color-scheme: dark){
     body,.body,.bg-page{background-color:${C.page}!important}
     .bg-card{background-color:${C.card}!important}
-    .t-text{color:${C.text}!important} .t-soft{color:#e8dcd2!important} .t-muted{color:${C.muted}!important} .t-dim{color:${C.dim}!important} .t-label{color:#f6c9a8!important}
+    .t-text{color:${C.text}!important} .t-soft{color:#e2dcf5!important} .t-muted{color:${C.muted}!important} .t-dim{color:${C.dim}!important} .t-label{color:#d6c8ff!important}
   }
   /* Outlook.com and the Outlook apps in dark mode */
   [data-ogsb] .bg-page,[data-ogsb] body{background-color:${C.page}!important}
   [data-ogsb] .bg-card{background-color:${C.card}!important}
-  [data-ogsc] .t-text{color:${C.text}!important} [data-ogsc] .t-soft{color:#e8dcd2!important} [data-ogsc] .t-muted{color:${C.muted}!important} [data-ogsc] .t-dim{color:${C.dim}!important} [data-ogsc] .t-label{color:#f6c9a8!important}
+  [data-ogsc] .t-text{color:${C.text}!important} [data-ogsc] .t-soft{color:#e2dcf5!important} [data-ogsc] .t-muted{color:${C.muted}!important} [data-ogsc] .t-dim{color:${C.dim}!important} [data-ogsc] .t-label{color:#d6c8ff!important}
   /* Gmail's dark mode: these two layers cancel its colour flip on text */
   u + .body .gs{background:#000;mix-blend-mode:screen}
   u + .body .gd{background:#000;mix-blend-mode:difference}
@@ -77,15 +77,15 @@ function layout({ preheader, label, heading, sub, details = [], cta, note, secon
 <tr><td align="center" class="bg-page" bgcolor="${C.page}" style="padding:36px 14px;${solid(C.page)}">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;">
     <!-- hero with the glow -->
-    <tr><td bgcolor="${C.card}" class="px bg-card" style="padding:30px 40px 44px 40px;border-radius:18px 18px 0 0;background-color:${C.card};background-image:radial-gradient(ellipse 85% 72% at 24% 44%,rgba(236,98,48,0.95) 0%,rgba(206,68,38,0.6) 28%,rgba(120,38,24,0.2) 52%,rgba(17,17,17,0) 70%),linear-gradient(${C.card},${C.card});">
+    <tr><td bgcolor="${C.card}" class="px bg-card" style="padding:30px 40px 44px 40px;border-radius:18px 18px 0 0;background-color:${C.card};background-image:radial-gradient(ellipse 85% 72% at 24% 44%,rgba(112,82,245,0.95) 0%,rgba(84,56,210,0.6) 28%,rgba(52,30,130,0.2) 52%,rgba(17,17,17,0) 70%),linear-gradient(${C.card},${C.card});">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr>
           <td style="font-family:${SANS};font-size:13px;font-weight:500;color:${C.text};"><img src="{{{SITE_URL}}}/brand/logo-email.png" width="170" height="25" alt="{{{STORE_NAME}}}" style="display:block;border:0;outline:none;text-decoration:none;width:170px;height:25px;"></td>
           <td align="right">${minimal ? '' : `<a href="{{{SITE_URL}}}" target="_blank" style="font-family:${SANS};font-size:12px;color:${C.soft};text-decoration:none;">Visit store</a>`}</td>
         </tr>
-        <tr><td colspan="2" class="t-label" style="padding-top:78px;font-family:${SANS};font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:#f6c9a8;">${keep(label)}</td></tr>
+        <tr><td colspan="2" class="t-label" style="padding-top:78px;font-family:${SANS};font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:#d6c8ff;">${keep(label)}</td></tr>
         <tr><td colspan="2" class="h1 t-text" style="padding-top:12px;font-family:${SERIF};font-size:44px;font-weight:300;line-height:1.08;letter-spacing:-0.5px;color:${C.text};">${keep(heading)}</td></tr>
-        ${sub ? `<tr><td colspan="2" class="t-soft" style="padding-top:16px;font-family:${SANS};font-size:15px;line-height:1.6;color:#e8dcd2;max-width:420px;">${keep(sub)}</td></tr>` : ''}
+        ${sub ? `<tr><td colspan="2" class="t-soft" style="padding-top:16px;font-family:${SANS};font-size:15px;line-height:1.6;color:#e2dcf5;max-width:420px;">${keep(sub)}</td></tr>` : ''}
       </table>
     </td></tr>
     <!-- details, button, note -->
@@ -142,7 +142,7 @@ const templates = {
       heading: 'Welcome,<br>{{{BUYER_NAME}}}.',
       sub: 'Glad you’re here. Your free copy of <strong style="font-weight:600;color:#ffffff;">{{{PRODUCT_TITLE}}}</strong> is ready to download.',
       cta: { href: '{{{DOWNLOAD_URL}}}', label: 'Get your free download' },
-      secondary: 'Looking for more? <a href="{{{SITE_URL}}}/shop" target="_blank" style="color:#f2805a;text-decoration:none;">Browse the store &rarr;</a>',
+      secondary: 'Looking for more? <a href="{{{SITE_URL}}}/shop" target="_blank" style="color:#a58bff;text-decoration:none;">Browse the store &rarr;</a>',
       note: keepLink,
     }),
     text: `Welcome, {{{BUYER_NAME}}}.\nGlad you're here. Your free copy of {{{PRODUCT_TITLE}}} is ready to download:\n{{{DOWNLOAD_URL}}}\n\nLooking for more? {{{SITE_URL}}}/shop\n\n${keepLink}\n${footerText}`,
@@ -208,7 +208,7 @@ If you had trouble paying, reply to this email and we'll help you complete it. T
       sub: 'You got <strong style="font-weight:600;color:#ffffff;">{{{PRODUCT_TITLE}}}</strong> a few days ago. How would you rate it?',
       before: starRow('{{{RATE_URL}}}'),
       cta: { href: '{{{RATE_URL}}}', label: 'Write a short review' },
-      secondary: 'Need the files again? <a href="{{{DOWNLOAD_URL}}}" target="_blank" style="color:#f2805a;text-decoration:none;">Open your downloads &rarr;</a>',
+      secondary: 'Need the files again? <a href="{{{DOWNLOAD_URL}}}" target="_blank" style="color:#a58bff;text-decoration:none;">Open your downloads &rarr;</a>',
       note: 'Your first name shows with your review, never your email. Something not right with the product? Reply to this email and we’ll sort it out. This is the only time we’ll ask.',
     }),
     text: `Hi {{{BUYER_NAME}}},

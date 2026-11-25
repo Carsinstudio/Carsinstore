@@ -26,6 +26,6 @@ const mark = svg('logo-mark.svg'), logo = svg('logo-horizontal.svg');
 render('apple-touch-icon.png', 180, 180,
   `<div style="width:180px;height:180px;background:#0b0b0b;display:flex;align-items:center;justify-content:center"><img src="${mark}" style="width:136px"></div>`);
 render('share.png', 1200, 630,
-  `<div style="width:1200px;height:630px;background:#080808 radial-gradient(ellipse 60% 70% at 30% 45%,rgba(236,98,48,.55) 0%,rgba(206,68,38,.25) 35%,rgba(8,8,8,0) 75%);display:flex;align-items:center;justify-content:center"><img src="${logo}" style="width:720px"></div>`);
+  `<div style="width:1200px;height:630px;background:#080808 radial-gradient(ellipse 60% 70% at 30% 45%,rgba(112,82,245,.55) 0%,rgba(84,56,210,.25) 35%,rgba(8,8,8,0) 75%);display:flex;align-items:center;justify-content:center"><img src="${logo}" style="width:720px"></div>`);
 render('logo-email.png', 340, 50, `<img src="${logo}" style="width:340px;display:block">`, true);
 fs.rmSync(tmp, { recursive: true, force: true });
