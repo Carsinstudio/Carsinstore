@@ -272,7 +272,7 @@
   }
   function footer() {
     const s = S.store.settings;
-    const cats = S.store.categories.slice(0, 6);
+    const cats = S.store.categories.filter(c => c.count > 0).slice(0, 6); // empty topics stay out of the footer
     const social = [['instagram', I.ig], ['x', I.x], ['youtube', I.yt], ['tiktok', I.tt], ['linkedin', I.li]].filter(([k]) => s[k]);
     return `<footer class="site"><div class="foot-card">
       <div class="foot-grid">
