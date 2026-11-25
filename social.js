@@ -329,6 +329,7 @@ module.exports = function setupSocial({ DATA_DIR, COVERS_DIR, PUBLIC_DIR, app, a
   const imagesOf = post => { let list = []; try { list = JSON.parse(post.images || '[]'); } catch {} return (Array.isArray(list) && list.length ? list : [post.image_url]).filter(Boolean); };
 
   async function publish(post) {
+    if (process.env.STAGING === '1') throw new Error('This is the staging copy: posting is off.');
     // Product pictures: use the product's main cover as it is now, so a cover replaced after the post was written
     // (e.g. with a sharper one) is what goes out.
     if (post.product_id && /\/media\/covers\//.test(post.image_url || '')) {
@@ -829,7 +830,7 @@ Keep exactly to what the existing post says. Plain English, no markdown.`;
   // (real step-by-step) or a story about him (only from facts he wrote down). Each starts from a real pain point of
   // people whose LinkedIn profile isn't branded, says what it costs them, then offers Carsin Studio as the fix.
   // Pictures are the owner's two templates (templates.js) with the post's hook line; never generated artwork.
-  const productDays = s => String(s.social_product_days ?? '1,4').split(',').map(Number).filter(n => n >= 0 && n <= 6);
+  const productDays = s => String(s.social_product_days ?? '1,4').split(',').filter(x => x.trim() !== '').map(Number).filter(n => n >= 0 && n <= 6);
   const isProductDay = (day, s) => productDays(s).includes(new Date(day + 'T12:00:00Z').getUTCDay());
   // Content themes, rotated so people discover Francis's journey gradually over weeks.
   const BRAND_THEMES = ['personal journey', 'design expertise', 'business lessons', 'LinkedIn branding'];
@@ -1450,8 +1451,10 @@ Only describe what the product details say. No hashtags, no links, no website na
     try { await sendWeekReport(); res.json({ ok: true }); } catch (e) { bad(res, e.message); }
   }));
 
-  setInterval(() => publishDue().catch(e => console.error('Social publish:', e.message)), Number(process.env.SOCIAL_PUBLISH_SECONDS || 120) * 1000).unref();
-  setInterval(() => autoGenerate().catch(e => console.error('Social generate:', e.message)), Number(process.env.SOCIAL_GENERATE_SECONDS || 3600) * 1000).unref();
-  setInterval(() => weeklyReportDue().catch(e => console.error('Weekly report:', e.message)), 15 * 60 * 1000).unref();
+  if (process.env.STAGING !== '1') { // the staging copy never writes, posts or reports
+    setInterval(() => publishDue().catch(e => console.error('Social publish:', e.message)), Number(process.env.SOCIAL_PUBLISH_SECONDS || 120) * 1000).unref();
+    setInterval(() => autoGenerate().catch(e => console.error('Social generate:', e.message)), Number(process.env.SOCIAL_GENERATE_SECONDS || 3600) * 1000).unref();
+    setInterval(() => weeklyReportDue().catch(e => console.error('Weekly report:', e.message)), 15 * 60 * 1000).unref();
+  }
   return { generateWeek, publishDue, publish: publishOne };
 };

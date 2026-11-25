@@ -5,7 +5,7 @@
 const KEY = process.env.RESEND_API_KEY;
 const FROM = process.env.EMAIL_FROM;
 const TEMPLATE = process.env.RESEND_TEMPLATE || 'download-ready';
-const enabled = !!(KEY && FROM);
+const enabled = !!(KEY && FROM) && process.env.STAGING !== '1'; // the staging copy never emails anyone
 const API = process.env.RESEND_API_URL || 'https://api.resend.com'; // overridable for tests
 
 // Template variables are inserted unescaped ({{{VAR}}}), so anything a buyer typed must be escaped here.

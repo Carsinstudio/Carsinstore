@@ -19,7 +19,8 @@ const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\
 const SECRET = process.env.SESSION_SECRET || persistentSecret();
 const DEMO_CHECKOUT = process.env.DEMO_CHECKOUT === 'true';
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 4096);
-const PAYSTACK_KEY = process.env.PAYSTACK_SECRET_KEY || '';
+const STAGING = process.env.STAGING === '1'; // private copy for trying a redesign: no emails, posts or real payments
+const PAYSTACK_KEY = STAGING && !/^sk_test_/.test(process.env.PAYSTACK_SECRET_KEY || '') ? '' : (process.env.PAYSTACK_SECRET_KEY || '');
 const PAYSTACK_API = process.env.PAYSTACK_API_URL || 'https://api.paystack.co';
 
 const FILES_DIR = path.join(DATA_DIR, 'files');
@@ -692,6 +693,7 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY'); // the store and dashboard can't be embedded in other sites (clickjacking)
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (STAGING) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   if (BASE_URL.startsWith('https')) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
   // No plugins, no <base> tricks, and no embedding in other sites. Scripts aren't restricted further because the
   // optional analytics tools load from their own domains.
@@ -1874,7 +1876,8 @@ function sendPage(res, m) {
     m.jsonld && `<script type="application/ld+json">${JSON.stringify(m.jsonld).replace(/</g, '\\u003c')}</script>`,
   ].filter(Boolean).join('\n  ');
   res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(INDEX_HTML.replace(/<!--META-->[\s\S]*?<!--\/META-->/, tags));
+  const html = INDEX_HTML.replace(/<!--META-->[\s\S]*?<!--\/META-->/, tags);
+  res.type('html').send(STAGING ? html.replace('<body>', '<body><div style="position:fixed;left:12px;bottom:12px;z-index:9999;background:#ffcc00;color:#111;font:600 12px/1 system-ui;padding:7px 10px;border-radius:6px;pointer-events:none">STAGING: private preview, no real payments or emails</div>') : html);
 }
 const shareImage = s => (s.share_image ? `${BASE_URL}/media/covers/${coverFile(s.share_image, 'og')}` : `${BASE_URL}/brand/share.png`);
 function sendHome(res) {
@@ -1916,7 +1919,7 @@ function productJsonLd(p, s) {
 }
 
 // ----- search engines: what to crawl, and the list of pages -----
-app.get('/robots.txt', (_req, res) => res.type('text/plain').send(
+app.get('/robots.txt', (_req, res) => res.type('text/plain').send(STAGING ? 'User-agent: *\nDisallow: /\n' :
   `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /media/files/\n\nSitemap: ${BASE_URL}/sitemap.xml\n`));
 app.get('/sitemap.xml', (_req, res) => {
   const esc = u => u.replace(/&/g, '&amp;').replace(/</g, '&lt;');
