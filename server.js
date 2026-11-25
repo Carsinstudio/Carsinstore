@@ -166,8 +166,8 @@ function applyNewDirection() {
   if (process.env.NEW_DIRECTION !== '1' || getSettings().new_direction_applied) return;
   const set = (k, v) => run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', k, v);
   set('hero_eyebrow', 'Free resources, hand-picked');
-  set('hero_title', "The best free resources online.|Hand-picked for less than $1."); // non-breaking spaces keep "less than $1" on one line
-  set('hero_sub', "Courses, guides, templates and tools from places like Harvard, Google and the NHS, sorted by topic and checked, so you don't lose hours searching. Everything inside is free online. The {price} is for finding it for you.");
+  set('hero_title', "The best free resources.|Less than $1."); // non-breaking spaces keep "less than $1" on one line
+  set('hero_sub', "Hand-picked from Harvard, Google, the NHS and more. You only pay {price} for the finding.");
   set('tagline', 'Free resources, hand-picked and packed for you.');
   set('currency', 'usd');
   set('extra_currencies', 'ngn,ghs,kes,zar');
